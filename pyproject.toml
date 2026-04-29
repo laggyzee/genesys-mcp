@@ -1,0 +1,21 @@
+[project]
+name = "genesys-mcp"
+version = "0.1.0"
+description = "Local stdio MCP server exposing read-only Genesys Cloud access to Claude Code and other MCP clients"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]>=1.8",
+    "PureCloudPlatformClientV2>=220",
+    "httpx>=0.27",
+    "pydantic>=2.6",
+]
+
+[project.scripts]
+genesys-mcp = "genesys_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/genesys_mcp"]
