@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -24,6 +25,122 @@ from genesys_mcp.client import get_api, to_dict, with_retry
 from genesys_mcp.naming import resolver
 
 logger = logging.getLogger(__name__)
+
+
+def _sta_summary(conversation_id: str) -> dict | None:
+    """Fetch STA summary or return None on 404 / empty / error. Used for batch enrichment."""
+    api = gc.SpeechTextAnalyticsApi(get_api())
+    try:
+        resp = with_retry(api.get_speechandtextanalytics_conversation_summaries)(
+            conversation_id=conversation_id
+        )
+        data = to_dict(resp) or {}
+        return data or None
+    except Exception as exc:
+        if getattr(exc, "status", None) == 404:
+            return None
+        raise
+
+
+def _sta_sentiment(conversation_id: str) -> dict | None:
+    """Fetch STA sentiment or None on 404 / empty / no-score-present."""
+    api = gc.SpeechTextAnalyticsApi(get_api())
+    try:
+        resp = with_retry(api.get_speechandtextanalytics_conversation_sentiments)(
+            conversation_id=conversation_id
+        )
+        data = to_dict(resp) or {}
+        score = data.get("overallSentimentScore")
+        if score is None:
+            score = data.get("sentimentScore")
+        if score is None:
+            return None
+        return {"score": float(score), "raw": data}
+    except Exception as exc:
+        if getattr(exc, "status", None) == 404:
+            return None
+        raise
+
+
+def _sentiment_label(score: float | None) -> str:
+    if score is None:
+        return "unknown"
+    if score >= 0.4:
+        return "positive"
+    if score >= 0.1:
+        return "mildly_positive"
+    if score > -0.1:
+        return "neutral"
+    if score > -0.4:
+        return "mildly_negative"
+    return "negative"
+
+
+def _extract_topics(summary: dict | None) -> list[str]:
+    """Pull human-readable topic strings from a summary response. Defensive across shapes."""
+    if not summary:
+        return []
+    out: list[str] = []
+    candidates = summary.get("entities") or summary.get("summaries") or []
+    if isinstance(candidates, dict):
+        candidates = [candidates]
+    for entry in candidates:
+        if not isinstance(entry, dict):
+            continue
+        for key in ("topics", "topicNames", "keyPoints"):
+            val = entry.get(key)
+            if isinstance(val, list):
+                for v in val:
+                    if isinstance(v, str) and v.strip():
+                        out.append(v.strip())
+                    elif isinstance(v, dict):
+                        name = v.get("name") or v.get("topic") or v.get("text")
+                        if name:
+                            out.append(str(name).strip())
+        for key in ("issue", "reason", "summary", "text"):
+            val = entry.get(key)
+            if isinstance(val, str) and val.strip():
+                out.append(val.strip())
+    return out
+
+
+def _trend_label(scores: list[float]) -> str:
+    """Categorise a sentiment trajectory into a single label."""
+    if len(scores) < 2:
+        return "insufficient_data"
+    first, last = scores[0], scores[-1]
+    avg = sum(scores) / len(scores)
+    delta = last - first
+    if avg <= -0.3 and abs(delta) < 0.2:
+        return "persistently_negative"
+    if delta <= -0.3:
+        return "deteriorating"
+    if delta >= 0.3:
+        return "improving"
+    if -0.1 <= avg <= 0.1:
+        return "stable_neutral"
+    return "stable"
+
+
+_RETENTION_KEYWORDS = ("billing", "bill", "charge", "refund", "credit", "port", "complaint", "cancel", "dispute", "escalat")
+
+
+def _recommend_action(row: dict) -> str:
+    """Documented heuristic. Order matters — first match wins."""
+    abandoned = row["abandoned_in_queue_count"]
+    last = row["last_call"] or {}
+    last_answered = (last.get("status") == "answered")
+    distinct_queues = len(row["queues_offered"])
+    trend = row["sentiment_trend"]
+    topic_blob = " ".join(t["topic"] for t in row["topics"]).lower()
+
+    if abandoned >= 3 and not last_answered:
+        return "callback_recommended"
+    if trend == "deteriorating" and any(k in topic_blob for k in _RETENTION_KEYWORDS):
+        return "escalate_to_retention"
+    if distinct_queues >= 3:
+        return "route_review"
+    return "monitor"
 
 
 def _default_interval(days: int = 7) -> str:
@@ -260,6 +377,304 @@ def register(mcp: FastMCP) -> None:
                 "offered_rate_pct": round(org_offered / org_total * 100, 1) if org_total else 0,
                 "answer_rate_of_offered_pct": round(org_answered / org_offered * 100, 1) if org_offered else 0,
                 "answer_rate_of_total_pct": round(org_answered / org_total * 100, 1) if org_total else 0,
+            },
+            "repeaters": rows,
+        }
+
+    @mcp.tool()
+    def repeat_caller_deep_dive(
+        queue_ids: list[str] = Field(
+            description="Queue ids to scope the report. Pass an empty list for org-wide.",
+        ),
+        interval: str | None = Field(
+            default=None,
+            description="ISO-8601 interval. Defaults to last 7 days UTC.",
+        ),
+        min_calls: int = Field(
+            default=3, ge=2, le=20,
+            description="Minimum calls per ANI to be eligible (default 3 — slightly higher than the funnel report).",
+        ),
+        media_type: str = Field(
+            default="voice",
+            description="Media type to scope: 'voice', 'message', or 'callback'.",
+        ),
+        exclude_anis: list[str] | None = Field(
+            default=None,
+            description="ANIs to exclude (e.g., test/internal numbers).",
+        ),
+        max_anis: int = Field(
+            default=20, ge=1, le=100,
+            description="Cap fan-out to this many top repeaters (ranked by acd_offered_count desc). Speech analytics calls fan out per conversation.",
+        ),
+        include_summaries: bool = Field(
+            default=True,
+            description="Pull AI summaries (topics) for answered calls. Disable for cheaper runs.",
+        ),
+        include_sentiment: bool = Field(
+            default=True,
+            description="Pull sentiment for answered calls. Disable for cheaper runs.",
+        ),
+    ) -> dict:
+        """Repeat-caller funnel + WHY: topics, sentiment trajectory, last-call status, recommended action.
+
+        Builds on repeat_caller_report by enriching the top repeaters with conversation
+        summaries and sentiment, then clusters topics per ANI and across the org.
+
+        For abandoned and IVR-only calls there's no transcript, so topics fall back to
+        the queue name (e.g. 'Coles - Billing (abandoned)') — flagged with source='queue_fallback'
+        so callers can tell real AI topics from inferred ones.
+
+        Heuristic recommended_action labels (order matters, first match wins):
+          - callback_recommended: abandoned_count >= 3 AND last call was not answered
+          - escalate_to_retention: sentiment trend deteriorating AND topics mention billing/port/complaint/cancel
+          - route_review: customer hit >= 3 distinct queues (likely a routing issue, not a customer issue)
+          - monitor: none of the above
+
+        Honest about data gaps: in tenants with sparse STA coverage (short calls, non-recorded
+        queues), most rows will show topics from queue_fallback only and sentiment_trend
+        'insufficient_data'. The funnel data is still valid.
+        """
+        interval = interval or _default_interval(7)
+        excluded = set(exclude_anis or [])
+
+        # ---- 1. Pull conversations (same shape as repeat_caller_report) ----
+        if queue_ids:
+            queue_clauses = [
+                {
+                    "type": "and",
+                    "predicates": [
+                        {"type": "dimension", "dimension": "queueId",
+                         "operator": "matches", "value": qid},
+                        {"type": "dimension", "dimension": "mediaType",
+                         "operator": "matches", "value": media_type},
+                    ],
+                }
+                for qid in queue_ids
+            ]
+            segment_filter = {"type": "or", "clauses": queue_clauses}
+        else:
+            segment_filter = {
+                "type": "and",
+                "predicates": [
+                    {"type": "dimension", "dimension": "mediaType",
+                     "operator": "matches", "value": media_type},
+                ],
+            }
+        body = {
+            "interval": interval,
+            "order": "asc",
+            "orderBy": "conversationStart",
+            "conversationFilters": [
+                {
+                    "type": "and",
+                    "predicates": [
+                        {"type": "dimension", "dimension": "originatingDirection",
+                         "operator": "matches", "value": "inbound"},
+                    ],
+                }
+            ],
+            "segmentFilters": [segment_filter],
+        }
+        convs = _run_conv_details_job(body)
+
+        # ---- 2. Group by ANI with the canonical IVR/ACD/answered classification ----
+        by_ani: dict[str, list[dict]] = defaultdict(list)
+        for c in convs:
+            ani = None
+            answered = False
+            acd_offered = False
+            queue_id = None
+            for p in c.get("participants") or []:
+                purpose = p.get("purpose")
+                if purpose == "customer":
+                    for s in p.get("sessions") or []:
+                        if s.get("ani") and not ani:
+                            ani = (s["ani"] or "").replace("tel:", "")
+                elif purpose == "acd":
+                    acd_offered = True
+                    for s in p.get("sessions") or []:
+                        for seg in s.get("segments") or []:
+                            if seg.get("queueId") and not queue_id:
+                                queue_id = seg["queueId"]
+                elif purpose == "agent" and p.get("userId"):
+                    answered = True
+            if not ani or ani.startswith("sip:") or ani in excluded:
+                continue
+            by_ani[ani].append({
+                "conversation_id": c.get("conversationId"),
+                "start": c.get("conversationStart"),
+                "queue_id": queue_id,
+                "queue_name": resolver.queue_name(queue_id) if queue_id else None,
+                "acd_offered": acd_offered,
+                "answered": answered,
+            })
+
+        # ---- 3. Rank and cap fan-out ----
+        ranked = sorted(
+            ((ani, calls) for ani, calls in by_ani.items()
+             if len(calls) >= min_calls),
+            key=lambda kv: -sum(1 for c in kv[1] if c["acd_offered"]),
+        )
+        shortlist = ranked[:max_anis]
+
+        # ---- 4. Enrich answered conversations with STA (bounded concurrency) ----
+        enrich_targets: list[tuple[str, str]] = []  # (ani, conversation_id)
+        if include_summaries or include_sentiment:
+            for ani, calls in shortlist:
+                for call in calls:
+                    if call["answered"] and call["conversation_id"]:
+                        enrich_targets.append((ani, call["conversation_id"]))
+
+        sta_calls = 0
+        summaries: dict[str, dict | None] = {}
+        sentiments: dict[str, dict | None] = {}
+
+        def _enrich(cid: str) -> tuple[str, dict | None, dict | None]:
+            s = _sta_summary(cid) if include_summaries else None
+            t = _sta_sentiment(cid) if include_sentiment else None
+            return cid, s, t
+
+        if enrich_targets:
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                cids = [cid for _, cid in enrich_targets]
+                for cid, summary, sentiment in ex.map(_enrich, cids):
+                    summaries[cid] = summary
+                    sentiments[cid] = sentiment
+                    sta_calls += int(include_summaries) + int(include_sentiment)
+
+        logger.info("repeat_caller_deep_dive: enriched %d conversations across %d ANIs (~%d STA calls)",
+                    len(enrich_targets), len(shortlist), sta_calls)
+
+        # Pre-warm queue name cache
+        all_qids = {c["queue_id"] for _, calls in shortlist for c in calls if c["queue_id"]}
+        resolver.queue_names(all_qids)
+
+        # ---- 5. Build per-ANI rows ----
+        rows: list[dict] = []
+        org_topic_counter: Counter[str] = Counter()
+        org_topic_anis: dict[str, set[str]] = defaultdict(set)
+        for ani, calls in shortlist:
+            n = len(calls)
+            offered_n = sum(1 for c in calls if c["acd_offered"])
+            answered_n = sum(1 for c in calls if c["answered"])
+            abandoned_n = offered_n - answered_n
+            ivr_only_n = n - offered_n
+            queues_offered = Counter(
+                c["queue_name"] or c["queue_id"]
+                for c in calls
+                if c["acd_offered"] and c["queue_id"]
+            )
+
+            # Per-call topic + sentiment derivation
+            topics: list[dict] = []
+            topic_counter: Counter[str] = Counter()
+            trajectory: list[dict] = []
+
+            for call in calls:
+                cid = call["conversation_id"]
+                summary = summaries.get(cid)
+                sentiment = sentiments.get(cid)
+
+                if call["answered"]:
+                    extracted = _extract_topics(summary)
+                    if extracted:
+                        for topic_str in extracted:
+                            topic_counter[topic_str] += 1
+                    elif call["queue_name"]:
+                        topic_counter[f"{call['queue_name']} (answered, no AI summary)"] += 1
+                else:
+                    # Abandoned or IVR-only
+                    if call["queue_name"]:
+                        topic_counter[f"{call['queue_name']} (abandoned)"] += 1
+                    else:
+                        topic_counter["IVR-only (no queue reached)"] += 1
+
+                if sentiment is not None:
+                    trajectory.append({
+                        "conversation_id": cid,
+                        "time": call["start"],
+                        "score": round(sentiment["score"], 3),
+                        "label": _sentiment_label(sentiment["score"]),
+                    })
+
+            # Top 5 topics for the ANI, with source attribution
+            top_topics = []
+            for topic, count in topic_counter.most_common(5):
+                source = "summary" if topic and "(abandoned)" not in topic and "(answered, no AI summary)" not in topic and "IVR-only" not in topic else "queue_fallback"
+                top_topics.append({"topic": topic, "count": count, "source": source})
+                # Org rollup only counts real AI topics, not fallbacks
+                if source == "summary":
+                    org_topic_counter[topic] += count
+                    org_topic_anis[topic].add(ani)
+
+            # Sentiment trajectory + trend
+            trajectory.sort(key=lambda x: x["time"] or "")
+            scores = [t["score"] for t in trajectory]
+            trend = _trend_label(scores)
+
+            # Last call (by start time)
+            calls_sorted = sorted(calls, key=lambda c: c["start"] or "")
+            last = calls_sorted[-1]
+            last_summary_obj = summaries.get(last["conversation_id"])
+            last_sentiment = sentiments.get(last["conversation_id"])
+            last_topics = _extract_topics(last_summary_obj)
+            last_call = {
+                "conversation_id": last["conversation_id"],
+                "time": last["start"],
+                "queue_name": last["queue_name"],
+                "status": "answered" if last["answered"] else (
+                    "abandoned_in_queue" if last["acd_offered"] else "ivr_only"
+                ),
+                "summary": "; ".join(last_topics)[:300] if last_topics else None,
+                "sentiment": _sentiment_label(last_sentiment["score"]) if last_sentiment else None,
+            }
+
+            row = {
+                "ani": ani,
+                "call_count": n,
+                "acd_offered_count": offered_n,
+                "answered_count": answered_n,
+                "abandoned_in_queue_count": abandoned_n,
+                "ivr_only_count": ivr_only_n,
+                "answer_rate_of_offered_pct": round(answered_n / offered_n * 100, 1) if offered_n else 0,
+                "queues_offered": dict(queues_offered),
+                "topics": top_topics,
+                "sentiment_trajectory": trajectory,
+                "sentiment_trend": trend,
+                "last_call": last_call,
+                "evidence_conversation_ids": [c["conversation_id"] for c in calls_sorted],
+            }
+            row["recommended_action"] = _recommend_action(row)
+            rows.append(row)
+
+        # ---- 6. Org rollup ----
+        action_counts = Counter(r["recommended_action"] for r in rows)
+        trend_counts = Counter(r["sentiment_trend"] for r in rows)
+        single_queue = sum(1 for r in rows if len(r["queues_offered"]) == 1)
+        multi_queue = sum(1 for r in rows if len(r["queues_offered"]) >= 3)
+        top_topics_org = [
+            {"topic": t, "count": c, "anis": len(org_topic_anis[t])}
+            for t, c in org_topic_counter.most_common(10)
+        ]
+
+        return {
+            "interval": interval,
+            "media_type": media_type,
+            "scope": {
+                "max_anis": max_anis,
+                "ranked_by": "acd_offered_count",
+                "shortlisted": len(rows),
+                "candidates_meeting_min_calls": len(ranked),
+                "include_summaries": include_summaries,
+                "include_sentiment": include_sentiment,
+                "sta_calls_made": sta_calls,
+            },
+            "org_rollup": {
+                "top_topics": top_topics_org,
+                "recommended_actions": dict(action_counts),
+                "sentiment_trends": dict(trend_counts),
+                "single_queue_repeaters": single_queue,
+                "multi_queue_repeaters": multi_queue,
             },
             "repeaters": rows,
         }
