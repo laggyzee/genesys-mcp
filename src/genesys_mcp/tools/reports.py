@@ -104,14 +104,20 @@ def register(mcp: FastMCP) -> None:
             description="ANIs to exclude (e.g., test/internal numbers).",
         ),
     ) -> dict:
-        """Find customers calling repeatedly within an interval, with the queues they hit.
+        """Find customers calling repeatedly within an interval, with a full IVR→ACD→answer funnel.
 
-        Returns one row per repeater customer, sorted by call count descending. Includes
-        connect rate (calls where an agent was reached) and the queue mix touched —
-        useful for FCR analysis and routing diagnostics.
+        Per repeater row:
+          - call_count                — every conversation we saw from this ANI
+          - acd_offered_count         — conversations that entered a queue (acd participant or queue segment)
+          - answered_count            — conversations an agent picked up
+          - abandoned_in_queue_count  — offered minus answered (queued, didn't reach an agent)
+          - ivr_only_count            — total minus offered (never made it past IVR/flow)
+          - answer_rate_of_offered_pct  — answered / offered (the operationally meaningful rate)
+          - answer_rate_of_total_pct    — answered / total (includes IVR-only abandons)
+          - queues_offered            — counter of queues the offered calls hit
 
-        Backed by /api/v2/analytics/conversations/details/jobs (async). Replaces the
-        pull-pages-and-aggregate-in-Python pattern we were doing manually.
+        Sorted by acd_offered_count desc, then total. Backed by
+        /api/v2/analytics/conversations/details/jobs (async, paginated).
         """
         interval = interval or _default_interval(7)
         excluded = set(exclude_anis or [])
@@ -158,22 +164,41 @@ def register(mcp: FastMCP) -> None:
 
         convs = _run_conv_details_job(body)
 
+        # Org-wide funnel counters (across every inbound conv we pulled, not just repeaters)
+        org_total = len(convs)
+        org_offered = 0
+        org_answered = 0
+
         by_ani: dict[str, list[dict]] = defaultdict(list)
         for c in convs:
             ani = None
-            connected = False
+            answered = False
+            acd_offered = False
             queue_id = None
             for p in c.get("participants") or []:
-                if p.get("purpose") == "customer":
+                purpose = p.get("purpose")
+                if purpose == "customer":
                     for s in p.get("sessions") or []:
                         if s.get("ani") and not ani:
                             ani = (s["ani"] or "").replace("tel:", "")
-                if p.get("purpose") == "agent" and p.get("userId"):
-                    connected = True
-                for s in p.get("sessions") or []:
-                    for seg in s.get("segments") or []:
-                        if seg.get("queueId") and not queue_id:
-                            queue_id = seg["queueId"]
+                elif purpose == "acd":
+                    # Canonical signal: an acd participant means the call entered a queue.
+                    # Source queue_id from the acd participant's segments (not the customer leg,
+                    # whose interact segment can carry a queueId association even when the call
+                    # hung up in IVR before any real ACD offer).
+                    acd_offered = True
+                    for s in p.get("sessions") or []:
+                        for seg in s.get("segments") or []:
+                            if seg.get("queueId") and not queue_id:
+                                queue_id = seg["queueId"]
+                elif purpose == "agent" and p.get("userId"):
+                    answered = True
+
+            if acd_offered:
+                org_offered += 1
+            if answered:
+                org_answered += 1
+
             if not ani or ani.startswith("sip:") or ani in excluded:
                 continue
             by_ani[ani].append({
@@ -181,7 +206,8 @@ def register(mcp: FastMCP) -> None:
                 "start": c.get("conversationStart"),
                 "queue_id": queue_id,
                 "queue_name": resolver.queue_name(queue_id) if queue_id else None,
-                "connected": connected,
+                "acd_offered": acd_offered,
+                "answered": answered,
             })
 
         # Build repeater rows
@@ -193,29 +219,48 @@ def register(mcp: FastMCP) -> None:
             n = len(calls)
             if n < min_calls:
                 continue
-            connected_n = sum(1 for r in calls if r["connected"])
-            queue_counter = Counter(r["queue_name"] or r["queue_id"] for r in calls if r["queue_id"])
+            offered_n = sum(1 for r in calls if r["acd_offered"])
+            answered_n = sum(1 for r in calls if r["answered"])
+            abandoned_in_queue_n = offered_n - answered_n
+            ivr_only_n = n - offered_n
+            queue_counter = Counter(
+                r["queue_name"] or r["queue_id"]
+                for r in calls
+                if r["acd_offered"] and r["queue_id"]
+            )
             rows.append({
                 "ani": ani,
                 "call_count": n,
-                "connected_count": connected_n,
-                "connect_rate_pct": round(connected_n / n * 100, 1) if n else 0,
-                "queues_touched": dict(queue_counter),
+                "acd_offered_count": offered_n,
+                "answered_count": answered_n,
+                "abandoned_in_queue_count": abandoned_in_queue_n,
+                "ivr_only_count": ivr_only_n,
+                "answer_rate_of_offered_pct": round(answered_n / offered_n * 100, 1) if offered_n else 0,
+                "answer_rate_of_total_pct": round(answered_n / n * 100, 1) if n else 0,
+                "queues_offered": dict(queue_counter),
                 "first_call": calls[0]["start"],
                 "last_call": calls[-1]["start"],
                 "conversation_ids": [r["conversation_id"] for r in calls],
             })
-        rows.sort(key=lambda r: -r["call_count"])
-
-        total_unique = len({c.get("participants") and (c.get("participants")[0].get("sessions") or [{}])[0].get("ani") for c in convs}) if convs else 0
+        rows.sort(key=lambda r: (-r["acd_offered_count"], -r["call_count"]))
 
         return {
             "interval": interval,
             "media_type": media_type,
-            "total_conversations": len(convs),
+            "total_conversations": org_total,
             "unique_callers": len(by_ani),
             "repeater_count": len(rows),
             "repeater_calls": sum(r["call_count"] for r in rows),
+            "org_funnel": {
+                "total": org_total,
+                "acd_offered": org_offered,
+                "answered": org_answered,
+                "abandoned_in_queue": org_offered - org_answered,
+                "ivr_only": org_total - org_offered,
+                "offered_rate_pct": round(org_offered / org_total * 100, 1) if org_total else 0,
+                "answer_rate_of_offered_pct": round(org_answered / org_offered * 100, 1) if org_offered else 0,
+                "answer_rate_of_total_pct": round(org_answered / org_total * 100, 1) if org_total else 0,
+            },
             "repeaters": rows,
         }
 
