@@ -87,10 +87,32 @@ _TREND_TO_DELTA = {
 }
 
 
-def _trend_label(scores: list[float]) -> str:
-    """Categorise a sentiment trajectory into a single label."""
-    if len(scores) < 2:
-        return "insufficient_data"
+_GENESYS_TREND_TO_LABEL = {
+    "GreatlyDeclining": "deteriorating",
+    "Declining": "deteriorating",
+    "SlightlyDeclining": "stable",
+    "NoChange": "stable",
+    "SlightlyImproving": "stable",
+    "Improving": "improving",
+    "GreatlyImproving": "improving",
+    "NotCalculated": "unknown",
+}
+
+
+def _trend_label(scores: list[float], single_call_trend_class: str | None = None) -> str:
+    """Categorise a sentiment trajectory into a single label.
+
+    For zero calls: 'no_data'.
+    For one call: derive from Genesys' own trend_class on that call (it already reflects
+      *intra-call* trajectory; that's a real signal even with only one data point).
+    For 2+ calls: compute from the score sequence — first / last delta plus average.
+    """
+    if not scores:
+        return "no_data"
+    if len(scores) == 1:
+        if single_call_trend_class:
+            return _GENESYS_TREND_TO_LABEL.get(single_call_trend_class, "unknown")
+        return "single_call"
     first, last = scores[0], scores[-1]
     avg = sum(scores) / len(scores)
     delta = last - first
@@ -569,13 +591,15 @@ def register(mcp: FastMCP) -> None:
 
                 if d is not None:
                     pm = d.get("participant_metrics") or {}
+                    raw_class = d.get("trend_class")
+                    trend_class = "unknown" if raw_class == "NotCalculated" else raw_class
                     trajectory.append({
                         "conversation_id": cid,
                         "time": call["start"],
                         "queue_name": call["queue_name"],
                         "score": round(d["score"], 3),
                         "label": _sentiment_label(d["score"]),
-                        "trend_class": d.get("trend_class"),
+                        "trend_class": trend_class,
                         "agent_pct": pm.get("agentDurationPercentage"),
                         "customer_pct": pm.get("customerDurationPercentage"),
                         "silence_pct": pm.get("silenceDurationPercentage"),
@@ -595,7 +619,8 @@ def register(mcp: FastMCP) -> None:
             # Sentiment trajectory + trend
             trajectory.sort(key=lambda x: x["time"] or "")
             scores = [t["score"] for t in trajectory]
-            trend = _trend_label(scores)
+            single_class = trajectory[0]["trend_class"] if len(trajectory) == 1 else None
+            trend = _trend_label(scores, single_call_trend_class=single_class)
 
             # Last call (by start time)
             calls_sorted = sorted(calls, key=lambda c: c["start"] or "")
@@ -610,7 +635,10 @@ def register(mcp: FastMCP) -> None:
                 ),
                 "summary": None,  # populated when topic/summary endpoint becomes available in tenant
                 "sentiment": _sentiment_label(last_details["score"]) if last_details else None,
-                "sentiment_trend_class": (last_details or {}).get("trend_class"),
+                "sentiment_trend_class": (
+                    "unknown" if (last_details or {}).get("trend_class") == "NotCalculated"
+                    else (last_details or {}).get("trend_class")
+                ),
             }
 
             row = {
