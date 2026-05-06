@@ -139,26 +139,35 @@ def register(mcp: FastMCP) -> None:
         """
         api = gc.AnalyticsApi(get_api())
         group_by = ["queueId", "mediaType"] if group_by_media else ["queueId"]
+        # Filter shape mirrors what the Genesys 'Performance > Queues' UI sends: an
+        # outer `and` of `or` clauses (queueId list, optional mediaType list). Equivalent
+        # to a flat OR over queueIds for our purposes, but matches the canonical shape so
+        # behaviour is consistent if a mediaType filter clause is added later.
         body = {
             "interval": interval or _default_interval(7),
             "granularity": granularity,
             "groupBy": group_by,
             "filter": {
-                "type": "or",
-                "predicates": [
-                    {"dimension": "queueId", "value": qid} for qid in queue_ids
+                "type": "and",
+                "clauses": [
+                    {"type": "or", "predicates": [
+                        {"dimension": "queueId", "value": qid} for qid in queue_ids
+                    ]},
                 ],
             },
             "metrics": [
                 "nOffered",
+                "tAnswered",
+                "tAbandon",
                 "nConnected",
                 "nTransferred",
                 "nOverSla",
                 "tHandle",
-                "tTalk",
-                "tAnswered",
-                "tAbandon",
+                "tTalkComplete",
+                "tHeldComplete",
+                "tAcw",
                 "tWait",
+                "tShortAbandon",
             ],
         }
         resp = with_retry(api.post_analytics_conversations_aggregates_query)(body)
