@@ -227,7 +227,16 @@ def register(mcp: FastMCP) -> None:
         ),
         granularity: str = Field(default="P1D"),
     ) -> dict:
-        """Per-agent activity: handle time, talk time, on-queue time, interactions handled."""
+        """Per-agent productivity for an interval: connected interactions, handle time,
+        talk time, after-call work, and a derived avg AHT plus a flat per-user summary.
+
+        Backed by /api/v2/analytics/conversations/aggregates/query with groupBy=userId.
+        The user-aggregates endpoint (post_analytics_users_aggregates_query) only
+        accepts presence-state metrics (tAgentRoutingStatus, tSystemPresence,
+        tOrganizationPresence) and rejects tHandle/tTalk/etc with HTTP 400 — so this
+        tool deliberately uses the conversations-aggregates path with the same
+        ConversationAggregateMetric set that queue_performance uses.
+        """
         api = gc.AnalyticsApi(get_api())
         body = {
             "interval": interval or _default_interval(7),
@@ -238,13 +247,95 @@ def register(mcp: FastMCP) -> None:
                 "predicates": [{"dimension": "userId", "value": u} for u in user_ids],
             },
             "metrics": [
+                "nConversations",
+                "nOutbound",
+                "nTransferred",
                 "tHandle",
                 "tTalk",
                 "tAcw",
-                "tAgentRoutingStatus",
-                "nHandle",
-                "nOutbound",
+                "tHeld",
             ],
         }
-        resp = with_retry(api.post_analytics_users_aggregates_query)(body)
-        return to_dict(resp)
+        resp = with_retry(api.post_analytics_conversations_aggregates_query)(body)
+        raw = to_dict(resp) or {}
+
+        # Genesys auto-splits each user's results by mediaType (voice / message / email
+        # / callback / chat). Aggregate per-user *and* per-user-per-media for the summary.
+        per_user: dict[str, dict] = {}
+        for uid in user_ids:
+            per_user[uid] = {
+                "user_id": uid,
+                "by_media": {},
+                "conversations": 0, "outbound": 0, "transferred": 0,
+                "h_sum": 0.0, "h_n": 0, "t_sum": 0.0, "t_n": 0,
+                "acw_sum": 0.0, "acw_n": 0, "held_sum": 0.0, "held_n": 0,
+            }
+
+        for grp in raw.get("results") or []:
+            grp_key = grp.get("group") or {}
+            uid = grp_key.get("userId")
+            media = grp_key.get("mediaType") or "unknown"
+            if uid not in per_user:
+                continue
+            row = per_user[uid]
+            mrow = row["by_media"].setdefault(media, {
+                "conversations": 0, "outbound": 0, "transferred": 0,
+                "h_sum": 0.0, "h_n": 0, "t_sum": 0.0, "t_n": 0,
+                "acw_sum": 0.0, "acw_n": 0, "held_sum": 0.0, "held_n": 0,
+            })
+            for bucket in grp.get("data") or []:
+                metrics = {m["metric"]: (m.get("stats") or {}) for m in (bucket.get("metrics") or [])}
+                conv  = int(metrics.get("nConversations",{}).get("count", 0) or 0)
+                outb  = int(metrics.get("nOutbound",     {}).get("count", 0) or 0)
+                tran  = int(metrics.get("nTransferred",  {}).get("count", 0) or 0)
+                row["conversations"] += conv;  mrow["conversations"] += conv
+                row["outbound"]      += outb;  mrow["outbound"]      += outb
+                row["transferred"]   += tran;  mrow["transferred"]   += tran
+                for f, mname in [("h", "tHandle"), ("t", "tTalk"), ("acw", "tAcw"), ("held", "tHeld")]:
+                    s = metrics.get(mname, {})
+                    add_sum = float(s.get("sum", 0) or 0)
+                    add_n   = int(s.get("count", 0) or 0)
+                    row[f + "_sum"] += add_sum;  mrow[f + "_sum"] += add_sum
+                    row[f + "_n"]   += add_n;    mrow[f + "_n"]   += add_n
+
+        def _avg_s(sum_ms: float, n: int) -> int | None:
+            return round(sum_ms / n / 1000) if n else None
+
+        # Note: nOutbound counts outbound *interactions*, not conversations — a single
+        # conversation can include multiple outbound legs (callbacks, transfers). So
+        # nOutbound can exceed nConversations and inbound = conversations − outbound is
+        # misleading. We surface conversations and outbound_interactions side by side
+        # and let the consumer interpret.
+        summary = []
+        for uid, row in per_user.items():
+            conv = row["conversations"]
+            by_media_summary = {}
+            for media, m in row["by_media"].items():
+                by_media_summary[media] = {
+                    "conversations": m["conversations"],
+                    "outbound_interactions": m["outbound"],
+                    "transferred": m["transferred"],
+                    "avg_handle_s": _avg_s(m["h_sum"], m["h_n"]),
+                    "total_handle_min": round(m["h_sum"] / 1000 / 60, 1) if m["h_sum"] else 0,
+                }
+            summary.append({
+                "user_id": uid,
+                "conversations": conv,
+                "outbound_interactions": row["outbound"],
+                "transferred": row["transferred"],
+                "transfer_rate_pct": round(row["transferred"] / conv * 100, 1) if conv else None,
+                "avg_handle_s": _avg_s(row["h_sum"], row["h_n"]),
+                "avg_talk_s":   _avg_s(row["t_sum"], row["t_n"]),
+                "avg_acw_s":    _avg_s(row["acw_sum"], row["acw_n"]),
+                "avg_held_s":   _avg_s(row["held_sum"], row["held_n"]),
+                "total_handle_min": round(row["h_sum"] / 1000 / 60, 1) if row["h_sum"] else 0,
+                "by_media": by_media_summary,
+            })
+        summary.sort(key=lambda r: -(r["conversations"] or 0))
+
+        return {
+            "interval": body["interval"],
+            "granularity": granularity,
+            "summary": summary,
+            "results": raw.get("results") or [],
+        }
