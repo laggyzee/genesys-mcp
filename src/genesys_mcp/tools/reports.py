@@ -62,6 +62,51 @@ def _sta_details(conversation_id: str) -> dict | None:
     }
 
 
+def _fetch_wrapup(conversation_id: str) -> dict | None:
+    """Pull wrap-up disposition + notes + AI-written attributes from the live conversation endpoint.
+
+    The analytics endpoints (`get_analytics_conversation_details`, conversation details
+    jobs) do *not* surface wrap-up data — that only appears on the live
+    `/api/v2/conversations/{id}` endpoint, even for completed calls. In this tenant the
+    notes field carries summaries written by Lawrence's external AI (native Genesys
+    AI summarisation is off for cost). Custom attributes ``aiOutcome`` ("Resolved" /
+    "Mid Flight") and ``expectedFix`` ("Simpack Recharge", "CHOWN", ...) are also
+    written by that AI and are richer signals than the notes for clustering.
+
+    Returns ``{disposition, code_id, notes, ai_outcome, expected_fix}`` or None on 404 /
+    no agent participant. Picks the first agent participant with a userId — re-queue
+    transfers may produce multiple agent legs but the first one is what the wrap-up
+    landed against.
+    """
+    try:
+        data = with_retry(get_api().call_api)(
+            resource_path=f"/api/v2/conversations/{conversation_id}",
+            method="GET",
+            auth_settings=["PureCloud OAuth"],
+            response_type="object",
+        ) or {}
+    except Exception as exc:
+        if getattr(exc, "status", None) == 404:
+            return None
+        raise
+
+    for p in data.get("participants") or []:
+        if p.get("purpose") != "agent" or not p.get("userId"):
+            continue
+        wrap = p.get("wrapup") or {}
+        if not wrap:
+            continue
+        attrs = p.get("attributes") or {}
+        return {
+            "disposition": wrap.get("name"),
+            "code_id": wrap.get("code"),
+            "notes": wrap.get("notes") or None,
+            "ai_outcome": attrs.get("aiOutcome"),
+            "expected_fix": attrs.get("expectedFix"),
+        }
+    return None
+
+
 def _sentiment_label(score: float | None) -> str:
     if score is None:
         return "unknown"
@@ -538,19 +583,31 @@ def register(mcp: FastMCP) -> None:
 
         sta_calls = 0
         sta_with_data = 0
+        wrapup_calls = 0
+        wrapup_with_data = 0
         details: dict[str, dict | None] = {}
+        wrapups: dict[str, dict | None] = {}
+
+        def _enrich(cid: str) -> tuple[str, dict | None, dict | None]:
+            return cid, _sta_details(cid), _fetch_wrapup(cid)
 
         if enrich_targets:
             with ThreadPoolExecutor(max_workers=8) as ex:
                 cids = [cid for _, cid in enrich_targets]
-                for cid, d in zip(cids, ex.map(_sta_details, cids)):
-                    details[cid] = d
+                for cid, sta, wrap in ex.map(_enrich, cids):
+                    details[cid] = sta
+                    wrapups[cid] = wrap
                     sta_calls += 1
-                    if d is not None:
+                    wrapup_calls += 1
+                    if sta is not None:
                         sta_with_data += 1
+                    if wrap is not None:
+                        wrapup_with_data += 1
 
-        logger.info("repeat_caller_deep_dive: enriched %d conversations across %d ANIs (%d returned data, %d empty)",
-                    len(enrich_targets), len(shortlist), sta_with_data, sta_calls - sta_with_data)
+        logger.info("repeat_caller_deep_dive: enriched %d conversations across %d ANIs "
+                    "(STA %d/%d, wrap-up %d/%d)",
+                    len(enrich_targets), len(shortlist),
+                    sta_with_data, sta_calls, wrapup_with_data, wrapup_calls)
 
         # Pre-warm queue name cache
         all_qids = {c["queue_id"] for _, calls in shortlist for c in calls if c["queue_id"]}
@@ -574,11 +631,15 @@ def register(mcp: FastMCP) -> None:
 
             # Per-call breakdown: queue-status counts (always available) + sentiment per call
             queue_status_counter: Counter[str] = Counter()
+            disposition_counter: Counter[str] = Counter()
+            ai_outcome_counter: Counter[str] = Counter()
+            expected_fix_counter: Counter[str] = Counter()
             trajectory: list[dict] = []
 
             for call in calls:
                 cid = call["conversation_id"]
                 d = details.get(cid)
+                w = wrapups.get(cid)
 
                 if call["answered"]:
                     label = f"{call['queue_name'] or 'unknown queue'} (answered)"
@@ -588,6 +649,14 @@ def register(mcp: FastMCP) -> None:
                         else "IVR-only (no queue reached)"
                     )
                 queue_status_counter[label] += 1
+
+                if w is not None:
+                    if w.get("disposition"):
+                        disposition_counter[w["disposition"]] += 1
+                    if w.get("ai_outcome"):
+                        ai_outcome_counter[w["ai_outcome"]] += 1
+                    if w.get("expected_fix"):
+                        expected_fix_counter[w["expected_fix"]] += 1
 
                 if d is not None:
                     pm = d.get("participant_metrics") or {}
@@ -626,6 +695,8 @@ def register(mcp: FastMCP) -> None:
             calls_sorted = sorted(calls, key=lambda c: c["start"] or "")
             last = calls_sorted[-1]
             last_details = details.get(last["conversation_id"])
+            last_wrap = wrapups.get(last["conversation_id"]) or {}
+            last_notes = last_wrap.get("notes")
             last_call = {
                 "conversation_id": last["conversation_id"],
                 "time": last["start"],
@@ -633,13 +704,24 @@ def register(mcp: FastMCP) -> None:
                 "status": "answered" if last["answered"] else (
                     "abandoned_in_queue" if last["acd_offered"] else "ivr_only"
                 ),
-                "summary": None,  # populated when topic/summary endpoint becomes available in tenant
+                "disposition": last_wrap.get("disposition"),
+                "ai_outcome": last_wrap.get("ai_outcome"),
+                "expected_fix": last_wrap.get("expected_fix"),
+                "summary": last_notes[:600] if last_notes else None,
                 "sentiment": _sentiment_label(last_details["score"]) if last_details else None,
                 "sentiment_trend_class": (
                     "unknown" if (last_details or {}).get("trend_class") == "NotCalculated"
                     else (last_details or {}).get("trend_class")
                 ),
             }
+
+            # Resolved share computed against answered calls that have an aiOutcome we can read.
+            answered_with_outcome = sum(ai_outcome_counter.values())
+            resolved_n = ai_outcome_counter.get("Resolved", 0)
+            unresolved_share = (
+                round((answered_with_outcome - resolved_n) / answered_with_outcome, 3)
+                if answered_with_outcome else None
+            )
 
             row = {
                 "ani": ani,
@@ -650,6 +732,11 @@ def register(mcp: FastMCP) -> None:
                 "ivr_only_count": ivr_only_n,
                 "answer_rate_of_offered_pct": round(answered_n / offered_n * 100, 1) if offered_n else 0,
                 "queues_offered": dict(queues_offered),
+                "dispositions": dict(disposition_counter),
+                "ai_outcomes": dict(ai_outcome_counter),
+                "expected_fixes": dict(expected_fix_counter),
+                "answered_with_outcome": answered_with_outcome,
+                "unresolved_share": unresolved_share,
                 "topics": top_topics,
                 "sentiment_trajectory": trajectory,
                 "sentiment_trend": trend,
@@ -669,6 +756,27 @@ def register(mcp: FastMCP) -> None:
             for t, c in org_topic_counter.most_common(10)
         ]
 
+        # Aggregate wrap-up signals across all repeaters
+        org_dispositions: Counter[str] = Counter()
+        org_ai_outcomes: Counter[str] = Counter()
+        org_expected_fixes: Counter[str] = Counter()
+        unresolved_repeaters: list[dict] = []
+        for r in rows:
+            for k, v in r["dispositions"].items():
+                org_dispositions[k] += v
+            for k, v in r["ai_outcomes"].items():
+                org_ai_outcomes[k] += v
+            for k, v in r["expected_fixes"].items():
+                org_expected_fixes[k] += v
+            if r["unresolved_share"] is not None and r["unresolved_share"] >= 0.5 and r["answered_with_outcome"] >= 2:
+                unresolved_repeaters.append({
+                    "ani": r["ani"],
+                    "answered_with_outcome": r["answered_with_outcome"],
+                    "unresolved_share": r["unresolved_share"],
+                    "ai_outcomes": r["ai_outcomes"],
+                })
+        unresolved_repeaters.sort(key=lambda x: (-x["unresolved_share"], -x["answered_with_outcome"]))
+
         return {
             "interval": interval,
             "media_type": media_type,
@@ -682,13 +790,20 @@ def register(mcp: FastMCP) -> None:
                 "sta_calls_made": sta_calls,
                 "sta_calls_with_data": sta_with_data,
                 "sta_coverage_pct": round(sta_with_data / sta_calls * 100, 1) if sta_calls else 0,
+                "wrapup_calls_made": wrapup_calls,
+                "wrapup_calls_with_data": wrapup_with_data,
+                "wrapup_coverage_pct": round(wrapup_with_data / wrapup_calls * 100, 1) if wrapup_calls else 0,
             },
             "org_rollup": {
                 "top_topics": top_topics_org,
+                "top_dispositions": [{"disposition": d, "count": c} for d, c in org_dispositions.most_common(10)],
+                "top_ai_outcomes": dict(org_ai_outcomes),
+                "top_expected_fixes": [{"fix": f, "count": c} for f, c in org_expected_fixes.most_common(10)],
                 "recommended_actions": dict(action_counts),
                 "sentiment_trends": dict(trend_counts),
                 "single_queue_repeaters": single_queue,
                 "multi_queue_repeaters": multi_queue,
+                "unresolved_repeaters": unresolved_repeaters,
             },
             "repeaters": rows,
         }
