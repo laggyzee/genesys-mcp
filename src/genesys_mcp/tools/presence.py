@@ -45,10 +45,10 @@ def register(mcp: FastMCP) -> None:
             "Defaults to ['BREAK','MEAL','AWAY']. Pass an empty list to return ALL presence sessions.",
         ),
         max_pages: int = Field(
-            default=20,
+            default=50,
             ge=1,
-            le=100,
-            description="Safety cap on result pagination (each page ~100 sessions).",
+            le=200,
+            description="Safety cap on result pagination (each page returns up to 1000 userDetails records).",
         ),
     ) -> dict:
         """Per-user presence sessions (clipped to the interval) for break/meal/away analysis.
@@ -120,7 +120,7 @@ def register(mcp: FastMCP) -> None:
         truncated = False
 
         for page_idx in range(max_pages):
-            kwargs: dict[str, Any] = {"job_id": job_id, "page_size": 100}
+            kwargs: dict[str, Any] = {"job_id": job_id, "page_size": 1000}
             if cursor:
                 kwargs["cursor"] = cursor
             page = with_retry(api.get_analytics_users_details_job_results)(**kwargs)

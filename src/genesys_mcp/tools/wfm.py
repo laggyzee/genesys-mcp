@@ -182,8 +182,8 @@ def register(mcp: FastMCP) -> None:
 
         sessions_by_user: dict[str, list[dict]] = {uid: [] for uid in user_ids}
         cursor = None
-        for _ in range(20):
-            kwargs: dict[str, Any] = {"job_id": job_id, "page_size": 100}
+        for _ in range(50):
+            kwargs: dict[str, Any] = {"job_id": job_id, "page_size": 1000}
             if cursor:
                 kwargs["cursor"] = cursor
             page = with_retry(analytics_api.get_analytics_users_details_job_results)(**kwargs)
