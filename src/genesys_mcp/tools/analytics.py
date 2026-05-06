@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -13,6 +14,89 @@ from pydantic import Field
 from genesys_mcp.client import get_api, to_dict, with_retry
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_iso(s: str) -> datetime:
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def _agent_message_volume(user_ids: list[str], interval: str) -> dict[str, dict]:
+    """Per-agent message-channel conversation count + handle time for the interval.
+
+    The conversations-aggregates ``groupBy=userId`` path doesn't return ``nConversations``
+    for the message media bucket — only time stats — so per-agent message attribution
+    isn't possible from the aggregates endpoint. This helper walks the full conversation
+    details for ``mediaType=message`` via the async job endpoint and counts per-agent
+    participation directly from the participants array.
+
+    Returns ``{user_id: {"conversations": int, "handle_ms": float}}`` for each requested
+    user. Users with no message activity get zeros (not omitted) so the merge into
+    agent_performance is safe.
+    """
+    # Local import to avoid circular dependency with reports module.
+    from genesys_mcp.tools.reports import _run_conv_details_job
+
+    user_set = set(user_ids)
+    counts: dict[str, dict] = {uid: {"conversations": 0, "handle_ms": 0.0} for uid in user_ids}
+
+    body = {
+        "interval": interval,
+        "order": "asc",
+        "orderBy": "conversationStart",
+        "segmentFilters": [{
+            "type": "and",
+            "predicates": [
+                {"type": "dimension", "dimension": "mediaType",
+                 "operator": "matches", "value": "message"},
+            ],
+        }],
+    }
+    try:
+        convs = _run_conv_details_job(body, max_pages=200)
+    except Exception as exc:
+        logger.warning("agent_performance: message volume pull failed (%s); message bucket will be empty", exc)
+        return counts
+
+    for c in convs:
+        # For each conversation, find which of OUR users handled it. Multiple handlers
+        # on the same conversation each get +1; their handle time is from their own
+        # session segments.
+        users_in_conv: set[str] = set()
+        per_user_handle_ms: dict[str, float] = defaultdict(float)
+        for p in c.get("participants") or []:
+            uid = p.get("userId")
+            purpose = p.get("purpose")
+            if uid not in user_set:
+                continue
+            if purpose not in ("agent", "user"):
+                continue
+            users_in_conv.add(uid)
+            for s in p.get("sessions") or []:
+                for seg in s.get("segments") or []:
+                    if seg.get("segmentType") not in ("interact", "wrapup"):
+                        continue
+                    st_raw = seg.get("segmentStart")
+                    en_raw = seg.get("segmentEnd")
+                    if not st_raw or not en_raw:
+                        continue
+                    try:
+                        per_user_handle_ms[uid] += (
+                            _parse_iso(en_raw) - _parse_iso(st_raw)
+                        ).total_seconds() * 1000
+                    except Exception:
+                        continue
+        for uid in users_in_conv:
+            counts[uid]["conversations"] += 1
+            counts[uid]["handle_ms"] += per_user_handle_ms.get(uid, 0.0)
+
+    total_attributed = sum(v["conversations"] for v in counts.values())
+    logger.info(
+        "agent_performance: %d message conversations attributed across %d users (from %d total)",
+        total_attributed,
+        sum(1 for v in counts.values() if v["conversations"] > 0),
+        len(convs),
+    )
+    return counts
 
 
 def _default_interval(days: int = 7) -> str:
@@ -259,6 +343,10 @@ def register(mcp: FastMCP) -> None:
         resp = with_retry(api.post_analytics_conversations_aggregates_query)(body)
         raw = to_dict(resp) or {}
 
+        # Aggregates endpoint doesn't return nConversations for the message bucket
+        # when grouped by userId — fall back to walking conversation details for messages.
+        message_volume = _agent_message_volume(user_ids, body["interval"])
+
         # Genesys auto-splits each user's results by mediaType (voice / message / email
         # / callback / chat). Aggregate per-user *and* per-user-per-media for the summary.
         per_user: dict[str, dict] = {}
@@ -308,6 +396,29 @@ def register(mcp: FastMCP) -> None:
         # and let the consumer interpret.
         summary = []
         for uid, row in per_user.items():
+            # Message volume from the details-job fallback. Override the message bucket
+            # if the aggregates endpoint returned a stub (no count metric); also extend
+            # the user's overall handle-time totals.
+            mv = message_volume.get(uid) or {"conversations": 0, "handle_ms": 0.0}
+            msg_conv = int(mv["conversations"])
+            msg_handle_ms = float(mv["handle_ms"])
+            msg_bucket = row["by_media"].get("message")
+            if msg_conv > 0:
+                if msg_bucket is None:
+                    msg_bucket = row["by_media"]["message"] = {
+                        "conversations": 0, "outbound": 0, "transferred": 0,
+                        "h_sum": 0.0, "h_n": 0, "t_sum": 0.0, "t_n": 0,
+                        "acw_sum": 0.0, "acw_n": 0, "held_sum": 0.0, "held_n": 0,
+                    }
+                # Overwrite count (aggregates returned 0/missing for messages); add
+                # handle-time on top of any time the aggregates response did include.
+                msg_bucket["conversations"] = msg_conv
+                msg_bucket["h_sum"] += msg_handle_ms
+                msg_bucket["h_n"]   += msg_conv  # one handle entry per conversation as proxy
+                row["conversations"] += msg_conv
+                row["h_sum"] += msg_handle_ms
+                row["h_n"]   += msg_conv
+
             conv = row["conversations"]
             by_media_summary = {}
             for media, m in row["by_media"].items():
