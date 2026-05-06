@@ -27,39 +27,39 @@ from genesys_mcp.naming import resolver
 logger = logging.getLogger(__name__)
 
 
-def _sta_summary(conversation_id: str) -> dict | None:
-    """Fetch STA summary or return None on 404 / empty / error. Used for batch enrichment."""
-    api = gc.SpeechTextAnalyticsApi(get_api())
+def _sta_details(conversation_id: str) -> dict | None:
+    """Fetch the STA per-conversation snapshot.
+
+    Calls GET /api/v2/speechandtextanalytics/conversations/{id} which is the
+    endpoint that actually returns data in production tenants — the
+    /summaries and /sentiments endpoints exposed by the SDK helpers
+    consistently 404 even when STA is enabled.
+
+    Returns a normalised dict (score, trend, trend_class, participant_metrics)
+    or None on 404. Raises on other errors.
+    """
     try:
-        resp = with_retry(api.get_speechandtextanalytics_conversation_summaries)(
-            conversation_id=conversation_id
-        )
-        data = to_dict(resp) or {}
-        return data or None
+        data = with_retry(get_api().call_api)(
+            resource_path=f"/api/v2/speechandtextanalytics/conversations/{conversation_id}",
+            method="GET",
+            auth_settings=["PureCloud OAuth"],
+            response_type="object",
+        ) or {}
     except Exception as exc:
         if getattr(exc, "status", None) == 404:
             return None
         raise
 
-
-def _sta_sentiment(conversation_id: str) -> dict | None:
-    """Fetch STA sentiment or None on 404 / empty / no-score-present."""
-    api = gc.SpeechTextAnalyticsApi(get_api())
-    try:
-        resp = with_retry(api.get_speechandtextanalytics_conversation_sentiments)(
-            conversation_id=conversation_id
-        )
-        data = to_dict(resp) or {}
-        score = data.get("overallSentimentScore")
-        if score is None:
-            score = data.get("sentimentScore")
-        if score is None:
-            return None
-        return {"score": float(score), "raw": data}
-    except Exception as exc:
-        if getattr(exc, "status", None) == 404:
-            return None
-        raise
+    score = data.get("sentimentScore")
+    if score is None:
+        return None
+    return {
+        "score": float(score),
+        "trend": float(data.get("sentimentTrend") or 0.0),
+        "trend_class": data.get("sentimentTrendClass"),
+        "participant_metrics": data.get("participantMetrics") or {},
+        "empathy_scores": data.get("empathyScores") or [],
+    }
 
 
 def _sentiment_label(score: float | None) -> str:
@@ -76,32 +76,15 @@ def _sentiment_label(score: float | None) -> str:
     return "negative"
 
 
-def _extract_topics(summary: dict | None) -> list[str]:
-    """Pull human-readable topic strings from a summary response. Defensive across shapes."""
-    if not summary:
-        return []
-    out: list[str] = []
-    candidates = summary.get("entities") or summary.get("summaries") or []
-    if isinstance(candidates, dict):
-        candidates = [candidates]
-    for entry in candidates:
-        if not isinstance(entry, dict):
-            continue
-        for key in ("topics", "topicNames", "keyPoints"):
-            val = entry.get(key)
-            if isinstance(val, list):
-                for v in val:
-                    if isinstance(v, str) and v.strip():
-                        out.append(v.strip())
-                    elif isinstance(v, dict):
-                        name = v.get("name") or v.get("topic") or v.get("text")
-                        if name:
-                            out.append(str(name).strip())
-        for key in ("issue", "reason", "summary", "text"):
-            val = entry.get(key)
-            if isinstance(val, str) and val.strip():
-                out.append(val.strip())
-    return out
+_TREND_TO_DELTA = {
+    "GreatlyDeclining": -0.5,
+    "Declining": -0.3,
+    "SlightlyDeclining": -0.15,
+    "NoChange": 0.0,
+    "SlightlyImproving": 0.15,
+    "Improving": 0.3,
+    "GreatlyImproving": 0.5,
+}
 
 
 def _trend_label(scores: list[float]) -> str:
@@ -518,32 +501,34 @@ def register(mcp: FastMCP) -> None:
         shortlist = ranked[:max_anis]
 
         # ---- 4. Enrich answered conversations with STA (bounded concurrency) ----
-        enrich_targets: list[tuple[str, str]] = []  # (ani, conversation_id)
-        if include_summaries or include_sentiment:
+        # We only enrich answered calls — abandoned / IVR-only have no recording so no STA data.
+        # The /speechandtextanalytics/conversations/{id} endpoint returns sentiment + participant
+        # metrics. Topic / summary text is not surfaced by this endpoint family in the AU tenant
+        # (probed paths all 404'd) — likely needs Topic Spotting or AI Auto-Summarization
+        # configured separately. Code is structured so summaries can plug in later without rewrite.
+        enrich_needed = include_sentiment or include_summaries
+        enrich_targets: list[tuple[str, str]] = []
+        if enrich_needed:
             for ani, calls in shortlist:
                 for call in calls:
                     if call["answered"] and call["conversation_id"]:
                         enrich_targets.append((ani, call["conversation_id"]))
 
         sta_calls = 0
-        summaries: dict[str, dict | None] = {}
-        sentiments: dict[str, dict | None] = {}
-
-        def _enrich(cid: str) -> tuple[str, dict | None, dict | None]:
-            s = _sta_summary(cid) if include_summaries else None
-            t = _sta_sentiment(cid) if include_sentiment else None
-            return cid, s, t
+        sta_with_data = 0
+        details: dict[str, dict | None] = {}
 
         if enrich_targets:
             with ThreadPoolExecutor(max_workers=8) as ex:
                 cids = [cid for _, cid in enrich_targets]
-                for cid, summary, sentiment in ex.map(_enrich, cids):
-                    summaries[cid] = summary
-                    sentiments[cid] = sentiment
-                    sta_calls += int(include_summaries) + int(include_sentiment)
+                for cid, d in zip(cids, ex.map(_sta_details, cids)):
+                    details[cid] = d
+                    sta_calls += 1
+                    if d is not None:
+                        sta_with_data += 1
 
-        logger.info("repeat_caller_deep_dive: enriched %d conversations across %d ANIs (~%d STA calls)",
-                    len(enrich_targets), len(shortlist), sta_calls)
+        logger.info("repeat_caller_deep_dive: enriched %d conversations across %d ANIs (%d returned data, %d empty)",
+                    len(enrich_targets), len(shortlist), sta_with_data, sta_calls - sta_with_data)
 
         # Pre-warm queue name cache
         all_qids = {c["queue_id"] for _, calls in shortlist for c in calls if c["queue_id"]}
@@ -565,47 +550,47 @@ def register(mcp: FastMCP) -> None:
                 if c["acd_offered"] and c["queue_id"]
             )
 
-            # Per-call topic + sentiment derivation
-            topics: list[dict] = []
-            topic_counter: Counter[str] = Counter()
+            # Per-call breakdown: queue-status counts (always available) + sentiment per call
+            queue_status_counter: Counter[str] = Counter()
             trajectory: list[dict] = []
 
             for call in calls:
                 cid = call["conversation_id"]
-                summary = summaries.get(cid)
-                sentiment = sentiments.get(cid)
+                d = details.get(cid)
 
                 if call["answered"]:
-                    extracted = _extract_topics(summary)
-                    if extracted:
-                        for topic_str in extracted:
-                            topic_counter[topic_str] += 1
-                    elif call["queue_name"]:
-                        topic_counter[f"{call['queue_name']} (answered, no AI summary)"] += 1
+                    label = f"{call['queue_name'] or 'unknown queue'} (answered)"
                 else:
-                    # Abandoned or IVR-only
-                    if call["queue_name"]:
-                        topic_counter[f"{call['queue_name']} (abandoned)"] += 1
-                    else:
-                        topic_counter["IVR-only (no queue reached)"] += 1
+                    label = (
+                        f"{call['queue_name']} (abandoned)" if call["queue_name"]
+                        else "IVR-only (no queue reached)"
+                    )
+                queue_status_counter[label] += 1
 
-                if sentiment is not None:
+                if d is not None:
+                    pm = d.get("participant_metrics") or {}
                     trajectory.append({
                         "conversation_id": cid,
                         "time": call["start"],
-                        "score": round(sentiment["score"], 3),
-                        "label": _sentiment_label(sentiment["score"]),
+                        "queue_name": call["queue_name"],
+                        "score": round(d["score"], 3),
+                        "label": _sentiment_label(d["score"]),
+                        "trend_class": d.get("trend_class"),
+                        "agent_pct": pm.get("agentDurationPercentage"),
+                        "customer_pct": pm.get("customerDurationPercentage"),
+                        "silence_pct": pm.get("silenceDurationPercentage"),
                     })
 
-            # Top 5 topics for the ANI, with source attribution
-            top_topics = []
-            for topic, count in topic_counter.most_common(5):
-                source = "summary" if topic and "(abandoned)" not in topic and "(answered, no AI summary)" not in topic and "IVR-only" not in topic else "queue_fallback"
-                top_topics.append({"topic": topic, "count": count, "source": source})
-                # Org rollup only counts real AI topics, not fallbacks
-                if source == "summary":
-                    org_topic_counter[topic] += count
-                    org_topic_anis[topic].add(ani)
+            # Top 5 queue-status labels for the ANI
+            top_topics = [
+                {"topic": label, "count": count, "source": "queue_status"}
+                for label, count in queue_status_counter.most_common(5)
+            ]
+            # Org-rollup tracks queue-status labels too, so the response is useful even with
+            # zero real STA topic data. ANIs the label affected are tracked for top_topics output.
+            for label, count in queue_status_counter.items():
+                org_topic_counter[label] += count
+                org_topic_anis[label].add(ani)
 
             # Sentiment trajectory + trend
             trajectory.sort(key=lambda x: x["time"] or "")
@@ -615,9 +600,7 @@ def register(mcp: FastMCP) -> None:
             # Last call (by start time)
             calls_sorted = sorted(calls, key=lambda c: c["start"] or "")
             last = calls_sorted[-1]
-            last_summary_obj = summaries.get(last["conversation_id"])
-            last_sentiment = sentiments.get(last["conversation_id"])
-            last_topics = _extract_topics(last_summary_obj)
+            last_details = details.get(last["conversation_id"])
             last_call = {
                 "conversation_id": last["conversation_id"],
                 "time": last["start"],
@@ -625,8 +608,9 @@ def register(mcp: FastMCP) -> None:
                 "status": "answered" if last["answered"] else (
                     "abandoned_in_queue" if last["acd_offered"] else "ivr_only"
                 ),
-                "summary": "; ".join(last_topics)[:300] if last_topics else None,
-                "sentiment": _sentiment_label(last_sentiment["score"]) if last_sentiment else None,
+                "summary": None,  # populated when topic/summary endpoint becomes available in tenant
+                "sentiment": _sentiment_label(last_details["score"]) if last_details else None,
+                "sentiment_trend_class": (last_details or {}).get("trend_class"),
             }
 
             row = {
@@ -668,6 +652,8 @@ def register(mcp: FastMCP) -> None:
                 "include_summaries": include_summaries,
                 "include_sentiment": include_sentiment,
                 "sta_calls_made": sta_calls,
+                "sta_calls_with_data": sta_with_data,
+                "sta_coverage_pct": round(sta_with_data / sta_calls * 100, 1) if sta_calls else 0,
             },
             "org_rollup": {
                 "top_topics": top_topics_org,
