@@ -832,12 +832,36 @@ def register(mcp: FastMCP) -> None:
             ge=0, le=10,
             description="Grace period in minutes before flagging an overrun (default 2).",
         ),
+        pre_break_target_min: int = Field(
+            default=10,
+            ge=1, le=60,
+            description=(
+                "Pre-break target in minutes (default 10). Pre-break is an org-level "
+                "presence (Busy / 'Pre Break') agents enter before a break to drain "
+                "interactions; staying on it longer than this target is an inefficiency signal."
+            ),
+        ),
+        pre_break_organization_presence_id: str = Field(
+            default="e3bedde6-f747-4dbb-bb76-45684b9180b6",
+            description=(
+                "Organization presence id for 'Pre Break' (this tenant: "
+                "e3bedde6-f747-4dbb-bb76-45684b9180b6). Override if reused on another tenant."
+            ),
+        ),
     ) -> dict:
-        """Per-agent break/meal overrun summary for an interval.
+        """Per-agent break / meal / pre-break overruns plus AWAY usage for an interval.
 
-        Pulls presence sessions, classifies each as on-target / over / under, and
-        ranks users by overrun frequency. Includes a per-instance list so a TL can
-        see which specific breaks were over.
+        Tracks four presence behaviours:
+
+          - BREAK overruns vs ``break_target_min`` (default 15 min)
+          - MEAL overruns vs ``meal_target_min`` (default 30 min)
+          - PRE_BREAK overruns vs ``pre_break_target_min`` (default 10 min) — agents
+            are auto-set to pre-break to drain interactions; going over is wasted time
+          - AWAY usage (count + total minutes) — tracked as a raw negative signal,
+            no target
+
+        Returns per-user counts, totals, and per-instance lists so a TL can drill in.
+        Sorted by overrun frequency.
         """
         # Reuse the presence_sessions tool's data fetching logic by calling the
         # same job pipeline directly here — keeps this tool self-contained.
@@ -890,7 +914,10 @@ def register(mcp: FastMCP) -> None:
                     continue
                 for sess in ud.get("primaryPresence") or []:
                     sp = (sess.get("systemPresence") or "").upper()
-                    if sp not in ("BREAK", "MEAL"):
+                    org_pres_id = sess.get("organizationPresenceId")
+                    is_pre_break = (org_pres_id == pre_break_organization_presence_id)
+                    is_tracked = sp in ("BREAK", "MEAL", "AWAY") or is_pre_break
+                    if not is_tracked:
                         continue
                     if not sess.get("startTime") or not sess.get("endTime"):
                         continue
@@ -906,15 +933,34 @@ def register(mcp: FastMCP) -> None:
                     dur_s = (en_clip - st_clip).total_seconds()
                     if dur_s <= 0:
                         continue
-                    target_s = (break_target_min if sp == "BREAK" else meal_target_min) * 60
+
+                    # Categorise — pre-break is BUSY systemPresence with a specific org id,
+                    # so we override the label so downstream logic doesn't lump it under BUSY
+                    if is_pre_break:
+                        category = "PRE_BREAK"
+                        target_min = pre_break_target_min
+                    else:
+                        category = sp
+                        target_min = (
+                            break_target_min if sp == "BREAK"
+                            else meal_target_min if sp == "MEAL"
+                            else 0  # AWAY has no target
+                        )
+                    target_s = target_min * 60
+                    over_target = (
+                        dur_s > (target_s + tolerance_min * 60)
+                        if target_s > 0 else False
+                    )
+                    overrun_min = round((dur_s - target_s) / 60, 1) if (target_s > 0 and dur_s > target_s) else 0.0
+
                     sessions_by_user[uid].append({
-                        "presence": sp,
+                        "presence": category,
                         "start_utc": st_clip.isoformat().replace("+00:00", "Z"),
                         "duration_s": int(dur_s),
                         "duration_min": round(dur_s / 60, 1),
-                        "target_min": target_s // 60,
-                        "over_target": dur_s > (target_s + tolerance_min * 60),
-                        "overrun_min": round((dur_s - target_s) / 60, 1) if dur_s > target_s else 0.0,
+                        "target_min": target_min,
+                        "over_target": over_target,
+                        "overrun_min": overrun_min,
                     })
             cursor = page_dict.get("cursor")
             if not cursor:
@@ -926,7 +972,10 @@ def register(mcp: FastMCP) -> None:
         # Rank users by overrun count
         ranked = []
         for uid, sessions in sessions_by_user.items():
-            over = [s for s in sessions if s["over_target"]]
+            break_meal_over = [
+                s for s in sessions
+                if s["over_target"] and s["presence"] in ("BREAK", "MEAL")
+            ]
             break_ct = sum(1 for s in sessions if s["presence"] == "BREAK")
             meal_ct = sum(1 for s in sessions if s["presence"] == "MEAL")
             avg_break = (
@@ -937,18 +986,36 @@ def register(mcp: FastMCP) -> None:
                 sum(s["duration_s"] for s in sessions if s["presence"] == "MEAL") / meal_ct / 60
                 if meal_ct else 0
             )
-            total_overrun_min = sum(s["overrun_min"] for s in over)
+            total_overrun_min = sum(s["overrun_min"] for s in break_meal_over)
+
+            away_sessions = [s for s in sessions if s["presence"] == "AWAY"]
+            away_total_s = sum(s["duration_s"] for s in away_sessions)
+
+            pre_break_all = [s for s in sessions if s["presence"] == "PRE_BREAK"]
+            pre_break_overruns = [s for s in pre_break_all if s["over_target"]]
+            pre_break_overrun_total_min = sum(s["overrun_min"] for s in pre_break_overruns)
+
             ranked.append({
                 "user_id": uid,
                 "user_name": names.get(uid),
                 "total_sessions": len(sessions),
-                "overrun_count": len(over),
+                "overrun_count": len(break_meal_over),
                 "total_overrun_min": round(total_overrun_min, 1),
                 "break_count": break_ct,
                 "avg_break_min": round(avg_break, 1),
                 "meal_count": meal_ct,
                 "avg_meal_min": round(avg_meal, 1),
-                "overrun_sessions": over,
+
+                "away_count": len(away_sessions),
+                "away_total_min": round(away_total_s / 60, 1),
+
+                "pre_break_count": len(pre_break_all),
+                "pre_break_overrun_count": len(pre_break_overruns),
+                "pre_break_overrun_total_min": round(pre_break_overrun_total_min, 1),
+
+                "overrun_sessions": break_meal_over,
+                "pre_break_overrun_sessions": pre_break_overruns,
+                "away_sessions": away_sessions,
             })
         ranked.sort(key=lambda r: (-r["overrun_count"], -r["total_overrun_min"]))
 
@@ -956,6 +1023,7 @@ def register(mcp: FastMCP) -> None:
             "interval": interval,
             "break_target_min": break_target_min,
             "meal_target_min": meal_target_min,
+            "pre_break_target_min": pre_break_target_min,
             "tolerance_min": tolerance_min,
             "users": ranked,
         }
