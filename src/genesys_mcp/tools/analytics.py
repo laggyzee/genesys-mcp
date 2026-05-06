@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -14,102 +13,6 @@ from pydantic import Field
 from genesys_mcp.client import get_api, to_dict, with_retry
 
 logger = logging.getLogger(__name__)
-
-
-def _parse_iso(s: str) -> datetime:
-    return datetime.fromisoformat(s.replace("Z", "+00:00"))
-
-
-def _agent_volume_for_media(user_ids: list[str], interval: str, media_type: str) -> dict[str, dict]:
-    """Per-agent conversation count + handle time for one media type, via conversation details walk.
-
-    Why a details-walk instead of conversations-aggregates: the aggregates endpoint
-    with ``groupBy=userId`` and a top-level ``filter`` on userId only matches
-    conversations where Genesys treats the user as a primary dimension — that
-    misses the bulk of inbound traffic where the customer originated and the
-    agent merely picked up. Walking conversation details and inspecting the
-    participants array gives us the right per-agent count directly, matching
-    the figures in the Genesys 'Performance > Agents' UI.
-
-    Counting rule (matches Genesys 'Handle' column):
-      - participant.purpose == 'agent'
-      - participant.userId is in the requested set
-      - participant has at least one 'interact' segment (i.e. actually handled,
-        not just alert+drop or quick-transfer-away)
-
-    Multi-handler conversations (transfer / co-handle) count +1 for each agent
-    who satisfied those rules. Handle time per user is summed only over their
-    own 'interact' segments — does not include the other agent's time.
-
-    Returns ``{user_id: {"conversations": int, "handle_ms": float}}`` for every
-    requested user (zero-filled).
-    """
-    from genesys_mcp.tools.reports import _run_conv_details_job
-
-    user_set = set(user_ids)
-    counts: dict[str, dict] = {uid: {"conversations": 0, "handle_ms": 0.0} for uid in user_ids}
-
-    body = {
-        "interval": interval,
-        "order": "asc",
-        "orderBy": "conversationStart",
-        "segmentFilters": [{
-            "type": "and",
-            "predicates": [
-                {"type": "dimension", "dimension": "mediaType",
-                 "operator": "matches", "value": media_type},
-            ],
-        }],
-    }
-    try:
-        convs = _run_conv_details_job(body, max_pages=300)
-    except Exception as exc:
-        logger.warning("agent_performance %s: details pull failed (%s); bucket will be empty",
-                       media_type, exc)
-        return counts
-
-    for c in convs:
-        users_in_conv: set[str] = set()
-        per_user_handle_ms: dict[str, float] = defaultdict(float)
-        for p in c.get("participants") or []:
-            if p.get("purpose") != "agent":
-                continue
-            uid = p.get("userId")
-            if uid not in user_set:
-                continue
-            handle_ms = 0.0
-            had_interact = False
-            for s in p.get("sessions") or []:
-                for seg in s.get("segments") or []:
-                    seg_type = seg.get("segmentType")
-                    if seg_type != "interact":
-                        continue
-                    had_interact = True
-                    st_raw = seg.get("segmentStart")
-                    en_raw = seg.get("segmentEnd")
-                    if not st_raw or not en_raw:
-                        continue
-                    try:
-                        handle_ms += (
-                            _parse_iso(en_raw) - _parse_iso(st_raw)
-                        ).total_seconds() * 1000
-                    except Exception:
-                        continue
-            if had_interact:
-                users_in_conv.add(uid)
-                per_user_handle_ms[uid] += handle_ms
-        for uid in users_in_conv:
-            counts[uid]["conversations"] += 1
-            counts[uid]["handle_ms"] += per_user_handle_ms.get(uid, 0.0)
-
-    total_attributed = sum(v["conversations"] for v in counts.values())
-    logger.info(
-        "agent_performance %s: %d conversations attributed across %d users (from %d total)",
-        media_type, total_attributed,
-        sum(1 for v in counts.values() if v["conversations"] > 0),
-        len(convs),
-    )
-    return counts
 
 
 def _default_interval(days: int = 7) -> str:
@@ -324,58 +227,55 @@ def register(mcp: FastMCP) -> None:
         ),
         granularity: str = Field(default="P1D"),
     ) -> dict:
-        """Per-agent productivity for an interval: connected interactions, handle time,
-        talk time, after-call work, and a derived avg AHT plus a flat per-user summary.
+        """Per-agent productivity matching Genesys 'Performance > Agents' UI:
+        answered count, handle time, talk time, ACW, transferred — broken down per
+        agent and per media type (voice / message / email / callback / chat).
 
-        Backed by /api/v2/analytics/conversations/aggregates/query with groupBy=userId.
-        The user-aggregates endpoint (post_analytics_users_aggregates_query) only
-        accepts presence-state metrics (tAgentRoutingStatus, tSystemPresence,
-        tOrganizationPresence) and rejects tHandle/tTalk/etc with HTTP 400 — so this
-        tool deliberately uses the conversations-aggregates path with the same
-        ConversationAggregateMetric set that queue_performance uses.
+        Backed by /api/v2/analytics/conversations/aggregates/query — the same endpoint
+        the Genesys web UI uses. Filter shape mirrors the UI exactly: an outer ``and``
+        with two ``or`` clauses, one for the userId list and one for the mediaType,
+        and groupBy=[userId, mediaType] for the auto-split. tAnswered.count is the
+        canonical answered-conversation count (matches the UI's "Answer" column);
+        tHandle.count matches the "Handle" column.
         """
         api = gc.AnalyticsApi(get_api())
+        resolved_interval = interval or _default_interval(7)
         body = {
-            "interval": interval or _default_interval(7),
+            "interval": resolved_interval,
             "granularity": granularity,
-            "groupBy": ["userId"],
+            "groupBy": ["userId", "mediaType"],
             "filter": {
-                "type": "or",
-                "predicates": [{"dimension": "userId", "value": u} for u in user_ids],
+                "type": "and",
+                "clauses": [
+                    {"type": "or", "predicates": [
+                        {"dimension": "userId", "value": uid} for uid in user_ids
+                    ]},
+                ],
             },
             "metrics": [
-                "nConversations",
-                "nOutbound",
-                "nTransferred",
-                "tHandle",
-                "tTalk",
+                "tAnswered",       # tAnswered.count = "Answer" column in UI
+                "tHandle",         # tHandle.count = "Handle" column in UI
+                "tTalkComplete",
+                "tHeldComplete",
                 "tAcw",
-                "tHeld",
+                "nTransferred",
+                "nOutbound",
+                "nBlindTransferred",
+                "nConsultTransferred",
             ],
         }
         resp = with_retry(api.post_analytics_conversations_aggregates_query)(body)
         raw = to_dict(resp) or {}
 
-        # The aggregates response is unreliable for per-agent COUNTS — its top-level
-        # userId filter only catches a subset of conversations (mostly outbound or
-        # primary-dimension matches), missing most inbound traffic. We pull conversation
-        # counts directly from conversation details for each media type. The aggregates
-        # response is still used for time stats (talk / hold / ACW) where the time
-        # numbers are reliable per user across whatever conversations Genesys did match.
-        media_counts = {
-            "voice":   _agent_volume_for_media(user_ids, body["interval"], "voice"),
-            "message": _agent_volume_for_media(user_ids, body["interval"], "message"),
-            "email":   _agent_volume_for_media(user_ids, body["interval"], "email"),
-        }
-
-        # Genesys auto-splits each user's results by mediaType (voice / message / email
-        # / callback / chat). Aggregate per-user *and* per-user-per-media for the summary.
+        # Genesys returns one result group per (userId, mediaType) pairing.
+        # tAnswered.count is the canonical "Answer" count (matches UI exactly);
+        # tHandle.count is the canonical "Handle" count.
         per_user: dict[str, dict] = {}
         for uid in user_ids:
             per_user[uid] = {
                 "user_id": uid,
                 "by_media": {},
-                "conversations": 0, "outbound": 0, "transferred": 0,
+                "answered": 0, "handled": 0, "outbound": 0, "transferred": 0,
                 "h_sum": 0.0, "h_n": 0, "t_sum": 0.0, "t_n": 0,
                 "acw_sum": 0.0, "acw_n": 0, "held_sum": 0.0, "held_n": 0,
             }
@@ -388,19 +288,22 @@ def register(mcp: FastMCP) -> None:
                 continue
             row = per_user[uid]
             mrow = row["by_media"].setdefault(media, {
-                "conversations": 0, "outbound": 0, "transferred": 0,
+                "answered": 0, "handled": 0, "outbound": 0, "transferred": 0,
                 "h_sum": 0.0, "h_n": 0, "t_sum": 0.0, "t_n": 0,
                 "acw_sum": 0.0, "acw_n": 0, "held_sum": 0.0, "held_n": 0,
             })
             for bucket in grp.get("data") or []:
                 metrics = {m["metric"]: (m.get("stats") or {}) for m in (bucket.get("metrics") or [])}
-                conv  = int(metrics.get("nConversations",{}).get("count", 0) or 0)
-                outb  = int(metrics.get("nOutbound",     {}).get("count", 0) or 0)
-                tran  = int(metrics.get("nTransferred",  {}).get("count", 0) or 0)
-                row["conversations"] += conv;  mrow["conversations"] += conv
-                row["outbound"]      += outb;  mrow["outbound"]      += outb
-                row["transferred"]   += tran;  mrow["transferred"]   += tran
-                for f, mname in [("h", "tHandle"), ("t", "tTalk"), ("acw", "tAcw"), ("held", "tHeld")]:
+                ans  = int(metrics.get("tAnswered",   {}).get("count", 0) or 0)
+                hand = int(metrics.get("tHandle",     {}).get("count", 0) or 0)
+                outb = int(metrics.get("nOutbound",   {}).get("count", 0) or 0)
+                tran = int(metrics.get("nTransferred",{}).get("count", 0) or 0)
+                row["answered"]    += ans;  mrow["answered"]    += ans
+                row["handled"]     += hand; mrow["handled"]     += hand
+                row["outbound"]    += outb; mrow["outbound"]    += outb
+                row["transferred"] += tran; mrow["transferred"] += tran
+                for f, mname in [("h", "tHandle"), ("t", "tTalkComplete"),
+                                 ("acw", "tAcw"), ("held", "tHeldComplete")]:
                     s = metrics.get(mname, {})
                     add_sum = float(s.get("sum", 0) or 0)
                     add_n   = int(s.get("count", 0) or 0)
@@ -410,58 +313,34 @@ def register(mcp: FastMCP) -> None:
         def _avg_s(sum_ms: float, n: int) -> int | None:
             return round(sum_ms / n / 1000) if n else None
 
-        # Note: nOutbound counts outbound *interactions*, not conversations — a single
-        # conversation can include multiple outbound legs (callbacks, transfers). So
-        # nOutbound can exceed nConversations and inbound = conversations − outbound is
-        # misleading. We surface conversations and outbound_interactions side by side
-        # and let the consumer interpret.
+        # Build per-user summary plus per-media breakdown.
+        # nOutbound counts outbound *interactions*, not conversations, so it can exceed
+        # the answered count for a user — surface it as outbound_interactions and let
+        # the consumer interpret.
         summary = []
         for uid, row in per_user.items():
-            # Replace per-media counts and handle time with the details-walk numbers
-            # (reliable). Time stats other than handle (talk / hold / ACW) come from
-            # the aggregates response and are kept as-is — those are time totals
-            # across whatever conversations Genesys matched and are still useful as
-            # secondary signals.
-            details_total_conv = 0
-            details_total_handle_ms = 0.0
-            for media_type, vol in media_counts.items():
-                v = vol.get(uid) or {"conversations": 0, "handle_ms": 0.0}
-                conv_count = int(v["conversations"])
-                handle_ms = float(v["handle_ms"])
-                if conv_count == 0 and media_type not in row["by_media"]:
-                    continue
-                bucket = row["by_media"].get(media_type)
-                if bucket is None:
-                    bucket = row["by_media"][media_type] = {
-                        "conversations": 0, "outbound": 0, "transferred": 0,
-                        "h_sum": 0.0, "h_n": 0, "t_sum": 0.0, "t_n": 0,
-                        "acw_sum": 0.0, "acw_n": 0, "held_sum": 0.0, "held_n": 0,
-                    }
-                bucket["conversations"] = conv_count
-                bucket["h_sum"] = handle_ms
-                bucket["h_n"]   = conv_count
-                details_total_conv += conv_count
-                details_total_handle_ms += handle_ms
-            row["conversations"] = details_total_conv
-            row["h_sum"] = details_total_handle_ms
-            row["h_n"]   = details_total_conv
-
-            conv = row["conversations"]
+            answered = row["answered"]
+            handled  = row["handled"]
             by_media_summary = {}
             for media, m in row["by_media"].items():
                 by_media_summary[media] = {
-                    "conversations": m["conversations"],
+                    "answered": m["answered"],
+                    "handled": m["handled"],
                     "outbound_interactions": m["outbound"],
                     "transferred": m["transferred"],
                     "avg_handle_s": _avg_s(m["h_sum"], m["h_n"]),
+                    "avg_talk_s":   _avg_s(m["t_sum"], m["t_n"]),
+                    "avg_acw_s":    _avg_s(m["acw_sum"], m["acw_n"]),
+                    "avg_held_s":   _avg_s(m["held_sum"], m["held_n"]),
                     "total_handle_min": round(m["h_sum"] / 1000 / 60, 1) if m["h_sum"] else 0,
                 }
             summary.append({
                 "user_id": uid,
-                "conversations": conv,
+                "answered": answered,
+                "handled": handled,
                 "outbound_interactions": row["outbound"],
                 "transferred": row["transferred"],
-                "transfer_rate_pct": round(row["transferred"] / conv * 100, 1) if conv else None,
+                "transfer_rate_pct": round(row["transferred"] / handled * 100, 1) if handled else None,
                 "avg_handle_s": _avg_s(row["h_sum"], row["h_n"]),
                 "avg_talk_s":   _avg_s(row["t_sum"], row["t_n"]),
                 "avg_acw_s":    _avg_s(row["acw_sum"], row["acw_n"]),
@@ -469,7 +348,7 @@ def register(mcp: FastMCP) -> None:
                 "total_handle_min": round(row["h_sum"] / 1000 / 60, 1) if row["h_sum"] else 0,
                 "by_media": by_media_summary,
             })
-        summary.sort(key=lambda r: -(r["conversations"] or 0))
+        summary.sort(key=lambda r: -(r["answered"] or 0))
 
         return {
             "interval": body["interval"],
