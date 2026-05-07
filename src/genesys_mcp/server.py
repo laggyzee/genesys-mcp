@@ -9,7 +9,7 @@ from typing import AsyncIterator
 
 from mcp.server.fastmcp import FastMCP
 
-from genesys_mcp.client import init_api
+from genesys_mcp.client import assert_mcp_env_clean, init_api
 from genesys_mcp.tools import (
     analytics,
     conversations,
@@ -32,6 +32,9 @@ logger = logging.getLogger("genesys_mcp")
 
 @asynccontextmanager
 async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
+    # Server-only guard: warn if write creds leaked into the MCP env.
+    # The provisioning script doesn't call this (it legitimately needs both).
+    assert_mcp_env_clean()
     init_api()
     try:
         yield
