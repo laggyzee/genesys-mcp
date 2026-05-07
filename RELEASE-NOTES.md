@@ -1,5 +1,68 @@
 # Release Notes
 
+## v0.3.0 — 7 May 2026
+
+Adds an out-of-band **write capability** alongside the read-only MCP, plus a small back-compat refactor to support it.
+
+### New: bulk agent provisioning script (Danger Zone)
+
+[`scripts/provision_users.py`](scripts/provision_users.py) creates new Genesys Cloud users that mirror an existing template agent — same division, manager, location, ACD auto-answer, addresses, title/department, profile skills, routing skills + proficiency, routing languages, group memberships, and WFM management unit. Sends each new agent a Genesys activation email at the end.
+
+Designed for the recurring "I need to onboard 5 new contact-centre agents and clone all their settings from an existing agent" task that's otherwise ~10 clicks per agent across multiple Genesys admin screens.
+
+**Trust model is the load-bearing decision:**
+
+- The script is **not** an MCP tool — Claude cannot reach it. The operator runs it deliberately from a terminal.
+- It uses a **separate write-scoped OAuth client** (`GENESYS_WRITE_CLIENT_ID/SECRET`). The read-only MCP client is unchanged and unaware of it; the server's startup warns if write creds leak into the MCP process.
+- **`--dry-run` is the default**; explicit `--confirm` is required to write. Interactive `[y/N]:` prompt before any writes when on a TTY.
+- **`--self-test`** creates a throwaway user (`@example.invalid` — RFC 2606 reserved TLD, never resolves), exercises every write step, and leaves the user in place by default for manual deletion (so the OAuth role doesn't need `directory:user:delete`).
+- **Per-user ledger** at `/tmp/provision_users/<run-id>/<email>.json` enables resume on partial failure. Idempotency pre-check skips users that already exist (with `--reconcile` opt-in to overwrite).
+- **`--template-allowlist`** flag refuses any `--template-email` not in a configured list — defends against typos that might silently elevate every new hire by cloning the wrong template's role set.
+
+**Tenant assumptions** (see [`scripts/README.md`](scripts/README.md#tenant-assumptions) — the script will need adapting if these don't match):
+
+1. Authorisation roles inherit from group membership (`rolesEnabled: true` on the relevant groups). The script never calls `PUT /users/{id}/roles`.
+2. Queue membership flows from group→queue auto-assignment. The script never calls `/api/v2/routing/queues/{id}/members`.
+3. Voice is WebRTC-only — Genesys auto-provisions stations on first sign-in.
+
+**OAuth role** for the write client (granular, no `admin`):
+
+| Operation                          | Permission                       |
+|------------------------------------|----------------------------------|
+| Create user                        | `directory:user:add`             |
+| Edit user                          | `directory:user:edit`            |
+| Bulk-assign routing skills         | `routing:skill:assign`           |
+| Bulk-assign routing languages      | `routing:language:assign`        |
+| Add to group                       | `directory:group:edit`           |
+| Move agent into WFM management unit | `wfm:agent:edit`                |
+| Send invite                        | `directory:user:setPassword`     |
+
+### Internal — `client.py` two-client refactor
+
+The shared client module now supports loading a non-default OAuth client without touching the read-only singleton:
+
+- `_read_config(prefix=…)` reads from any `GENESYS_*_CLIENT_ID/SECRET` family.
+- New `init_named_api(suffix)` and `get_named_api(suffix)` for non-default clients (e.g. `init_named_api("WRITE")` reads `GENESYS_WRITE_CLIENT_*`). Cached in a separate `_named_clients` dict.
+- New `with_retry_for(refresh_callable)(fn)` decorator so 401-refresh knows which client to refresh. The original `with_retry(fn)` is preserved as a thin shim — every existing tool keeps working unchanged.
+- Retry list extended to include 409 (optimistic-concurrency races on group `version` etc.) and 502/503/504 (transient gateway errors) on top of the existing 401/429 handling.
+- New `assert_mcp_env_clean()` is called from the MCP server's lifespan to warn if `GENESYS_WRITE_CLIENT_*` is set in the same process and to refuse to start if `GENESYS_CLIENT_ID == GENESYS_WRITE_CLIENT_ID`.
+
+This is a pure-additive change for read-only consumers. All 9 existing tool modules import unchanged.
+
+### Documentation
+
+- [`scripts/README.md`](scripts/README.md) — full Phase 0 admin setup, day-to-day usage, troubleshooting table, tenant assumptions, ledger format.
+- [`README.md`](README.md) — new prominent "⚠️ Danger Zone" section that re-states the read-only MCP boundary and links into the scripts directory.
+- [`.env.example`](.env.example) — commented-out write-client env vars.
+
+### Migration notes
+
+- **Nothing breaks** if you don't set `GENESYS_WRITE_CLIENT_*`. The read-only MCP behaves identically to v0.2.1.
+- If you happen to have `GENESYS_WRITE_CLIENT_*` already exported in the shell that launches the MCP server, you'll see a new startup warning. Move those exports to a separate shell (or to `.env.write`) — the MCP doesn't need them.
+- `pyproject.toml` version bumped from `0.1.0` to `0.3.0` to match the actual release line (the v0.2.x series shipped without bumping pyproject; this catches up).
+
+---
+
 ## v0.2.1 — 7 May 2026
 
 Small follow-up to v0.2.0. Moves the companion skill into this repo and tidies the
