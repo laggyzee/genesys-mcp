@@ -2,7 +2,9 @@
 
 A local stdio MCP server that gives Claude Code (or any MCP-compatible client) read-only access to a Genesys Cloud tenant.
 
-Built so contact-centre operations and analytics work — queue performance, agent reviews, conversation deep-dives, presence/break analysis, repeat-caller reports — can be done by talking to Claude in plain English instead of clicking through Genesys Admin or Performance dashboards.
+Built so contact-centre operations and analytics work — queue performance, agent reviews, conversation deep-dives, repeat-caller root-cause analysis, presence/break/away analysis, demand-vs-capacity vs WFM, monthly contact-centre reports — can be done by talking to Claude in plain English instead of clicking through Genesys Admin or Performance dashboards.
+
+> **v0.2.0 — May 2026:** numbers from `agent_performance` and `queue_performance` now match the Genesys "Performance" UI exactly (the v0.1 figures were materially off). New tools include `repeat_caller_deep_dive` (AI-themed root cause), `wfm_schedule` (scheduled vs forecast-required hours), AWAY + PRE_BREAK tracking. Companion skill `cc-monthly-report` produces a fully-stitched HTML report from one prompt. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
 
 ## What it does
 
@@ -85,8 +87,8 @@ Restart Claude Code and the `genesys` MCP server will start automatically.
 |---|---|
 | `queue_observation` | Live snapshot — waiting / interacting / on-queue agents |
 | `queue_estimated_wait_time` | Genesys' own AI-adjusted EWT model |
-| `queue_performance` | Aggregates with derived `answered`, `abandoned`, `service_level_pct`, `avg_wait_s`, `avg_answer_s`, `avg_handle_s` (the values that match the Performance UI columns) |
-| `agent_performance` | Per-agent presence/routing-status aggregates |
+| `queue_performance` | Per-queue × media aggregates that **match the Genesys "Performance > Queues" UI exactly**. Derived fields: `answered` (`tAnswered.count`), `abandoned`, `service_level_pct`, `avg_wait_s`, `avg_answer_s`, `avg_handle_s`. Filter shape mirrors the UI's canonical `and+or+or` form. |
+| `agent_performance` | Per-agent productivity that **matches the Genesys "Performance > Agents" UI exactly**, split per media (voice / message / email / callback). Headline fields: `answered` (`tAnswered.count`), `handled`, `avg_handle_s`, `avg_talk_s`, `avg_acw_s`, `transfer_rate_pct`, plus a `by_media` breakdown. *(Was materially wrong in v0.1 — see release notes.)* |
 | `presence_sessions` | Per-user break/meal/away sessions over an interval — wraps the analytics/users/details async-jobs flow into a single call |
 
 ### Conversations & recordings
@@ -100,8 +102,9 @@ Restart Claude Code and the `genesys` MCP server will start automatically.
 ### Composition reports
 | Tool | Purpose |
 |---|---|
-| `repeat_caller_report` | Pulls voice/message/callback details for an interval, groups by ANI, returns top-N repeat callers with queues touched and connect rate |
-| `break_overrun_report` | Per-agent break/meal overruns vs configurable targets, ranked by overrun count |
+| `repeat_caller_report` | Pulls voice/message/callback details for an interval, groups by ANI, splits the funnel into IVR-only / ACD-offered / answered / abandoned-in-queue per repeater, plus an org-wide funnel block |
+| `repeat_caller_deep_dive` | The *why* layer on top of `repeat_caller_report`. Enriches the top repeaters with conversation summaries, AI outcomes (`Resolved` / `Mid Flight` / `Unresolved Chat` / `Escalated`), expected-fix tags, sentiment trajectory, and a heuristic `recommended_action` (`callback_recommended` / `escalate_to_retention` / `route_review` / `monitor`). Org rollup includes top dispositions and the `unresolved_repeaters` priority list. |
+| `break_overrun_report` | Per-agent break / meal / **AWAY** / **PRE_BREAK** signals over an interval. AWAY tracked as raw count + total minutes (no target). PRE_BREAK overruns vs configurable target (default 10 min) — handles the auto-applied pre-break presence and quantifies time spent over the drain window. |
 | `agent_quality_snapshot` | One-shot agent review combining handle stats, hold-ratio flags, silent-transcript detection, wrap-up note discipline, and optional peer comparison |
 | `live_wallboard` | Per-queue real-time view combining observation + EWT + agents-on-queue in one call |
 
@@ -123,6 +126,7 @@ Restart Claude Code and the `genesys` MCP server will start automatically.
 | `list_management_units` / `get_user_management_unit` | WFM topology |
 | `query_agent_adherence_explanations` | Why an agent was off-schedule |
 | `agent_adherence_review` | Combines presence overruns with WFM explanations side-by-side |
+| `wfm_schedule` | Per-day **scheduled hours** (sum of paid-time activities across user shifts) vs **WFM-forecast required hours** (from headcountforecast `requiredPerInterval`). The headline answer to "do we need more staff or just better scheduling shape?" — compares scheduled capacity against demand on every day of the period and flags understaffed days. |
 
 ### Escape hatch
 | Tool | Purpose |
@@ -133,13 +137,29 @@ Restart Claude Code and the `genesys` MCP server will start automatically.
 
 Once installed, just talk to Claude:
 
-- *"Pull last week's abandon rate and SLA for our voice queues."*
+- *"Pull last week's answer rate and SLA for our voice queues."*
 - *"Find Jane Smith and show me her status right now."*
 - *"What's the estimated wait time on the Sales queue?"*
-- *"Which customers called us 3+ times this week?"*
-- *"Did anyone go over their break or lunch this week?"*
+- *"Run the repeat-caller deep dive for last week — top 25 ANIs."*
+- *"Who's spending the most time over the 10-minute pre-break this month?"*
+- *"How does our scheduled capacity compare to the WFM forecast for April?"*
 - *"Pull a quality snapshot for agent X over the last 7 days, compared with their peers."*
 - *"What's the live wallboard look like for these 6 queues?"*
+
+## Companion skill: `cc-monthly-report`
+
+A user-installable Claude Code skill that produces a self-contained HTML contact-centre report from one prompt — *"do the monthly CC report for May 2026"* — and drops it at `~/Documents/Prvidr-CC-{period}.html`.
+
+What the report contains:
+
+1. Executive summary (KPI cards + headline findings)
+2. Volume & funnel (brand × channel totals, per-queue tables, daily voice service-level chart)
+3. Themes (top dispositions, AI outcome distribution, top expected-fix tags)
+4. Repeat callers — actionable priority list of unresolved repeaters with summaries
+5. Workforce — per-agent productivity (specialists only), AHT vs targets (voice / message / ACW), break / AWAY / pre-break behaviour
+6. Performance leverage — quantifies "phantom capacity" (handle hours that would be freed if every agent hit AHT target) + "FCR drag" (handle hours wasted on repeat calls), then compares against the WFM-derived peak-demand shortfall to give a single synthesised verdict: *"more staff or better staff?"*
+
+Living at `~/.agents/skills/cc-monthly-report/` (symlinked under `~/.claude/skills/`). The skill markdown describes the workflow; a Python script does the aggregation and HTML rendering. Reproducible — the same skill against the same period gives the same report.
 
 ## Design
 
@@ -156,9 +176,11 @@ Pair with the [`platform-api`](https://github.com/MakingChatbots/genesys-cloud-s
 
 PRs welcome. Things on the roadmap that someone might want to take a swing at:
 - Web messaging transcript wrapper (the `/api/v2/conversations/messages/{id}/messages/bulk` flow, which currently needs the `call_genesys_api` escape hatch)
-- Full async historical adherence (scheduled vs. actual percentages with shift overlay)
+- Half-hourly intra-day staffing in `wfm_schedule` (currently rolls up to daily)
+- Forecast-vs-actual analysis (compare WFM forecast to historical conversation volumes)
 - Quality evaluations / scorecards (`quality:readonly`)
 - Outbound campaign progress (`outbound:readonly`)
+- Skill-based routing analysis (which agents have which skills × queue requirements)
 
 ## Licence
 
