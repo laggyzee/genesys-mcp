@@ -1,5 +1,45 @@
 # Release Notes
 
+## v0.2.1 — 7 May 2026
+
+Small follow-up to v0.2.0. Moves the companion skill into this repo and tidies the
+workforce table in the generated report.
+
+### `cc-monthly-report` skill now lives in this repo
+
+The skill previously lived outside the MCP repo. It now sits under
+[`skills/cc-monthly-report/`](skills/cc-monthly-report/) and is installed via
+symlink:
+
+```bash
+ln -s "$(pwd)/skills/cc-monthly-report" ~/.claude/skills/cc-monthly-report
+```
+
+Skills depend tightly on the MCP tool surface — specific tool names, specific
+response shapes — so co-locating them avoids cross-repo version drift every
+time a tool's response changes. See [`skills/README.md`](skills/README.md) for
+rationale and the convention for adding more skills.
+
+### Workforce table refactor — 17 columns → 12
+
+The per-agent workforce table in the generated HTML report was overflowing
+horizontally on standard laptop widths. Combined related columns:
+
+- **AHT and "vs target %"** are now a single cell each (e.g. `329s +15%` with the
+  badge colour-coded by deviation). Same for ACW.
+- **Break-overrun and away-time** counts and total minutes share a cell each
+  (e.g. `3 / 47 min`).
+
+Same data, more readable, fits on a single screen.
+
+### Internal
+
+- Inline `_aht_with_target` / `_acw_with_target` / `_count_and_min_cell` helpers
+  in `build_report.py`
+- New `.vs-target.{good,warn,bad}` CSS classes for inline coloured badges
+
+---
+
 ## v0.2.0 — 6 May 2026
 
 A month of intensive iteration since the initial public release. Many tools have been
