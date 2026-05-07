@@ -164,9 +164,40 @@ Living at `~/.agents/skills/cc-monthly-report/` (symlinked under `~/.claude/skil
 ## Design
 
 - **OAuth at startup** — client credentials token fetched on lifespan init, auto-refreshed on 401 via the retry helper.
-- **No write access** — even if the LLM tries to POST/PUT/DELETE, the OAuth scope refuses server-side.
+- **No write access from the MCP** — even if the LLM tries to POST/PUT/DELETE, the OAuth scope refuses server-side. Out-of-band administrative writes (e.g. bulk agent provisioning, see [Danger Zone](#-danger-zone--out-of-band-write-scripts) below) use a separate, locally-invoked script with its own write-scoped OAuth client; the MCP server never loads those credentials.
 - **id → name resolution cache** — internal `naming.Resolver` lazy-loads queue/user/wrap-up names so most responses are human-readable without follow-up calls.
 - **Composition over wrappers** — `agent_quality_snapshot`, `repeat_caller_report` etc. chain multiple endpoints into single ops-ready reports rather than forcing the caller to do the joining.
+
+## ⚠️ Danger Zone — out-of-band write scripts
+
+The MCP server is read-only by design. For the rare administrative tasks that genuinely require writes against your tenant, the [scripts/](scripts/) directory contains **standalone CLIs** that:
+
+- Are **not** registered as MCP tools — Claude cannot reach them, regardless of prompt
+- Use a **separate, write-scoped OAuth client** (`GENESYS_WRITE_CLIENT_ID/SECRET`) — the read-only MCP client is unaware of it and the server's startup code warns loudly if write credentials leak into the MCP process
+- Default to **`--dry-run`** — explicit `--confirm` is required to write
+- Ship a **`--self-test`** mode that exercises every write step against a throwaway user before you point the script at real data
+- Track per-user state in a **ledger** at `/tmp/provision_users/<run-id>/` so a partial failure can resume from the failing step
+
+**Read [scripts/README.md](scripts/README.md) before running anything in this directory.** It documents the one-off Genesys admin setup (a separate OAuth client + a tightly-scoped custom role), the tenant assumptions the scripts make (e.g. roles inherited from group membership), and the precise list of permissions to grant.
+
+### Currently shipped
+
+| Script | What it does |
+|---|---|
+| [`provision_users.py`](scripts/provision_users.py) | Bulk-create agents from a template agent (clones division, manager, location, ACD auto-answer, addresses, title/department, profile skills, routing skills + proficiency, routing languages, group memberships, WFM management unit; sends activation invite). |
+
+Quick reference (see [scripts/README.md](scripts/README.md) for the full setup and tenant-assumption notes):
+
+```bash
+# 1. Verify the OAuth role has every required scope (creates a throwaway user; you delete it manually)
+python scripts/provision_users.py --self-test --template-email <existing-agent>@example.com
+
+# 2. Dry-run a real batch (default — writes nothing)
+python scripts/provision_users.py --template-email <template>@example.com --emails new_starters.txt
+
+# 3. Actually execute
+python scripts/provision_users.py --template-email <template>@example.com --emails new_starters.txt --confirm
+```
 
 ## Companion skill
 
