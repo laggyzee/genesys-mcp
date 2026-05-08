@@ -471,7 +471,7 @@ def register(mcp: FastMCP) -> None:
         summaries and sentiment, then clusters topics per ANI and across the org.
 
         For abandoned and IVR-only calls there's no transcript, so topics fall back to
-        the queue name (e.g. 'Coles - Billing (abandoned)') — flagged with source='queue_fallback'
+        the queue name (e.g. 'BrandX - Billing (abandoned)') — flagged with source='queue_fallback'
         so callers can tell real AI topics from inferred ones.
 
         Heuristic recommended_action labels (order matters, first match wins):
