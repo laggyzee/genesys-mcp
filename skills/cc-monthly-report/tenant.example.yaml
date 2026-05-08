@@ -1,0 +1,86 @@
+# Example tenant config for cc-monthly-report (and any other tenant-aware skill).
+#
+# DO NOT COMMIT a populated copy. Copy this file to ~/.config/genesys-mcp/tenant.yaml
+# (or wherever $GENESYS_MCP_CONFIG points), then edit the placeholder values.
+#
+# Easiest path: run the genesys-tenant-setup skill via Claude — it auto-discovers
+# most of these values from the read-only MCP and asks you for the rest.
+#
+# Full schema reference: docs/tenant-config-schema.md
+
+tenant:
+  name: "Your Contact Centre"        # Display name shown in report headlines
+  short_name: "your-cc"              # Lowercase + hyphens; used in filenames
+
+brands:
+  # Brand names exactly as they appear in queue names per queues.name_pattern below.
+  # The skill parses each queue's name against the pattern to assign it to a brand.
+  names:
+    - "Brand1"
+    - "Brand2"
+
+queues:
+  # Pattern customer-facing queue names follow. Use {brand}, {channel}, {function}.
+  name_pattern: "{brand} - {channel} - {function}"
+  # Channels to include. Anything outside this list is excluded.
+  channels: ["Voice", "Chat"]
+  # Functions to include. Anything else is grouped as "Other" in the report.
+  functions:
+    - "Activation"
+    - "Billing"
+    - "Complaints"
+    - "General"
+    - "Retention"
+    - "Sales"
+    - "Technical Support"
+  # Substring-match skip list (case-sensitive). Useful for hiding internal /
+  # holding / test queues from customer-facing reports.
+  skip_substrings:
+    - "Holding"
+    - "Internal"
+    - "Outbound Email"
+    - "ZZZ_"
+
+management_units:
+  # WFM management unit UUIDs to include in workforce reports.
+  # Run the genesys-tenant-setup skill to auto-discover these from your tenant.
+  ids:
+    - "00000000-0000-0000-0000-000000000000"
+
+business_unit:
+  # WFM business unit UUID. The MUs above should belong to this BU.
+  # Optional — auto-discovered from MUs when absent.
+  id: "00000000-0000-0000-0000-000000000000"
+
+presence:
+  # Org-level "Pre Break" / drain presence used for break-overrun analysis.
+  # Auto-discoverable: the setup skill looks for org presences whose name
+  # contains "Pre Break", "Drain", or "Wind Down".
+  pre_break_organisation_presence_id: "00000000-0000-0000-0000-000000000000"
+
+# Role names identifying customer-facing specialists. The workforce table in
+# cc-monthly-report filters to these roles by default. Add team-leader roles
+# here only if you want them included in agent peer-comparison views.
+specialist_roles:
+  - "Specialist"
+  - "Customer Service Specialist"
+
+targets:
+  # AHT targets in total tHandle seconds — matches the Genesys "Performance" UI.
+  voice_aht_s: 285
+  message_aht_s: 660
+  acw_s: 15
+  # Pre-break drain window: agents auto-set to "Pre Break" this many minutes
+  # before scheduled breaks. Going past this is wasted handle time.
+  pre_break_min: 10
+  # Productive handle hours per FTE per month. Used for "phantom capacity"
+  # calculations (handle hours that would be freed if every agent hit AHT target).
+  # Default: 40h/wk × 4 wks × ~0.85 occupancy ≈ 136h, rounded to 160 for clarity.
+  fte_hours_per_month: 160
+
+reports:
+  # Where to save generated HTML reports. Supports ~ expansion.
+  output_dir: "~/Documents"
+  # Filename pattern. {tenant} = tenant.short_name; {period} = period slug
+  # (e.g. "april-2026"). Make sure both placeholders appear.
+  filename_pattern: "{tenant}-CC-{period}.html"
