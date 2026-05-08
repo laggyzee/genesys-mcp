@@ -1,5 +1,73 @@
 # Release Notes
 
+## v0.4.0 — 8 May 2026
+
+Makes the companion skills **tenant-agnostic**. Adds a per-user tenant config (`~/.config/genesys-mcp/tenant.yaml`) plus a guided setup wizard that auto-discovers most values from the read-only OAuth client. Anyone cloning this repo can now run `cc-monthly-report` against their own tenant without editing Python or skill prose.
+
+### New: `~/.config/genesys-mcp/tenant.yaml` — tenant-specific knobs in one place
+
+Brand list, queue naming pattern, WFM management unit, business unit, pre-break presence, specialist role list, AHT/ACW/pre-break targets, FTE-hours-per-month, output directory and filename pattern — everything that was previously hardcoded somewhere in the cc-monthly-report skill or `build_report.py` now lives in a single per-user YAML file.
+
+- Schema documented at [`docs/tenant-config-schema.md`](docs/tenant-config-schema.md).
+- Generic example at [`skills/cc-monthly-report/tenant.example.yaml`](skills/cc-monthly-report/tenant.example.yaml) — copy this to `~/.config/genesys-mcp/tenant.yaml` and edit by hand if you'd rather not use the wizard.
+- Pydantic-validated by [`genesys_mcp.tenant.load_config()`](src/genesys_mcp/tenant.py); malformed configs surface path-by-path errors before any skill runs.
+- File-resolution honours `$GENESYS_MCP_CONFIG`, `$XDG_CONFIG_HOME`, then defaults to `~/.config/genesys-mcp/tenant.yaml`. Per-user, never committed.
+
+### New: `genesys-tenant-setup` skill — auto-discover + interview wizard
+
+[`skills/genesys-tenant-setup/`](skills/genesys-tenant-setup/) — invoke via *"set up genesys mcp for my tenant"*. The skill:
+
+1. **Auto-discovers** what it can from the read-only MCP via `setup.py --discover`:
+   - Detects queue naming pattern (2-segment vs 3-segment) by parsing real queue names — confidence rating included
+   - Extracts brand list from queue prefixes (only brands that appear with multiple known-function values, filtering out one-off rows)
+   - Pulls customer-facing function list (filtering out internal-queue labels like Holding / Internal / Supervisor)
+   - Suggests skip-substrings from queue-name shapes that don't match the dominant pattern
+   - Lists WFM management units with business-unit ids
+   - Finds pre-break / drain presence by fuzzy name match on org-level presences
+   - Builds a title histogram from active users to suggest specialist-role candidates
+2. **Interviews** for the policy/judgement bits (tenant display name, AHT targets, which MUs to include, output filename pattern), using AskUserQuestion for genuine multi-choice picks and conversational prompts for free-text.
+3. **Validates and saves** the result via `setup.py --save`, which Pydantic-checks the dict before writing to the resolved config path.
+
+The discovery script reads only — it never writes to the Genesys tenant. The only thing it modifies on disk is the user's `~/.config/genesys-mcp/tenant.yaml`.
+
+### Refactored: `cc-monthly-report` is now tenant-agnostic
+
+[`skills/cc-monthly-report/build_report.py`](skills/cc-monthly-report/build_report.py) and [`skills/cc-monthly-report/SKILL.md`](skills/cc-monthly-report/SKILL.md) had every hard-coded brand name, queue prefix, WFM/BU/presence UUID, and AHT target removed. The build script now:
+
+- Takes `--tenant-config` (defaults to `~/.config/genesys-mcp/tenant.yaml`)
+- Loads + validates the config in `main()` and rebinds `VOICE_AHT_TARGET_S`/`MSG_AHT_TARGET_S`/`ACW_TARGET_S`/`FTE_HOURS_PER_MONTH`/`SPECIALIST_ROLES` from it before any aggregator runs
+- Passes the config to `render_html()` for the HTML headlines, brand footer, pre-break callouts, and AHT-target text
+- Removed four lines of dead tenant-specific synthesis scaffolding (per-brand KPI variables that were never read downstream)
+
+`SKILL.md` v2.0.0 instructs Claude to read the tenant config first, parse queue names against `cfg.queues.name_pattern`, filter by `cfg.brands.names` and `cfg.queues.skip_substrings`, and resolve the output path via `cfg.report_output_path()`.
+
+**Verified end-to-end** by running the skill against the development tenant for 1–7 May 2026 — all six data sections produced correctly with the auto-discovered config.
+
+### Internal — `genesys_mcp.tenant` module
+
+New module exposes:
+
+- `TenantConfig` — Pydantic model with nested sub-models for tenant / brands / queues / management_units / business_unit / presence / specialist_roles / targets / reports
+- `load_config(path=None)` — file resolution + parse + validate, raises `TenantConfigError` with path-by-path errors
+- `dump_config(config, path)` — validated round-trip writer (used by `genesys-tenant-setup --save`)
+- `default_config_path()` — XDG-aware resolution
+- Convenience: `cfg.report_output_path(period_slug)` resolves `<output_dir>/<filename_pattern>` with the tenant short-name baked in
+
+### Migration notes
+
+- **Existing users with a working setup** keep working unchanged — when you next pull and run, the skill will look for `~/.config/genesys-mcp/tenant.yaml`. Run the `genesys-tenant-setup` skill to generate it automatically, or copy the example yaml and edit by hand.
+- **Forks/new clones** now have a clear onboarding path: run `genesys-tenant-setup`, answer ~6 questions, and the cc-monthly-report skill works against their tenant.
+- **Adding `PyYAML>=6.0`** as a runtime dep — required for the YAML config loader. Pulled in automatically by `uv sync`.
+- **`pyproject.toml`** bumped from 0.3.0 to 0.4.0.
+
+### Known limitations / out-of-scope
+
+- **Multi-language presence labels** — auto-discovery picks `en_US` first; tenants with non-English primary locales may need to set the pre-break presence id manually.
+- **Non-`" - "` queue separators** — currently hard-coded; tenants using `_` or `/` as queue-name separators will fall through to the "no pattern detected" branch and need to provide a pattern manually.
+- **The 4 narrative sections in cc-monthly-report's leadership-circulated outputs** ("Coverage & caveats", "What worked", "What went wrong", "Recommended actions") are still hand-written on top of the skill's 6 data sections. v0.5.0 may add stub generation or LLM-driven narrative synthesis.
+
+---
+
 ## v0.3.0 — 7 May 2026
 
 Adds an out-of-band **write capability** alongside the read-only MCP, plus a small back-compat refactor to support it.

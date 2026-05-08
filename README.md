@@ -67,6 +67,18 @@ Edit `~/.claude/mcp.json` (or your platform's equivalent) and add:
 
 Restart Claude Code and the `genesys` MCP server will start automatically.
 
+### 5. (Optional) Set up the tenant config — needed for `cc-monthly-report` and other tenant-aware skills
+
+Skills that produce tenant-aware artefacts (currently just `cc-monthly-report`, more in future) read tenant-specific knobs — brand list, queue naming pattern, WFM management unit, AHT targets, pre-break presence, output filename — from a single YAML file at `~/.config/genesys-mcp/tenant.yaml` (or `$GENESYS_MCP_CONFIG`). The MCP server itself doesn't need this; only the dependent skills do.
+
+Easiest way to populate it: ask Claude *"set up genesys mcp for my tenant"* — that triggers the [`genesys-tenant-setup`](skills/genesys-tenant-setup/SKILL.md) skill, which:
+
+1. Auto-discovers everything it can from your read-only OAuth client (queue naming pattern, brand list, WFM units, pre-break presence, specialist roles)
+2. Asks you a short list of policy questions for the rest (tenant display name, AHT targets, output filename)
+3. Validates the result against the schema and writes it to `~/.config/genesys-mcp/tenant.yaml`
+
+Or by hand: copy [`skills/cc-monthly-report/tenant.example.yaml`](skills/cc-monthly-report/tenant.example.yaml) to `~/.config/genesys-mcp/tenant.yaml` and fill in the values. Schema reference: [`docs/tenant-config-schema.md`](docs/tenant-config-schema.md).
+
 ## Tool surface
 
 ### Directory & lookups
@@ -146,9 +158,13 @@ Once installed, just talk to Claude:
 - *"Pull a quality snapshot for agent X over the last 7 days, compared with their peers."*
 - *"What's the live wallboard look like for these 6 queues?"*
 
-## Companion skill: `cc-monthly-report`
+## Companion skills
 
-A user-installable Claude Code skill that produces a self-contained HTML contact-centre report from one prompt — *"do the monthly CC report for May 2026"* — and drops it at `~/Documents/Prvidr-CC-{period}.html`.
+Two user-installable Claude Code skills ship with this repo. Both depend on a per-tenant config at `~/.config/genesys-mcp/tenant.yaml` — see Setup step 5 above for how to populate it (the easiest path is the `genesys-tenant-setup` wizard).
+
+### `cc-monthly-report`
+
+Produces a self-contained HTML contact-centre report from one prompt — *"do the monthly CC report for May 2026"* — and drops it at `<output_dir>/<short_name>-CC-<period>.html` (paths configurable per tenant).
 
 What the report contains:
 
@@ -159,7 +175,15 @@ What the report contains:
 5. Workforce — per-agent productivity (specialists only), AHT vs targets (voice / message / ACW), break / AWAY / pre-break behaviour
 6. Performance leverage — quantifies "phantom capacity" (handle hours that would be freed if every agent hit AHT target) + "FCR drag" (handle hours wasted on repeat calls), then compares against the WFM-derived peak-demand shortfall to give a single synthesised verdict: *"more staff or better staff?"*
 
-Living at `~/.agents/skills/cc-monthly-report/` (symlinked under `~/.claude/skills/`). The skill markdown describes the workflow; a Python script does the aggregation and HTML rendering. Reproducible — the same skill against the same period gives the same report.
+Tenant-agnostic by design: every brand name, queue naming pattern, AHT target, WFM unit ID and presence ID is read from the tenant config. No tenant-specific values are hard-coded in the skill or build script.
+
+Living at [`skills/cc-monthly-report/`](skills/cc-monthly-report/) (symlinked under `~/.claude/skills/`). The skill markdown describes the workflow; a Python script does the aggregation and HTML rendering. Reproducible — the same skill against the same period and tenant config gives the same report.
+
+### `genesys-tenant-setup`
+
+Generates the per-tenant config (`~/.config/genesys-mcp/tenant.yaml`) by auto-discovering whatever it can from the read-only OAuth client (queue patterns, brand list, WFM units, pre-break presence, specialist roles) and asking Claude conversational questions for the rest (tenant display name, AHT targets, output filename). Writes a validated YAML file when done. Run it once per tenant — anyone forking the repo will use this.
+
+Living at [`skills/genesys-tenant-setup/`](skills/genesys-tenant-setup/).
 
 ## Design
 

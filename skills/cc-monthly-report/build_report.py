@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Build the Prvidr Contact-Centre HTML report from raw genesys-mcp JSON dumps.
+"""Build the Contact-Centre HTML report from raw genesys-mcp JSON dumps.
+
+Tenant-specific knobs (brands, AHT targets, WFM unit, pre-break presence id,
+filename pattern) are read from the tenant config — see
+docs/tenant-config-schema.md and ~/.config/genesys-mcp/tenant.yaml.
 
 Usage:
     python build_report.py \\
@@ -8,7 +12,10 @@ Usage:
         --data-dir /tmp/cc-report-april-2026 \\
         --qmap-json /tmp/cc-report-april-2026/qmap.json \\
         --user-roles-json /tmp/cc-report-april-2026/user_roles.json \\
-        --output ~/Documents/Prvidr-CC-april-2026.html
+        --output "$(python -c 'from genesys_mcp.tenant import load_config; \\
+                                  print(load_config().report_output_path(\"april-2026\"))')"
+
+Or simpler, let the SKILL.md workflow drive --output via the configured filename pattern.
 
 The data directory must contain four JSON files — one per MCP tool result text payload:
     queue_performance.json
@@ -29,6 +36,13 @@ import sys
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
+
+# Make src/ importable so we can use the shared TenantConfig loader without
+# requiring an editable install. Mirrors the pattern used by scripts/provision_users.py.
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(_REPO_ROOT / "src"))
+
+from genesys_mcp.tenant import TenantConfig, load_config  # noqa: E402
 
 
 # ---------- helpers ----------
@@ -130,16 +144,15 @@ def aggregate_queue_performance(qp: dict, qmap: dict[str, list[str]]) -> dict:
     return {"brand_rows": brand_rows, "per_queue": per_queue}
 
 
-SPECIALIST_ROLES = {"Specialist", "Customer Service Specialist"}
-
-# Org targets — total Genesys tHandle per interaction (talk + hold + ACW combined).
-# ACW target is included within the AHT figures; we surface it separately for
-# coaching context.
+# Tenant-configurable defaults. main() loads ~/.config/genesys-mcp/tenant.yaml
+# (or wherever --tenant-config points) and rebinds these from the validated
+# TenantConfig before any aggregator runs. Defaults below are illustrative and
+# match a typical contact-centre setup; they are NOT used unless the config
+# loader fails to load before main() rebinds them.
+SPECIALIST_ROLES: set[str] = {"Specialist", "Customer Service Specialist"}
 VOICE_AHT_TARGET_S = 285
 MSG_AHT_TARGET_S = 660
 ACW_TARGET_S = 15
-# 1 FTE = ~160 productive (handle-time) hours per month — typical contact-centre
-# planning assumption (40h/wk × 4 weeks × 0.85 occupancy = ~136h, rounded up).
 FTE_HOURS_PER_MONTH = 160
 
 
@@ -706,7 +719,7 @@ def render_performance_leverage(lev: dict) -> str:
 <p style="color:var(--muted); font-size:13px;">Two sources of recoverable handle capacity that don't require hiring. Compare the totals to the WFM-derived staffing shortfall (next subsection) to decide between coaching and headcount.</p>
 
 <div class="kpi-grid">
-  <div class="kpi warn"><div class="label">AHT phantom capacity</div><div class="value">{lev['aht_excess_h']:.0f} h</div><div class="sub">{lev['aht_excess_fte']:.1f} FTE-equivalent if every agent hit voice 285s / msg 660s</div></div>
+  <div class="kpi warn"><div class="label">AHT phantom capacity</div><div class="value">{lev['aht_excess_h']:.0f} h</div><div class="sub">{lev['aht_excess_fte']:.1f} FTE-equivalent if every agent hit voice {VOICE_AHT_TARGET_S}s / msg {MSG_AHT_TARGET_S}s</div></div>
   <div class="kpi warn"><div class="label">Repeat-caller drag</div><div class="value">{lev['fcr_drag_h']:.0f} h</div><div class="sub">{lev['fcr_drag_fte']:.1f} FTE-equivalent if first call resolved</div></div>
   <div class="kpi"><div class="label">Total recoverable</div><div class="value">{lev['total_recoverable_h']:.0f} h</div><div class="sub">{lev['total_recoverable_fte']:.1f} FTE / month — coachable, no hire needed</div></div>
 </div>
@@ -796,13 +809,10 @@ def render_staffing_section(staffing: dict, leverage: dict | None) -> str:
 
 
 def render_html(period: str, interval: str, brand_rows: list[dict], per_queue: list[dict],
-                workforce: list[dict], themes: dict, daily_sl: list[dict] | None = None,
+                workforce: list[dict], themes: dict, cfg: TenantConfig,
+                daily_sl: list[dict] | None = None,
                 leverage: dict | None = None, staffing: dict | None = None) -> str:
     # KPIs
-    voice = next((r for r in brand_rows if r["brand"] == "Acme" and r["media"] == "voice"), None)
-    cole_msg = next((r for r in brand_rows if r["brand"] == "Acme" and r["media"] == "message"), None)
-    onepass_v = next((r for r in brand_rows if r["brand"] == "OnePass" and r["media"] == "voice"), None)
-    onepass_msg = next((r for r in brand_rows if r["brand"] == "OnePass" and r["media"] == "message"), None)
     total_voice_off = sum(r["offered"] for r in brand_rows if r["media"] == "voice")
     total_voice_ans = sum(r["answered"] for r in brand_rows if r["media"] == "voice")
     total_msg_off = sum(r["offered"] for r in brand_rows if r["media"] == "message")
@@ -836,17 +846,17 @@ def render_html(period: str, interval: str, brand_rows: list[dict], per_queue: l
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Prvidr Contact Centre — {period} Report</title>
+<title>{cfg.tenant.name} — {period} Report</title>
 <style>{CSS}</style>
 </head>
 <body>
 <div class="wrap">
 
 <header class="title-band">
-  <h1>Prvidr Contact Centre — {period} Report</h1>
+  <h1>{cfg.tenant.name} — {period} Report</h1>
   <div class="meta">
     <strong>Period:</strong> {period} (AEST) &nbsp;|&nbsp;
-    <strong>Brands:</strong> Acme, OnePass, Members, Spriggy &nbsp;|&nbsp;
+    <strong>Brands:</strong> {', '.join(cfg.brands.names)} &nbsp;|&nbsp;
     <strong>Channels:</strong> Voice + Message + Email
   </div>
 </header>
@@ -906,13 +916,13 @@ def render_html(period: str, interval: str, brand_rows: list[dict], per_queue: l
 
 <section id="workforce">
 <h2>5. Workforce — productivity &amp; adherence</h2>
-<p style="color:var(--muted); font-size:13px;"><strong>Email is excluded</strong> from this table (email handle times can span days, which inflates AHT and total handle hours unhelpfully). The figures below are voice + message + callback only. <strong>Voice AHT / Msg AHT</strong> in seconds — split out so neither inflates the other. <strong>Br over</strong> = break/meal overruns. <strong>Away n / min</strong> = count + total minutes on AWAY (raw negative). <strong>Pre-br over n / min</strong> = pre-break sessions running &gt;10 min.</p>
+<p style="color:var(--muted); font-size:13px;"><strong>Email is excluded</strong> from this table (email handle times can span days, which inflates AHT and total handle hours unhelpfully). The figures below are voice + message + callback only. <strong>Voice AHT / Msg AHT</strong> in seconds — split out so neither inflates the other. <strong>Br over</strong> = break/meal overruns. <strong>Away n / min</strong> = count + total minutes on AWAY (raw negative). <strong>Pre-br over n / min</strong> = pre-break sessions running &gt;{cfg.targets.pre_break_min} min.</p>
 
 {render_workforce_table(workforce)}
 
 {f'<div class="callout"><strong>Top performer:</strong> {top_performer["name"]} — {fmt_int(top_performer["answered"])} answered ({fmt_int(top_performer["voice_ans"])} voice + {fmt_int(top_performer["msg_ans"])} messages), {top_performer["overruns"]} break overruns.</div>' if top_performer and top_performer["answered"] > 0 else ''}
 
-<div class="callout warn"><strong>Pre-break overrun total: {total_pb_min:.0f} min ({total_pb_min/60:.1f} hours).</strong> Pre-break is the auto-applied 10-minute drain window before scheduled breaks; going past 10 minutes turns wind-down into idle time. Top: {', '.join(f'{r["name"]} ({r["pre_break_overrun_min"]:.0f} min over {r["pre_break_overrun_count"]} instances)' for r in top_pb if r["pre_break_overrun_min"] > 0)}.</div>
+<div class="callout warn"><strong>Pre-break overrun total: {total_pb_min:.0f} min ({total_pb_min/60:.1f} hours).</strong> Pre-break is the auto-applied {cfg.targets.pre_break_min}-minute drain window before scheduled breaks; going past {cfg.targets.pre_break_min} minutes turns wind-down into idle time. Top: {', '.join(f'{r["name"]} ({r["pre_break_overrun_min"]:.0f} min over {r["pre_break_overrun_count"]} instances)' for r in top_pb if r["pre_break_overrun_min"] > 0)}.</div>
 
 <div class="callout warn"><strong>AWAY usage hot-spots:</strong> {', '.join(f'{r["name"]} ({r["away_count"]} instances / {r["away_min"]:.0f} min)' for r in top_away if r["away_min"] > 0)}.</div>
 </section>
@@ -920,7 +930,7 @@ def render_html(period: str, interval: str, brand_rows: list[dict], per_queue: l
 {f'<section id="leverage"><h2>6. Performance leverage</h2>{render_performance_leverage(leverage)}{render_staffing_section(staffing, leverage) if staffing else ""}</section>' if leverage else ''}
 
 <footer>
-<p><strong>Generated</strong> from the Prvidr Genesys Cloud MCP — <code>list_queues</code>, <code>queue_performance</code>, <code>repeat_caller_deep_dive</code>, <code>agent_performance</code>, <code>break_overrun_report</code>. AU region (<code>ap-southeast-2</code>), read-only OAuth. Source: <a href="https://github.com/laggyzee/genesys-mcp">github.com/laggyzee/genesys-mcp</a>. Report compiled {datetime.now().strftime('%-d %B %Y')}.</p>
+<p><strong>Generated</strong> from the genesys-mcp server — <code>list_queues</code>, <code>queue_performance</code>, <code>repeat_caller_deep_dive</code>, <code>agent_performance</code>, <code>break_overrun_report</code>. Read-only OAuth. Source: <a href="https://github.com/laggyzee/genesys-mcp">github.com/laggyzee/genesys-mcp</a>. Report compiled {datetime.now().strftime('%-d %B %Y')}.</p>
 <p>Period covered: {period} ({interval}).</p>
 </footer>
 
@@ -939,7 +949,21 @@ def main() -> int:
     p.add_argument("--qmap-json", required=True, help="JSON dict of queueId → [brand, queue_name]")
     p.add_argument("--user-roles-json", required=True, help="JSON dict of userId → [name, role]")
     p.add_argument("--output", required=True)
+    p.add_argument("--tenant-config",
+                   help="Path to tenant.yaml (default: $GENESYS_MCP_CONFIG / "
+                        "$XDG_CONFIG_HOME/genesys-mcp/tenant.yaml / ~/.config/genesys-mcp/tenant.yaml). "
+                        "See docs/tenant-config-schema.md.")
     args = p.parse_args()
+
+    # Load tenant config and rebind the module-level "constants" the aggregators
+    # read. This is the single hook that makes the script portable across tenants.
+    cfg = load_config(args.tenant_config)
+    global SPECIALIST_ROLES, VOICE_AHT_TARGET_S, MSG_AHT_TARGET_S, ACW_TARGET_S, FTE_HOURS_PER_MONTH
+    SPECIALIST_ROLES = set(cfg.specialist_roles)
+    VOICE_AHT_TARGET_S = cfg.targets.voice_aht_s
+    MSG_AHT_TARGET_S = cfg.targets.message_aht_s
+    ACW_TARGET_S = cfg.targets.acw_s
+    FTE_HOURS_PER_MONTH = cfg.targets.fte_hours_per_month
 
     data_dir = Path(args.data_dir)
     out_path = Path(os.path.expanduser(args.output))
@@ -967,7 +991,8 @@ def main() -> int:
     staffing = aggregate_staffing(wfm_raw)
 
     html = render_html(args.period, args.interval, qp_agg["brand_rows"], qp_agg["per_queue"],
-                       workforce, themes, daily_sl=daily_sl, leverage=leverage, staffing=staffing)
+                       workforce, themes, cfg=cfg, daily_sl=daily_sl,
+                       leverage=leverage, staffing=staffing)
     out_path.write_text(html)
 
     print(f"OK report written to {out_path}")
