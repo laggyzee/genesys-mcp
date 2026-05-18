@@ -84,3 +84,25 @@ reports:
   # Filename pattern. {tenant} = tenant.short_name; {period} = period slug
   # (e.g. "april-2026"). Make sure both placeholders appear.
   filename_pattern: "{tenant}-CC-{period}.html"
+
+# Knobs for the cc-coaching-prep skill and the agent_coaching_pack MCP tool.
+# All fields here are optional — sensible defaults apply if you omit the block.
+coaching:
+  # How to auto-resolve the peer set for the per-agent comparison column.
+  # - "role":  same specialist role + same MU (most homogeneous comparison)
+  # - "queue": same primary queue (more practically relevant)
+  # - "mu":    same management unit only (broadest)
+  peer_grouping: role
+
+  # Thresholds that decide which calls get flagged for review in the brief.
+  flagged_call_thresholds:
+    # Negative-sentiment trend on a call >= this magnitude flags it.
+    sentiment_drop: 0.5
+    # Continuous transcript silence (seconds) flags the call.
+    silent_seconds: 30
+    # % over voice-AHT-target on a single call that flags it.
+    aht_excess_pct: 20.0
+
+  # Coaching-brief output filename. {agent_slug} and {period} are required
+  # placeholders. Drops into reports.output_dir alongside the monthly report.
+  coaching_filename_pattern: "coaching-{agent_slug}-{period}.html"

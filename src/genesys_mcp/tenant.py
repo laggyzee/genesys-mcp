@@ -120,6 +120,62 @@ class _Reports(BaseModel):
         return v
 
 
+class _CoachingThresholds(BaseModel):
+    sentiment_drop: float = Field(
+        default=0.5, ge=0.0, le=2.0,
+        description="Minimum negative-sentiment delta on a call to flag it for review.",
+    )
+    silent_seconds: int = Field(
+        default=30, ge=1,
+        description="Continuous silence on transcript above this duration flags the call.",
+    )
+    aht_excess_pct: float = Field(
+        default=20.0, ge=0.0,
+        description="% over AHT target on a single call that flags it for review.",
+    )
+
+
+class _Coaching(BaseModel):
+    """Knobs for ``cc-coaching-prep`` and ``agent_coaching_pack``.
+
+    All defaults are sane for a generic CC; tenants tighten or loosen as needed.
+    """
+
+    peer_grouping: str = Field(
+        default="role",
+        description=(
+            "How to auto-resolve the peer set for comparison: 'role' (same "
+            "specialist role + same management unit), 'queue' (same primary "
+            "queue), or 'mu' (same management unit only)."
+        ),
+    )
+    flagged_call_thresholds: _CoachingThresholds = Field(
+        default_factory=_CoachingThresholds,
+    )
+    coaching_filename_pattern: str = Field(
+        default="coaching-{agent_slug}-{period}.html",
+        description="Coaching-prep skill output filename. Supports {agent_slug} and {period}.",
+    )
+
+    @field_validator("peer_grouping")
+    @classmethod
+    def _validate_peer_grouping(cls, v: str) -> str:
+        if v not in ("role", "queue", "mu"):
+            raise ValueError(
+                "coaching.peer_grouping must be one of 'role', 'queue', or 'mu'"
+            )
+        return v
+
+    @field_validator("coaching_filename_pattern")
+    @classmethod
+    def _validate_coaching_filename(cls, v: str) -> str:
+        if "{agent_slug}" not in v or "{period}" not in v:
+            raise ValueError(
+                "coaching.coaching_filename_pattern must contain {agent_slug} and {period}"
+            )
+        return v
+
+
 class TenantConfig(BaseModel):
     """Validated tenant config — the single source of truth for skills."""
 
@@ -135,6 +191,7 @@ class TenantConfig(BaseModel):
     )
     targets: _Targets = Field(default_factory=_Targets)
     reports: _Reports = Field(default_factory=_Reports)
+    coaching: _Coaching = Field(default_factory=_Coaching)
 
     # Convenience accessors used by skills.
     def report_output_path(self, period_slug: str) -> Path:
@@ -144,6 +201,17 @@ class TenantConfig(BaseModel):
         """
         filename = self.reports.filename_pattern.format(
             tenant=self.tenant.short_name, period=period_slug,
+        )
+        return Path(self.reports.output_dir).expanduser() / filename
+
+    def coaching_output_path(self, agent_slug: str, period_slug: str) -> Path:
+        """Resolve {agent_slug}/{period} placeholders for cc-coaching-prep output.
+
+        Drops into the same ``reports.output_dir`` as the monthly report — one
+        documents folder per tenant rather than two.
+        """
+        filename = self.coaching.coaching_filename_pattern.format(
+            agent_slug=agent_slug, period=period_slug,
         )
         return Path(self.reports.output_dir).expanduser() / filename
 

@@ -74,6 +74,21 @@ reports:
   filename_pattern: string     # Filename pattern. Placeholders:
                                #   {tenant} → tenant.short_name
                                #   {period} → period slug (e.g. "april-2026")
+
+# Optional block — drives the agent_coaching_pack tool and cc-coaching-prep skill.
+# All fields default to sensible values if you omit the block entirely.
+coaching:
+  peer_grouping: string        # 'role' | 'queue' | 'mu'. Default 'role'.
+                               # How to auto-resolve the peer set for comparison.
+  flagged_call_thresholds:
+    sentiment_drop: float      # Negative-sentiment trend magnitude that flags a call. Default 0.5.
+    silent_seconds: int        # Transcript silence (s) that flags a call. Default 30.
+    aht_excess_pct: float      # Voice-AHT excess (% over target) that flags a call. Default 20.0.
+  coaching_filename_pattern: string
+                               # Coaching-brief filename. Required placeholders:
+                               #   {agent_slug} → e.g. "anthony-kha"
+                               #   {period} → period slug
+                               # Default "coaching-{agent_slug}-{period}.html"
 ```
 
 ## Validation

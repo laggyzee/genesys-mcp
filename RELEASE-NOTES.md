@@ -1,5 +1,82 @@
 # Release Notes
 
+## v0.5.0 — 18 May 2026
+
+The **coaching ecosystem** release. Three new MCP tools plus a new tenant-aware skill (`cc-coaching-prep`) that turns 1:1 prep into a one-prompt HTML brief. Built on the v0.4 tenant-config plumbing — portable from day 1.
+
+### New tool — `qa_evaluations`
+
+[`src/genesys_mcp/tools/quality.py`](src/genesys_mcp/tools/quality.py). First coverage of the `/api/v2/quality/*` surface. For a list of users + interval, returns avg score, pass rate, critical-pass rate, last-evaluated, plus per-evaluation rows (form, evaluator, total score, conversation id). Optional per-question detail + evaluator comments behind `include_question_detail=True` (opt-in because comments can be PII).
+
+Soft-fails on 403 with `scope_available: false` when the OAuth client doesn't have `quality:readonly` — same graceful-degrade pattern as the speech & text analytics tools. Always requests `expand_answer_total_scores=True` internally because without it Genesys returns evaluations with an empty `answers` block (so the SDK helper-method behaviour silently returns no scores — easy gotcha if you build your own).
+
+New OAuth scope required to use this: `quality:readonly`. Without it the tool soft-fails and downstream tools (`agent_coaching_pack`'s QA section) gracefully skip the QA section.
+
+### New tool — `agent_coaching_pack`
+
+[`src/genesys_mcp/tools/coaching.py`](src/genesys_mcp/tools/coaching.py). One-shot composition tool for Team-Leader 1:1 prep. Single call returns volume + AHT/ACW vs target, peer-median comparison, sentiment trajectory, QA score summary, wrap-up discipline (note rate + top dispositions), top flagged calls, and a heuristic top-3 recommended coaching focus with concrete evidence (*"Voice AHT 330s vs target 285s (+15.8%) — 14 handle-hours over target this period"*).
+
+Composes existing tools rather than duplicating their logic: `agent_performance` (via the same canonical UI-matching aggregates filter), the conversation-details job (for the per-call walk), `_sta_details` from `reports.py` (for sentiment), and the new `qa_evaluations`.
+
+Tenant-aware via `~/.config/genesys-mcp/tenant.yaml`:
+
+- Loads AHT/ACW targets from `targets.*`
+- Loads flagged-call thresholds (sentiment-drop magnitude, silent seconds, AHT-excess %) from the new `coaching.flagged_call_thresholds.*` block
+- Falls back to in-code defaults (voice 285s / message 660s / ACW 15s; sentiment 0.5 / silent 30s / aht-excess 20%) when no config file present, so the tool also works standalone via the MCP
+
+Gracefully degrades: no `quality:readonly` → QA section reports `scope_available: false`; no speech-and-text-analytics → sentiment section reports empty; the rest always populates.
+
+### New tool — `routing_diagnostic`
+
+[`src/genesys_mcp/tools/routing.py`](src/genesys_mcp/tools/routing.py). Answers *"why did this conversation end up where it did?"* for a specific conversation. Returns:
+
+- **outcome**: answered / abandoned (+ reason) / other, with explanation
+- **path**: chronological IVR → queue → agent path with per-segment durations, eligible-agent counts surfaced from session-level `eligibleAgentCounts` (Genesys-provided at routing time, not a current-state proxy), active skill ids, requested routings
+- **queues_visited**: each unique queue touched with routing config (skill requirements, evaluation method, ACW settings, auto-answer flag) plus current eligible-agent counts broken down by `IDLE` state
+- **timing**: total time-in-ACD-queue, time-to-first-answer, transfer count
+
+Uses `get_analytics_conversation_details` (not the live `get_conversation` endpoint, which exposes participants but doesn't surface segments the same way). Session-level `eligibleAgentCounts` from the analytics view are accurate for the moment of the call — the queue-level `eligibility_now` is current-state and most useful for recent failures.
+
+v0.5 ships conversation_id mode only. Aggregate mode (*"show me all this week's abandons by failure-mode"*) planned for v0.5.x — needs a different endpoint shape.
+
+### New skill — `cc-coaching-prep`
+
+[`skills/cc-coaching-prep/`](skills/cc-coaching-prep/). One-prompt 1:1 coaching brief for a single agent — *"prep coaching for Anthony for the last 4 weeks"*. Pattern mirrors `cc-monthly-report`: SKILL.md drives orchestration, `build_report.py` does the HTML render. Drops the brief at `<reports.output_dir>/<coaching_filename_pattern>` — typically `~/Documents/coaching-<agent-slug>-<period>.html`.
+
+The HTML uses the same visual idiom as `cc-monthly-report` — colour-coded vs-target pills (`+15%` green/amber/red), peer-comparison badges, KPI cards, section cards, no JavaScript. Talking points (the LLM-synthesised conversation-starter list on top of the data) are emitted by Claude in chat at the end of the run, not embedded in the HTML, so they don't fossilise between runs.
+
+Install via symlink:
+
+```bash
+ln -s "$(pwd)/skills/cc-coaching-prep" ~/.claude/skills/cc-coaching-prep
+```
+
+### Tenant config — new `coaching` block
+
+[`src/genesys_mcp/tenant.py`](src/genesys_mcp/tenant.py) gained a `_Coaching` sub-model:
+
+- `coaching.peer_grouping`: `role` / `queue` / `mu` — strategy for resolving the comparison peer set (default `role`)
+- `coaching.flagged_call_thresholds.{sentiment_drop, silent_seconds, aht_excess_pct}` — knobs that decide which calls get flagged for review
+- `coaching.coaching_filename_pattern` — output filename pattern for the new skill
+
+All fields have sensible defaults. Existing tenant.yaml files keep working unchanged; the block can be omitted entirely. The example at [`skills/cc-monthly-report/tenant.example.yaml`](skills/cc-monthly-report/tenant.example.yaml) and the schema doc at [`docs/tenant-config-schema.md`](docs/tenant-config-schema.md) now show the optional block.
+
+### Migration notes
+
+- **OAuth scope change**: to enable `qa_evaluations` and the QA section in `agent_coaching_pack`, add `quality:readonly` to your OAuth client's role. The tools soft-fail gracefully without it.
+- **Existing tenant configs**: keep working unchanged. The new `coaching:` block is fully optional with sane defaults.
+- **`pyproject.toml`** bumped from 0.4.0 to 0.5.0.
+- **Tool count**: 35 → 38.
+
+### Known limitations / out-of-scope
+
+- **`routing_diagnostic` aggregate mode** — *"show me all this week's abandons"* — deferred to v0.5.x; v0.5 ships conversation_id mode only.
+- **LLM narrative synthesis for the monthly report's 4 hand-written sections** ("Coverage & caveats", "What worked", "What went wrong", "Recommended actions") — pre-announced in v0.4 notes, still planned for its own v0.5.x slot rather than this release.
+- **`cc-coaching-prep` for message-only agents** — sentiment section will be empty because Genesys STA on message channels is partial; works as designed but flagged for transparency.
+- **Outbound campaign performance** — deferred. Large slice of community but a separate domain wrapper; would be its own v0.6 conversation.
+
+---
+
 ## v0.4.0 — 8 May 2026
 
 Makes the companion skills **tenant-agnostic**. Adds a per-user tenant config (`~/.config/genesys-mcp/tenant.yaml`) plus a guided setup wizard that auto-discovers most values from the read-only OAuth client. Anyone cloning this repo can now run `cc-monthly-report` against their own tenant without editing Python or skill prose.
