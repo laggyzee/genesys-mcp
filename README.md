@@ -23,6 +23,7 @@ Genesys Admin → Integrations → OAuth → Add Client.
 - **Roles:** create or attach a role with these readonly permissions:
   - **Required for the core tools:** `analytics`, `conversations`, `recordings`, `users`, `routing`
   - **Optional (Wave 3 tools):** `speech-and-text-analytics`, `external-contacts`, `workforce-management`
+  - **Optional (v0.5 coaching tools):** `quality` — enables the `qa_evaluations` tool and the QA section of `agent_coaching_pack` / the `cc-coaching-prep` skill. Without it, the QA section soft-fails (returns `scope_available: false`) and the rest still works.
 
 Copy the Client ID and Client Secret somewhere safe.
 
@@ -118,7 +119,18 @@ Or by hand: copy [`skills/cc-monthly-report/tenant.example.yaml`](skills/cc-mont
 | `repeat_caller_deep_dive` | The *why* layer on top of `repeat_caller_report`. Enriches the top repeaters with conversation summaries, AI outcomes (`Resolved` / `Mid Flight` / `Unresolved Chat` / `Escalated`), expected-fix tags, sentiment trajectory, and a heuristic `recommended_action` (`callback_recommended` / `escalate_to_retention` / `route_review` / `monitor`). Org rollup includes top dispositions and the `unresolved_repeaters` priority list. |
 | `break_overrun_report` | Per-agent break / meal / **AWAY** / **PRE_BREAK** signals over an interval. AWAY tracked as raw count + total minutes (no target). PRE_BREAK overruns vs configurable target (default 10 min) — handles the auto-applied pre-break presence and quantifies time spent over the drain window. |
 | `agent_quality_snapshot` | One-shot agent review combining handle stats, hold-ratio flags, silent-transcript detection, wrap-up note discipline, and optional peer comparison |
+| `agent_coaching_pack` | One-shot 1:1 prep brief: volume / AHT vs targets, peer-median comparison, sentiment + QA, wrap-up discipline, top flagged calls, and heuristic top-3 recommended coaching focus. Tenant-aware (loads AHT targets and flagged-call thresholds from `tenant.yaml` when present, falls back to in-code defaults). Drives the `cc-coaching-prep` skill. |
 | `live_wallboard` | Per-queue real-time view combining observation + EWT + agents-on-queue in one call |
+
+### Quality management *(needs `quality:readonly`)*
+| Tool | Purpose |
+|---|---|
+| `qa_evaluations` | Per-agent Quality Management evaluation summary over an interval: avg score, pass rate, critical-pass rate, last-evaluated, per-evaluation rows (form, evaluator, score, conversation id). Optional per-question detail + evaluator comments via `include_question_detail=True`. Soft-fails with `scope_available: false` when the scope isn't granted. |
+
+### Routing diagnostics
+| Tool | Purpose |
+|---|---|
+| `routing_diagnostic` | Explains why a specific conversation routed (or didn't) as expected: IVR → queue → outcome path with durations, queue routing rules, eligible-agent counts (session-level from Genesys, current-state for the queue), abandon / answer / transfer classification. v0.5 ships conversation_id mode; aggregate "show me all this week's abandons" mode planned for v0.5.x. |
 
 ### Speech & text analytics *(needs `speech-and-text-analytics:readonly`)*
 | Tool | Purpose |
@@ -160,7 +172,7 @@ Once installed, just talk to Claude:
 
 ## Companion skills
 
-Two user-installable Claude Code skills ship with this repo. Both depend on a per-tenant config at `~/.config/genesys-mcp/tenant.yaml` — see Setup step 5 above for how to populate it (the easiest path is the `genesys-tenant-setup` wizard).
+Three user-installable Claude Code skills ship with this repo. All three depend on a per-tenant config at `~/.config/genesys-mcp/tenant.yaml` — see Setup step 5 above for how to populate it (the easiest path is the `genesys-tenant-setup` wizard).
 
 ### `cc-monthly-report`
 
@@ -178,6 +190,23 @@ What the report contains:
 Tenant-agnostic by design: every brand name, queue naming pattern, AHT target, WFM unit ID and presence ID is read from the tenant config. No tenant-specific values are hard-coded in the skill or build script.
 
 Living at [`skills/cc-monthly-report/`](skills/cc-monthly-report/) (symlinked under `~/.claude/skills/`). The skill markdown describes the workflow; a Python script does the aggregation and HTML rendering. Reproducible — the same skill against the same period and tenant config gives the same report.
+
+### `cc-coaching-prep`
+
+One-prompt 1:1 prep brief for a single agent — *"prep coaching for Anthony for the last 4 weeks"* — drops a self-contained HTML at `<output_dir>/coaching-<agent-slug>-<period>.html`.
+
+What the brief contains:
+
+1. Performance vs targets (KPI cards + colour-coded vs-target pills for voice / message AHT and ACW)
+2. Peer comparison table (same-role peers, peer-median for each KPI with delta-vs-peers badges)
+3. Sentiment & quality (avg sentiment, QA score / pass rate / critical-pass / last-evaluated, recent evaluations table)
+4. Wrap-up & handling (note rate, top dispositions)
+5. Top flagged calls (heuristic: sentiment drop, hold ratio, AHT excess, no wrap-up notes — colour-coded reason pills with transcript links)
+6. Recommended coaching focus (heuristic top-3 with concrete evidence)
+
+Tenant-aware: AHT targets, peer-grouping strategy (`role` / `queue` / `mu`), and flagged-call thresholds (sentiment drop, silent seconds, AHT-excess %) all read from `coaching.*` in tenant.yaml. Soft-degrades cleanly: no quality scope → QA section empty; no STA scope → sentiment section empty; the rest still populates.
+
+Living at [`skills/cc-coaching-prep/`](skills/cc-coaching-prep/).
 
 ### `genesys-tenant-setup`
 
@@ -233,7 +262,6 @@ PRs welcome. Things on the roadmap that someone might want to take a swing at:
 - Web messaging transcript wrapper (the `/api/v2/conversations/messages/{id}/messages/bulk` flow, which currently needs the `call_genesys_api` escape hatch)
 - Half-hourly intra-day staffing in `wfm_schedule` (currently rolls up to daily)
 - Forecast-vs-actual analysis (compare WFM forecast to historical conversation volumes)
-- Quality evaluations / scorecards (`quality:readonly`)
 - Outbound campaign progress (`outbound:readonly`)
 - Skill-based routing analysis (which agents have which skills × queue requirements)
 
