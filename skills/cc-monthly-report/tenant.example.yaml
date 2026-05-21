@@ -110,3 +110,18 @@ coaching:
   # Coaching-brief output filename. {agent_slug} and {period} are required
   # placeholders. Drops into reports.output_dir alongside the monthly report.
   coaching_filename_pattern: "coaching-{agent_slug}-{period}.html"
+
+# Knobs for the cc-daily-brief skill (v0.7). All fields optional with sane
+# defaults; omit the block entirely to use defaults.
+daily_brief:
+  # Rolling-N-day baseline window for KPI comparison (excluding the target day).
+  comparison_window_days: 7
+
+  # Thresholds for what gets flagged in the brief.
+  flag_thresholds:
+    sentiment_dip: 0.4        # avg-sentiment drop per agent that flags them
+    aht_excess_pct: 15.0      # % over voice-AHT-target per agent that flags
+    sl_drop_pp: 10.0          # pp drop in voice SL vs rolling median per queue
+
+  # Output filename. {date} is required (YYYY-MM-DD of the brief's target day).
+  output_filename_pattern: "daily-brief-{date}.html"

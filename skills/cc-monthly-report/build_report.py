@@ -35,6 +35,7 @@ import os
 import sys
 from collections import Counter, defaultdict
 from datetime import datetime
+from html import escape
 from pathlib import Path
 
 # Make src/ importable so we can use the shared TenantConfig loader without
@@ -463,6 +464,13 @@ td.muted { color:var(--muted); }
 .trend-chart .x-axis { position:absolute; left:0; right:0; bottom:0; height:18px; display:flex; gap:2px; font-size:10px; color:var(--muted); }
 .trend-chart .x-axis span { flex:1 1 0; text-align:center; min-width:6px; }
 footer { color:var(--muted); font-size:12px; padding-top:18px; margin-top:28px; border-top:1px solid var(--line); }
+/* v0.7 narrative sections — subtle differentiation from data sections so a
+   reader can tell at a glance which sections are LLM-synthesised commentary
+   vs. data tables. */
+section.narrative { border-left:3px solid var(--accent); background:linear-gradient(to right, var(--accent-soft) 0%, var(--bg) 6%); }
+section.narrative h2 { color:var(--accent); }
+section.narrative p { max-width:78ch; }
+section.narrative ul { max-width:78ch; }
 @media print { body{background:white;} .wrap{padding:0 12mm; max-width:none;} nav.toc{display:none;} section{page-break-inside:avoid;} h2{page-break-after:avoid;} a{color:inherit; text-decoration:none;} }
 """
 
@@ -808,10 +816,142 @@ def render_staffing_section(staffing: dict, leverage: dict | None) -> str:
 {rec_html}"""
 
 
+# ── Narrative synthesis (v0.7) ──
+# The skill's final step asks the LLM to write 4 narrative sections on top of
+# the data sections. Sections come in as a markdown file with `## Heading`
+# boundaries; this module parses + lightly renders them into HTML that slots
+# in before the data sections, with TOC links auto-added.
+
+_NARRATIVE_SECTIONS = (
+    ("Coverage & caveats", "coverage", "What the data covers, known gaps, why."),
+    ("What worked", "what-worked", "Top 3 wins with evidence."),
+    ("What went wrong", "what-wrong", "Top 3 issues with evidence (not recommendations)."),
+    ("Recommended actions", "recommended", "Top 3 actions with effort estimate + owner."),
+)
+
+
+def _md_inline(text: str) -> str:
+    """Minimal inline-markdown subset for narrative bodies.
+
+    Supports **bold**, *italic*, `code`, and [link](url). Not a full markdown
+    engine — narrative sections follow a tight template per the SKILL.md.
+    Existing HTML is escaped first so untrusted-ish input from the LLM can't
+    inject markup beyond what we explicitly support.
+    """
+    import re
+    out = escape(text)
+    out = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", out)
+    out = re.sub(r"\*(.+?)\*", r"<em>\1</em>", out)
+    out = re.sub(r"`([^`]+)`", r"<code>\1</code>", out)
+    out = re.sub(
+        r"\[([^\]]+)\]\(([^)]+)\)",
+        lambda m: f'<a href="{escape(m.group(2))}">{m.group(1)}</a>',
+        out,
+    )
+    return out
+
+
+def _md_section_body_to_html(body: str) -> str:
+    """Block-level subset: paragraphs and `- ` bullet lists.
+
+    Empty lines split paragraphs. A run of lines starting with `- ` becomes
+    a `<ul>`. Everything else is a `<p>`. Inline markdown via _md_inline.
+    """
+    lines = body.strip().split("\n")
+    out_blocks: list[str] = []
+    para: list[str] = []
+    bullets: list[str] = []
+
+    def _flush_para():
+        if para:
+            text = " ".join(para).strip()
+            if text:
+                out_blocks.append(f"<p>{_md_inline(text)}</p>")
+            para.clear()
+
+    def _flush_bullets():
+        if bullets:
+            items = "".join(f"<li>{_md_inline(b)}</li>" for b in bullets)
+            out_blocks.append(f"<ul>{items}</ul>")
+            bullets.clear()
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            _flush_para()
+            _flush_bullets()
+            continue
+        if stripped.startswith("- "):
+            _flush_para()
+            bullets.append(stripped[2:])
+        else:
+            _flush_bullets()
+            para.append(stripped)
+    _flush_para()
+    _flush_bullets()
+    return "\n".join(out_blocks)
+
+
+def parse_narrative_md(path: Path) -> dict[str, str]:
+    """Parse a narrative markdown file by `## Heading` boundaries.
+
+    Returns ``{heading_id: html_body}`` for whichever of the 4 expected
+    headings appear; missing sections are simply omitted (the renderer
+    skips them). The LLM should follow the SKILL.md template, but partial
+    files render cleanly too.
+    """
+    text = path.read_text()
+    expected = {title.lower(): slug for title, slug, _desc in _NARRATIVE_SECTIONS}
+    sections: dict[str, str] = {}
+    current_slug: str | None = None
+    current_lines: list[str] = []
+
+    def _close():
+        if current_slug and current_lines:
+            sections[current_slug] = _md_section_body_to_html("\n".join(current_lines))
+
+    for line in text.splitlines():
+        if line.startswith("## "):
+            _close()
+            heading = line[3:].strip()
+            current_slug = expected.get(heading.lower())
+            current_lines = []
+        else:
+            if current_slug is not None:
+                current_lines.append(line)
+    _close()
+    return sections
+
+
+def render_narrative_block(narrative: dict[str, str] | None) -> tuple[str, str]:
+    """Build (toc_links_html, sections_html) for the narrative block.
+
+    Returns empty strings if narrative is None or empty so the report
+    structure is unchanged when no narrative was provided.
+    """
+    if not narrative:
+        return "", ""
+    toc_parts: list[str] = []
+    section_parts: list[str] = []
+    for idx, (title, slug, _desc) in enumerate(_NARRATIVE_SECTIONS, start=1):
+        body_html = narrative.get(slug)
+        if not body_html:
+            continue
+        toc_parts.append(f'  <a href="#{slug}">{escape(title)}</a>')
+        section_parts.append(
+            f'<section id="{slug}" class="narrative">'
+            f'<h2>{idx}. {escape(title)}</h2>'
+            f'{body_html}'
+            f'</section>'
+        )
+    return "\n".join(toc_parts), "\n".join(section_parts)
+
+
 def render_html(period: str, interval: str, brand_rows: list[dict], per_queue: list[dict],
                 workforce: list[dict], themes: dict, cfg: TenantConfig,
                 daily_sl: list[dict] | None = None,
-                leverage: dict | None = None, staffing: dict | None = None) -> str:
+                leverage: dict | None = None, staffing: dict | None = None,
+                narrative: dict[str, str] | None = None) -> str:
     # KPIs
     total_voice_off = sum(r["offered"] for r in brand_rows if r["media"] == "voice")
     total_voice_ans = sum(r["answered"] for r in brand_rows if r["media"] == "voice")
@@ -841,6 +981,8 @@ def render_html(period: str, interval: str, brand_rows: list[dict], per_queue: l
     # Away aggregate
     top_away = sorted(workforce, key=lambda r: -(r["away_min"] or 0))[:3]
 
+    narrative_toc, narrative_sections = render_narrative_block(narrative)
+
     return f"""<!DOCTYPE html>
 <html lang="en-AU">
 <head>
@@ -863,6 +1005,7 @@ def render_html(period: str, interval: str, brand_rows: list[dict], per_queue: l
 
 <nav class="toc">
   <strong>Contents:</strong>
+{narrative_toc}
   <a href="#exec">Executive summary</a>
   <a href="#funnel">Volume &amp; funnel</a>
   <a href="#themes">Themes</a>
@@ -870,6 +1013,8 @@ def render_html(period: str, interval: str, brand_rows: list[dict], per_queue: l
   <a href="#workforce">Workforce</a>
   <a href="#leverage">Performance leverage</a>
 </nav>
+
+{narrative_sections}
 
 <section id="exec">
 <h2>1. Executive summary</h2>
@@ -953,6 +1098,14 @@ def main() -> int:
                    help="Path to tenant.yaml (default: $GENESYS_MCP_CONFIG / "
                         "$XDG_CONFIG_HOME/genesys-mcp/tenant.yaml / ~/.config/genesys-mcp/tenant.yaml). "
                         "See docs/tenant-config-schema.md.")
+    p.add_argument("--with-narrative",
+                   help="(v0.7) Path to a markdown file containing 4 narrative "
+                        "sections ('## Coverage & caveats', '## What worked', "
+                        "'## What went wrong', '## Recommended actions'). "
+                        "Each section's body is rendered via a minimal markdown "
+                        "subset (paragraphs, **bold**, *italic*, `code`, [links], "
+                        "- bullets) and slotted in before the data sections. "
+                        "Optional; omitting it produces the v0.6 data-only report.")
     args = p.parse_args()
 
     # Load tenant config and rebind the module-level "constants" the aggregators
@@ -990,9 +1143,13 @@ def main() -> int:
     leverage = compute_performance_leverage(workforce, deep, qp_agg["brand_rows"])
     staffing = aggregate_staffing(wfm_raw)
 
+    narrative = (
+        parse_narrative_md(Path(args.with_narrative).expanduser())
+        if args.with_narrative else None
+    )
     html = render_html(args.period, args.interval, qp_agg["brand_rows"], qp_agg["per_queue"],
                        workforce, themes, cfg=cfg, daily_sl=daily_sl,
-                       leverage=leverage, staffing=staffing)
+                       leverage=leverage, staffing=staffing, narrative=narrative)
     out_path.write_text(html)
 
     print(f"OK report written to {out_path}")

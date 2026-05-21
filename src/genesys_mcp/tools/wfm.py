@@ -31,6 +31,19 @@ def _parse_iso(s: str) -> datetime:
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
+def _bucket_key(dt: datetime, bucket_seconds: int) -> str:
+    """Floor a datetime to a bucket boundary and return its ISO-8601 string.
+
+    Used by ``volume_vs_forecast`` to join forecast quarter-hours with actual
+    analytics aggregates into the same coarser bucket (e.g. 1-hour).
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    epoch = int(dt.timestamp())
+    floored = epoch - (epoch % bucket_seconds)
+    return datetime.fromtimestamp(floored, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def register(mcp: FastMCP) -> None:
     @mcp.tool()
     def list_management_units(
@@ -518,5 +531,251 @@ def register(mcp: FastMCP) -> None:
                 "scheduled_hours": round(sum(d["scheduled_hours"] for d in daily), 1),
                 "required_hours": round(sum(d["required_hours"] for d in daily), 1),
                 "gap_hours": round(sum(d["gap_hours"] for d in daily), 1),
+            },
+        }
+
+    @mcp.tool()
+    def volume_vs_forecast(
+        business_unit_id: str = Field(
+            description=(
+                "Business unit id (use list_management_units → look at the "
+                "businessUnit field). The short-term forecast lives at the BU level."
+            ),
+        ),
+        interval: str | None = Field(
+            default=None,
+            description="ISO-8601 interval. Defaults to last 7 days UTC.",
+        ),
+        granularity: str = Field(
+            default="1h",
+            description=(
+                "Time bucket size for the comparison. One of '15min', '30min', "
+                "'1h', '1d'. WFM short-term forecast resolution is 15-min; "
+                "coarser buckets aggregate. 1-hour is the readable default."
+            ),
+        ),
+    ) -> dict:
+        """Per-interval **forecast vs actual** comparison — closes the WFM loop.
+
+        ``wfm_schedule`` answers *"how does scheduled capacity compare to the
+        forecast?"* (forecast vs scheduled). This tool answers the missing
+        third side: *"how accurate was the forecast?"* (forecast vs actual).
+        Pairs well with wfm_schedule for the full demand/capacity triangle.
+
+        Pulls the published short-term forecast for the interval, pulls actual
+        conversation volume + handle time via the analytics aggregates API for
+        the same period, and computes per-bucket variance plus a roll-up
+        forecast-accuracy figure (MAPE — mean absolute percentage error).
+
+        Returns:
+        - ``buckets``: per-interval series ``{interval_start, forecast_offered,
+          actual_offered, volume_variance_pct, forecast_aht_s, actual_aht_s,
+          aht_variance_pct}``
+        - ``totals``: rolled-up forecast vs actual offered + handle hours
+        - ``accuracy``: ``{volume_mape_pct, aht_mape_pct, worst_buckets}`` —
+          where ``volume_mape_pct`` is the mean absolute percentage error
+          across buckets; lower is a more accurate forecast
+        - ``worst_buckets``: top 5 buckets by absolute volume variance — the
+          intervals the forecast missed by the most
+        """
+        interval = interval or _default_interval(7)
+        try:
+            int_start, int_end = interval.split("/", 1)
+            i_start = _parse_iso(int_start)
+            i_end = _parse_iso(int_end)
+        except Exception as exc:
+            raise ValueError(f"Invalid interval {interval!r}") from exc
+
+        if granularity not in ("15min", "30min", "1h", "1d"):
+            raise ValueError(
+                f"granularity must be one of 15min/30min/1h/1d, got {granularity!r}"
+            )
+        bucket_seconds = {"15min": 900, "30min": 1800, "1h": 3600, "1d": 86400}[granularity]
+        genesys_granularity = {
+            "15min": "PT15M", "30min": "PT30M", "1h": "PT1H", "1d": "P1D",
+        }[granularity]
+
+        api_client = get_api()
+
+        # 1. Discover forecasts for the interval. Genesys publishes weekly
+        # forecasts keyed by the Monday of each week. Iterate Mondays in scope.
+        from datetime import date, timedelta as td
+        d = i_start.date()
+        d -= td(days=d.weekday())
+        seen_fc: set[str] = set()
+        forecasts: list[dict] = []
+        while d <= i_end.date():
+            try:
+                resp = with_retry(api_client.call_api)(
+                    resource_path=(
+                        f"/api/v2/workforcemanagement/businessunits/"
+                        f"{business_unit_id}/weeks/{d.isoformat()}/shorttermforecasts"
+                    ),
+                    method="GET",
+                    auth_settings=["PureCloud OAuth"],
+                    response_type="object",
+                ) or {}
+                for fc in resp.get("entities") or []:
+                    fid = fc.get("id")
+                    if not fid or fid in seen_fc:
+                        continue
+                    seen_fc.add(fid)
+                    # weekDate is the forecast's own published-at Monday — may
+                    # be earlier than the listing Monday for multi-week forecasts.
+                    # The /data endpoint lives at that week_date, not the listing's.
+                    forecasts.append({
+                        "id": fid,
+                        "week_date": fc.get("weekDate") or d.isoformat(),
+                        "week_count": fc.get("weekCount") or 1,
+                        "description": fc.get("description"),
+                        "state": fc.get("state"),
+                    })
+            except gc.rest.ApiException as exc:
+                if exc.status not in (404, 403):
+                    raise
+            d += td(days=7)
+
+        # 2. Pull each forecast's data and aggregate into a single timeline.
+        # The /data endpoint returns ONE week per call, indexed by ?weekNumber=N
+        # (1-indexed). For a multi-week forecast we iterate weekCount calls.
+        # Each per-interval array is 7 days × 96 quarter-hours = 672 (or 676 if
+        # a DST transition adds extra quarter-hours).
+        forecast_buckets: dict[str, dict[str, float]] = {}
+        for fc in forecasts:
+            week_count = int(fc.get("week_count") or 1)
+            for week_n in range(1, week_count + 1):
+                try:
+                    data_resp = with_retry(api_client.call_api)(
+                        resource_path=(
+                            f"/api/v2/workforcemanagement/businessunits/"
+                            f"{business_unit_id}/weeks/{fc['week_date']}/"
+                            f"shorttermforecasts/{fc['id']}/data"
+                        ),
+                        method="GET",
+                        auth_settings=["PureCloud OAuth"],
+                        response_type="object",
+                        query_params={"weekNumber": week_n},
+                    ) or {}
+                except gc.rest.ApiException as exc:
+                    if exc.status in (404, 403):
+                        continue
+                    raise
+
+                result = data_resp.get("result") or {}
+                ref_start = result.get("referenceStartDate") or (
+                    fc["week_date"] + "T00:00:00.000Z"
+                )
+                origin = _parse_iso(ref_start)
+                if origin.tzinfo is None:
+                    origin = origin.replace(tzinfo=timezone.utc)
+                # This call's data starts (week_n - 1) weeks after the origin.
+                this_week_start = origin + timedelta(days=(week_n - 1) * 7)
+
+                # Cheap window filter: if this week is fully outside the
+                # requested interval, skip parsing the arrays.
+                if this_week_start + timedelta(days=8) < i_start:
+                    continue
+                if this_week_start > i_end:
+                    continue
+
+                for pg in result.get("planningGroups") or []:
+                    offered = pg.get("offeredPerInterval") or []
+                    aht = pg.get("averageHandleTimeSecondsPerInterval") or []
+                    for idx, off_val in enumerate(offered):
+                        bucket_start = this_week_start + timedelta(minutes=15 * idx)
+                        if bucket_start < i_start or bucket_start >= i_end:
+                            continue
+                        bucket_key = _bucket_key(bucket_start, bucket_seconds)
+                        b = forecast_buckets.setdefault(
+                            bucket_key,
+                            {"offered": 0.0, "aht_weighted": 0.0, "aht_n": 0.0},
+                        )
+                        b["offered"] += float(off_val or 0)
+                        aht_val = float((aht[idx] if idx < len(aht) else 0) or 0)
+                        if aht_val > 0 and off_val:
+                            b["aht_weighted"] += aht_val * float(off_val)
+                            b["aht_n"] += float(off_val)
+
+        # 3. Pull actual analytics conversations aggregates for the interval.
+        aapi = gc.AnalyticsApi(api_client)
+        actual_resp = to_dict(
+            with_retry(aapi.post_analytics_conversations_aggregates_query)({
+                "interval": interval,
+                "granularity": genesys_granularity,
+                "metrics": ["tAnswered", "tHandle"],
+            })
+        )
+        actual_buckets: dict[str, dict[str, float]] = {}
+        for r in actual_resp.get("results") or []:
+            for bucket in r.get("data") or []:
+                bucket_dt = _parse_iso(bucket["interval"].split("/")[0])
+                bucket_key = _bucket_key(bucket_dt, bucket_seconds)
+                ab = actual_buckets.setdefault(
+                    bucket_key, {"answered": 0.0, "handle_ms": 0.0},
+                )
+                for m in bucket.get("metrics") or []:
+                    if m["metric"] == "tAnswered":
+                        ab["answered"] += float(m.get("stats", {}).get("count", 0) or 0)
+                    elif m["metric"] == "tHandle":
+                        ab["handle_ms"] += float(m.get("stats", {}).get("sum", 0) or 0)
+
+        # 4. Build the comparison series across all bucket keys.
+        all_keys = sorted(set(forecast_buckets) | set(actual_buckets))
+        buckets_out: list[dict] = []
+        for key in all_keys:
+            f = forecast_buckets.get(key) or {"offered": 0.0, "aht_weighted": 0.0, "aht_n": 0.0}
+            a = actual_buckets.get(key) or {"answered": 0.0, "handle_ms": 0.0}
+            fc_aht = f["aht_weighted"] / f["aht_n"] if f["aht_n"] else None
+            actual_aht = a["handle_ms"] / 1000.0 / a["answered"] if a["answered"] else None
+            vol_var_pct = (
+                (a["answered"] - f["offered"]) / f["offered"] * 100.0
+                if f["offered"] else None
+            )
+            aht_var_pct = (
+                (actual_aht - fc_aht) / fc_aht * 100.0
+                if (fc_aht and actual_aht) else None
+            )
+            buckets_out.append({
+                "interval_start": key,
+                "forecast_offered": round(f["offered"], 1),
+                "actual_offered": int(a["answered"]),
+                "volume_variance_pct": round(vol_var_pct, 1) if vol_var_pct is not None else None,
+                "forecast_aht_s": round(fc_aht, 1) if fc_aht is not None else None,
+                "actual_aht_s": round(actual_aht, 1) if actual_aht is not None else None,
+                "aht_variance_pct": round(aht_var_pct, 1) if aht_var_pct is not None else None,
+            })
+
+        # 5. Roll-ups.
+        total_fc_offered = sum(b["forecast_offered"] or 0 for b in buckets_out)
+        total_actual_offered = sum(b["actual_offered"] or 0 for b in buckets_out)
+        vol_errs = [abs(b["volume_variance_pct"]) for b in buckets_out
+                    if b["volume_variance_pct"] is not None]
+        aht_errs = [abs(b["aht_variance_pct"]) for b in buckets_out
+                    if b["aht_variance_pct"] is not None]
+        worst_volume = sorted(
+            [b for b in buckets_out if b["volume_variance_pct"] is not None],
+            key=lambda r: abs(r["volume_variance_pct"]),
+            reverse=True,
+        )[:5]
+
+        return {
+            "interval": interval,
+            "granularity": granularity,
+            "business_unit_id": business_unit_id,
+            "forecasts_used": forecasts,
+            "buckets": buckets_out,
+            "totals": {
+                "forecast_offered": round(total_fc_offered, 1),
+                "actual_offered": total_actual_offered,
+                "total_variance_pct": (
+                    round((total_actual_offered - total_fc_offered) / total_fc_offered * 100.0, 1)
+                    if total_fc_offered else None
+                ),
+            },
+            "accuracy": {
+                "volume_mape_pct": round(sum(vol_errs) / len(vol_errs), 1) if vol_errs else None,
+                "aht_mape_pct": round(sum(aht_errs) / len(aht_errs), 1) if aht_errs else None,
+                "bucket_count": len(buckets_out),
+                "worst_buckets": worst_volume,
             },
         }

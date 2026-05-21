@@ -98,6 +98,19 @@ coaching:
                                #   {agent_slug} → e.g. "anthony-kha"
                                #   {period} → period slug
                                # Default "coaching-{agent_slug}-{period}.html"
+
+# Optional block — drives the cc-daily-brief skill (v0.7+). All fields default
+# to sensible values if you omit the block entirely.
+daily_brief:
+  comparison_window_days: int  # Rolling baseline window in days. Default 7.
+  flag_thresholds:
+    sentiment_dip: float       # Sentiment drop magnitude per agent. Default 0.4.
+    aht_excess_pct: float      # % over voice-AHT-target per agent. Default 15.
+    sl_drop_pp: float          # pp drop in voice SL per queue. Default 10.
+  output_filename_pattern: string
+                               # Daily-brief filename. Required placeholder:
+                               #   {date} → YYYY-MM-DD of target day
+                               # Default "daily-brief-{date}.html"
 ```
 
 ## Validation

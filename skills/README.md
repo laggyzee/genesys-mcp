@@ -10,7 +10,8 @@ multi-step workflow into a one-prompt command.
 |---|---|
 | [`cc-monthly-report/`](cc-monthly-report/) | One-prompt monthly contact-centre report. Pulls from `queue_performance`, `agent_performance`, `break_overrun_report`, `repeat_caller_deep_dive`, and `wfm_schedule`; produces a single self-contained HTML report with funnel, themes, repeat callers, workforce, performance leverage, demand-vs-capacity, and recommended actions. |
 | [`cc-coaching-prep/`](cc-coaching-prep/) | One-prompt 1:1 coaching brief for a single agent. Calls `agent_coaching_pack` and renders HTML covering performance vs targets, peer comparison, sentiment + QA, wrap-up discipline, top flagged calls, and a heuristic top-3 recommended coaching focus. Pairs naturally with the monthly report for the workforce → individual-coaching drill-down. |
-| [`genesys-tenant-setup/`](genesys-tenant-setup/) | Per-tenant config wizard. Auto-discovers brand list, queue naming pattern, WFM units, pre-break presence and specialist roles from the read-only OAuth client; interviews for the rest; writes a validated `~/.config/genesys-mcp/tenant.yaml`. Run once per tenant — all the other skills depend on this file. |
+| [`cc-daily-brief/`](cc-daily-brief/) | (v0.7) Start-of-day brief for supervisors. Composes yesterday's headline KPIs (SL today vs rolling-7-day median), worst routes, flagged agents (voice AHT excess), unresolved-repeater callback list, and adherence flags into a one-page HTML that fits a laptop screen. |
+| [`genesys-tenant-setup/`](genesys-tenant-setup/) | Per-tenant config wizard. Auto-discovers brand list, queue naming pattern, WFM units, pre-break presence, specialist roles, AHT baselines + timezone from the read-only OAuth client; interviews for the rest; writes a validated `~/.config/genesys-mcp/tenant.yaml`. Run once per tenant — all the other skills depend on this file. |
 
 ## Installing a skill
 
