@@ -170,6 +170,7 @@ Or by hand: copy [`skills/cc-monthly-report/tenant.example.yaml`](skills/cc-mont
 | `query_agent_adherence_explanations` | Why an agent was off-schedule |
 | `agent_adherence_review` | Combines presence overruns with WFM explanations side-by-side |
 | `wfm_schedule` | Per-day **scheduled hours** (sum of paid-time activities across user shifts) vs **WFM-forecast required hours** (from headcountforecast `requiredPerInterval`). The headline answer to "do we need more staff or just better scheduling shape?" — compares scheduled capacity against demand on every day of the period and flags understaffed days. |
+| `volume_vs_forecast` | (v0.7) Per-interval **forecast vs actual** comparison — closes the WFM loop alongside `wfm_schedule`. Pulls the published short-term forecast for an interval (`/businessunits/{buId}/weeks/{weekDate}/shorttermforecasts`), pulls actual conversation volume + handle time via analytics aggregates, computes per-bucket variance, and rolls up forecast accuracy (MAPE). Answers *"how good was last week's forecast?"* — WFM analysts currently build this in Excel. |
 
 ### Escape hatch
 | Tool | Purpose |
@@ -191,7 +192,7 @@ Once installed, just talk to Claude:
 
 ## Companion skills
 
-Three user-installable Claude Code skills ship with this repo. All three depend on a per-tenant config at `~/.config/genesys-mcp/tenant.yaml` — see Setup step 5 above for how to populate it (the easiest path is the `genesys-tenant-setup` wizard).
+Four user-installable Claude Code skills ship with this repo. All four depend on a per-tenant config at `~/.config/genesys-mcp/tenant.yaml` — see Setup step 5 above for how to populate it (the easiest path is the `genesys-tenant-setup` wizard).
 
 ### `cc-monthly-report`
 
@@ -227,9 +228,25 @@ Tenant-aware: AHT targets, peer-grouping strategy (`role` / `queue` / `mu`), and
 
 Living at [`skills/cc-coaching-prep/`](skills/cc-coaching-prep/).
 
+### `cc-daily-brief`
+
+(v0.7) One-prompt **daily** brief for supervisors at start-of-day — *"daily brief"*, *"morning brief"*, *"how did we go yesterday"*. Drops a one-page HTML at `<output_dir>/daily-brief-<YYYY-MM-DD>.html`.
+
+What the brief contains:
+
+1. Headline KPIs — voice + message SL today vs the rolling 7-day median
+2. Worst routes — top queues by SL drop vs their rolling median
+3. Flagged agents — top agents by voice AHT excess
+4. Repeat-caller callback list — unresolved repeaters from yesterday
+5. Adherence flags — agents over the combined break/pre-break/meal overrun threshold
+
+Tenant-aware: flag thresholds (sentiment dip, AHT excess %, SL drop pp) and the comparison window all read from `daily_brief.*` in tenant.yaml. Designed to fit a laptop screen or Slack share without scrolling — narrower than the monthly report.
+
+Living at [`skills/cc-daily-brief/`](skills/cc-daily-brief/).
+
 ### `genesys-tenant-setup`
 
-Generates the per-tenant config (`~/.config/genesys-mcp/tenant.yaml`) by auto-discovering whatever it can from the read-only OAuth client (queue patterns, brand list, WFM units, pre-break presence, specialist roles) and asking Claude conversational questions for the rest (tenant display name, AHT targets, output filename). Writes a validated YAML file when done. Run it once per tenant — anyone forking the repo will use this.
+Generates the per-tenant config (`~/.config/genesys-mcp/tenant.yaml`) by auto-discovering whatever it can from the read-only OAuth client (queue patterns, brand list, WFM units, pre-break presence, specialist roles, AHT baselines, timezone) and asking Claude conversational questions for the rest. Writes a validated YAML file when done. Run it once per tenant — anyone forking the repo will use this.
 
 Living at [`skills/genesys-tenant-setup/`](skills/genesys-tenant-setup/).
 

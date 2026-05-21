@@ -161,6 +161,55 @@ class _CoachingThresholds(BaseModel):
     )
 
 
+class _DailyBriefThresholds(BaseModel):
+    sentiment_dip: float = Field(
+        default=0.4, ge=0.0, le=2.0,
+        description="Avg-sentiment drop magnitude per agent that flags them in the daily brief.",
+    )
+    aht_excess_pct: float = Field(
+        default=15.0, ge=0.0,
+        description="% over voice-AHT-target per agent that flags them.",
+    )
+    sl_drop_pp: float = Field(
+        default=10.0, ge=0.0,
+        description="Percentage-point drop in voice SL vs the rolling median that flags a queue.",
+    )
+
+
+class _DailyBrief(BaseModel):
+    """Knobs for the ``cc-daily-brief`` skill (v0.7).
+
+    All defaults are sane; tenants tighten or loosen as needed.
+    """
+
+    comparison_window_days: int = Field(
+        default=7, ge=2, le=28,
+        description=(
+            "Rolling-median lookback window for KPI comparison (excluding "
+            "the target day itself)."
+        ),
+    )
+    flag_thresholds: _DailyBriefThresholds = Field(
+        default_factory=_DailyBriefThresholds,
+    )
+    output_filename_pattern: str = Field(
+        default="daily-brief-{date}.html",
+        description=(
+            "Daily-brief output filename. {date} is required and resolves "
+            "to the brief's target date (YYYY-MM-DD format)."
+        ),
+    )
+
+    @field_validator("output_filename_pattern")
+    @classmethod
+    def _validate_filename(cls, v: str) -> str:
+        if "{date}" not in v:
+            raise ValueError(
+                "daily_brief.output_filename_pattern must contain {date}"
+            )
+        return v
+
+
 class _Coaching(BaseModel):
     """Knobs for ``cc-coaching-prep`` and ``agent_coaching_pack``.
 
@@ -218,6 +267,7 @@ class TenantConfig(BaseModel):
     targets: _Targets = Field(default_factory=_Targets)
     reports: _Reports = Field(default_factory=_Reports)
     coaching: _Coaching = Field(default_factory=_Coaching)
+    daily_brief: _DailyBrief = Field(default_factory=_DailyBrief)
 
     # Convenience accessors used by skills.
     def report_output_path(self, period_slug: str) -> Path:
@@ -228,6 +278,15 @@ class TenantConfig(BaseModel):
         filename = self.reports.filename_pattern.format(
             tenant=self.tenant.short_name, period=period_slug,
         )
+        return Path(self.reports.output_dir).expanduser() / filename
+
+    def daily_brief_output_path(self, date_slug: str) -> Path:
+        """Resolve {date} placeholder for cc-daily-brief output.
+
+        Drops into the same ``reports.output_dir`` as the other report skills.
+        ``date_slug`` should be ``YYYY-MM-DD`` (the brief's target day).
+        """
+        filename = self.daily_brief.output_filename_pattern.format(date=date_slug)
         return Path(self.reports.output_dir).expanduser() / filename
 
     def coaching_output_path(self, agent_slug: str, period_slug: str) -> Path:

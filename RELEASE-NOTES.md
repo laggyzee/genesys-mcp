@@ -1,5 +1,83 @@
 # Release Notes
 
+## v0.7.0 — 22 May 2026
+
+The **depth-over-breadth** release. No new domain wrappers — instead a 2x performance win on the slowest existing tool, a new WFM tool that closes the demand/capacity triangle, a new daily-cadence skill, and LLM narrative synthesis for the monthly report (closing a 3-release backlog).
+
+### Concurrent fetches in `agent_coaching_pack` (2x speedup)
+
+[`src/genesys_mcp/tools/coaching.py`](src/genesys_mcp/tools/coaching.py). The per-conversation enrichment walk (wrap-up + STA) ran ~400 sequential HTTPs for a 200-conv week — ~30s wall time. v0.7 collapses both endpoints into a bounded `ThreadPoolExecutor` (8 workers, well under Genesys's 300 req/min rate limit). Same wall-clock work, parallel I/O.
+
+Verified on a live tenant: **14.6s vs ~30s baseline**, output JSON byte-identical to v0.6. The two-pass design (local extract → concurrent fetch → scoring) keeps the aggregation logic identical to v0.6, so no race conditions.
+
+### LLM narrative synthesis for `cc-monthly-report`
+
+[`skills/cc-monthly-report/SKILL.md`](skills/cc-monthly-report/SKILL.md) and [`skills/cc-monthly-report/build_report.py`](skills/cc-monthly-report/build_report.py).
+
+Closes the v0.4 pre-announced item that deferred through v0.5 and v0.6. After the build script writes the 6 data-driven sections, the skill now instructs Claude to:
+
+1. Read the freshly-generated HTML to ground in the actual numbers
+2. Synthesise 4 narrative sections per a tight template (~120 words each): **Coverage & caveats** · **What worked** · **What went wrong** · **Recommended actions**
+3. Pass the markdown back to `build_report.py --with-narrative <md-file>` (new flag) which parses `## Heading` boundaries and slots each section into the HTML with TOC links auto-added
+
+build_report.py has a minimal markdown→HTML pass: paragraphs, `**bold**`, `*italic*`, `` `code` ``, `[links](url)`, `- bullets`. No full markdown engine — the LLM follows a tight template. Output uses a new `.narrative` CSS class (subtle accent left-border) so readers can tell at a glance which sections are LLM commentary vs. data tables.
+
+Backwards-compatible: omitting `--with-narrative` produces the v0.6 data-only report.
+
+### New tool — `volume_vs_forecast`
+
+[`src/genesys_mcp/tools/wfm.py`](src/genesys_mcp/tools/wfm.py). Closes the WFM demand/capacity triangle:
+
+| Tool | Compares |
+|---|---|
+| `wfm_schedule` (v0.2) | forecast required hours vs **scheduled** hours |
+| `volume_vs_forecast` (v0.7) | forecast volume + AHT vs **actual** (this release) |
+
+Per-bucket comparison at 15min / 30min / 1h / 1d granularity. Returns per-interval `{forecast_offered, actual_offered, volume_variance_pct, forecast_aht_s, actual_aht_s, aht_variance_pct}`, plus rolled-up forecast accuracy as MAPE (mean absolute percentage error) and the top-5 worst-forecast buckets.
+
+WFM endpoint archaeology: short-term forecasts span multiple weeks but the `/data` endpoint returns one week at a time, indexed via `?weekNumber=N` (1-indexed). The tool iterates `weekCount` calls, joins per-week 96-quarter-hour arrays via `referenceStartDate` as the time origin, and aggregates into the requested bucket granularity.
+
+Verified against a live tenant for a 7-day window: forecast under-counted volume by 20% (4702 forecast vs 5650 actual) and underestimated AHT by ~80% (forecast 484-525s vs actual 589-1197s) — real WFM analyst signal that the team currently builds in Excel.
+
+### New skill — `cc-daily-brief`
+
+[`skills/cc-daily-brief/`](skills/cc-daily-brief/). Fills the gap between `cc-monthly-report` (monthly cadence) and `cc-coaching-prep` (per-agent, periodic) — a **daily** brief for supervisors at start-of-day.
+
+One prompt: *"daily brief"*, *"morning brief for yesterday"*, *"how did we go yesterday"*. Drops a one-page HTML at `<output_dir>/daily-brief-<YYYY-MM-DD>.html`. Sections:
+
+1. Headline KPIs — voice + message SL today vs rolling-N-day median (defaults 7 days, configurable via `daily_brief.comparison_window_days`)
+2. Worst routes — queues by voice SL drop vs their rolling median
+3. Flagged agents — top agents by voice AHT excess vs target
+4. Repeat-caller callback list — unresolved-from-yesterday repeaters
+5. Adherence flags — agents over the combined break/pre-break/meal overrun threshold
+
+Narrower visual idiom than the monthly report (~700px wide, designed for laptop screens or Slack shares without scrolling). Tenant-aware: all flag thresholds (`sentiment_dip`, `aht_excess_pct`, `sl_drop_pp`) read from `daily_brief.flag_thresholds.*` in tenant.yaml.
+
+Install via `make link-skills` (the v0.6 Makefile target picks up new skills automatically).
+
+### Tenant schema additions
+
+[`src/genesys_mcp/tenant.py`](src/genesys_mcp/tenant.py) gained a `daily_brief:` block with `comparison_window_days`, `flag_thresholds.{sentiment_dip, aht_excess_pct, sl_drop_pp}`, and `output_filename_pattern`. All defaults sane; the block is fully optional.
+
+New convenience accessor `cfg.daily_brief_output_path(date_slug)` mirrors `cfg.report_output_path()` and `cfg.coaching_output_path()`.
+
+### Migration notes
+
+- **Existing tenant configs**: keep working unchanged. The new `daily_brief:` block defaults sensibly when omitted.
+- **`pyproject.toml`** bumped from 0.6.0 to 0.7.0.
+- **Tool count**: 39 → 40 (`volume_vs_forecast`).
+- **Skill count**: 3 → 4 (`cc-daily-brief`).
+- The 2x speedup in `agent_coaching_pack` is automatic — no config or scope changes.
+
+### Known limitations / out-of-scope
+
+- **`cc-daily-brief` adherence/sentiment flags** — v0.7 surfaces AHT-excess flagged agents only. Sentiment-dip and per-agent adherence are tenant-config knobs that the build script doesn't yet compute (would require an extra round of per-agent STA fetches). v0.7.x extension if signal warrants.
+- **`volume_vs_forecast` AHT mismatch interpretation** — the analytics aggregates query is media-agnostic; if the forecast was scoped to voice only but the actuals include message + callback, the AHT MAPE will look much worse than the underlying accuracy. The tool surfaces the numbers; analysts interpret. Filtering by forecast planning-group → media-type is a v0.7.x consideration.
+- **`routing_diagnostic` aggregate mode** — still deferred. The new `cc-daily-brief` partially overlaps with it (worst-routes section), so re-evaluating priority post-v0.7.
+- **Outbound campaign coverage** — still deferred.
+
+---
+
 ## v0.6.0 — 21 May 2026
 
 The **first-run experience** release. Cuts time-from-clone-to-working-report by ~70% via a one-command installer, an end-to-end health check, smarter auto-discovery in the tenant-setup wizard, and timezone awareness across the report skills.

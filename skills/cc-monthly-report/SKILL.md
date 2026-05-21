@@ -176,7 +176,59 @@ The script:
 5. Extracts org-level themes (top dispositions, AI outcomes, expected fixes) from the deep-dive
 6. Writes a single self-contained HTML file (inline CSS, print-friendly) at the resolved output path
 
-### Step 5 — Confirm and report
+### Step 5 — Synthesise narrative sections (v0.7+)
+
+Open the freshly-written HTML and skim the data sections — KPIs, brand × channel funnel, themes, repeat-caller priority list, workforce table, performance leverage. Use those numbers (not your prior assumptions) to draft 4 narrative sections that go on top of the data for leadership.
+
+Write the narrative as a single markdown file at `/tmp/cc-report-{period-slug}/narrative.md` following this template **exactly** — the build script's parser looks for the four `## Heading` strings as boundary markers:
+
+```markdown
+## Coverage & caveats
+
+One short paragraph: what period the data covers, what data is included (channels, brands, MUs, queues), and any **specific gaps** the user should know about before reading the numbers (e.g. *"STA enrichment was missing for the first 2 days due to a recording-pipeline issue"*, *"WFM data starts April 3rd because the planning unit X wasn't published before that"*).
+
+Keep to ~120 words. Don't list every minor thing — only what would change interpretation of the data.
+
+## What worked
+
+Top 3 wins, each one bullet, with **numeric evidence** from the data sections:
+
+- **What** — *brief evidence (numbers)*
+- **What** — *brief evidence*
+- **What** — *brief evidence*
+
+Wins can be: SL recovery, AHT improvement, repeat-caller drop, specific routing change that landed. Don't pad — if there are only 2 clear wins, list 2.
+
+## What went wrong
+
+Top 3 issues, same shape as above. **Evidence only — no recommendations** (those go in the next section).
+
+## Recommended actions
+
+Top 3 actions, each with:
+
+- **Action** — *who owns it (TL / Ops / WFM / Eng), **effort estimate** (Low / Medium / High), expected impact in concrete terms*
+
+If something has no clear owner, suggest one and flag it as a question for the leadership review. Sort by impact-per-effort, not alphabetically.
+```
+
+Then re-run `build_report.py` with the `--with-narrative` flag pointing at that markdown file. The same command as Step 4 plus one extra arg:
+
+```bash
+python ~/code/genesys-mcp/skills/cc-monthly-report/build_report.py \
+  --period "{period}" --interval "{interval}" \
+  --data-dir /tmp/cc-report-{period-slug} \
+  --qmap-json /tmp/cc-report-{period-slug}/qmap.json \
+  --user-roles-json /tmp/cc-report-{period-slug}/user_roles.json \
+  --output "$OUTPUT_PATH" \
+  --with-narrative /tmp/cc-report-{period-slug}/narrative.md
+```
+
+The build script parses the markdown by `## Heading` boundaries, runs each section's body through a minimal markdown→HTML pass (paragraphs, **bold**, *italic*, `code`, [links], `- ` bullets — that's it; no tables, no headings within sections), and slots the four `<section class="narrative">` blocks in **before** the data sections with TOC links auto-added. Missing sections (e.g. you skip "What went wrong" because there was genuinely nothing) are simply omitted — the renderer doesn't fail.
+
+If the user explicitly says *"skip the narrative"* or you have no useful interpretation to add, omit the `--with-narrative` flag and ship the data-only report — that's the v0.6 behaviour and it's still a valid output.
+
+### Step 6 — Confirm and report
 
 After the script succeeds, post a short confirmation:
 
