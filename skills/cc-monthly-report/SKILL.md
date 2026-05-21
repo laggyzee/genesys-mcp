@@ -57,7 +57,7 @@ You are producing a Contact-Centre report — a self-contained HTML document the
    - An ISO interval: "2026-05-01T00:00:00.000Z/2026-05-31T23:59:59.000Z"
    - A date range: "1 May to 31 May 2026"
 
-5. **All times are AEST (UTC+10) unless the user specifies otherwise.** The Genesys API takes UTC, so an AEST month-start of 2026-04-01 00:00 = 2026-03-31T14:00:00.000Z UTC. Use UTC+10 year-round for simplicity (close enough; the Sydney DST boundary is rarely on a month edge). If the tenant is in another region, ask the user for the local-time offset.
+5. **Period strings are interpreted in `cfg.tenant.timezone`** (which the wizard auto-detected from the org's default country code; defaults to `UTC` if the field is missing). The Genesys API takes UTC, so a local month-start needs converting via Python's `zoneinfo`. See Step 1 for the recipe. If the user specifies an explicit ISO interval with a `Z` suffix, take it as-is.
 
 ## Inputs to gather
 
@@ -73,25 +73,26 @@ Don't pad with optional questions — just confirm the period and start.
 
 ### Step 1 — Resolve the interval
 
-Convert the period to ISO-8601 UTC. Examples (AEST = UTC+10):
-
-| Period | Start (UTC) | End (UTC) |
-|---|---|---|
-| April 2026 | 2026-03-31T14:00:00.000Z | 2026-04-30T14:00:00.000Z |
-| May 2026 | 2026-04-30T14:00:00.000Z | 2026-05-31T14:00:00.000Z |
-| this week (Mon→now) | last Mon 00:00 AEST → now UTC | |
-| last week (Mon→Sun) | Mon 00:00 AEST → next Mon 00:00 AEST | |
-
-For a custom range "1 May to 31 May 2026 AEST", convert each side to UTC. Use Python in a Bash call to compute it precisely if needed:
+Convert the period to ISO-8601 UTC using the tenant's timezone from `cfg.tenant.timezone`. Use Python's `zoneinfo`:
 
 ```python
-from datetime import datetime, timedelta, timezone
-aest = timezone(timedelta(hours=10))
-start_aest = datetime(2026, 5, 1, 0, 0, tzinfo=aest)
-end_aest   = datetime(2026, 6, 1, 0, 0, tzinfo=aest)
-print(start_aest.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"))
-print(end_aest.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"))
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+from genesys_mcp.tenant import load_config
+
+cfg = load_config()
+tz = ZoneInfo(cfg.tenant.timezone)  # e.g. 'Australia/Sydney', 'America/New_York', 'UTC'
+
+# Month example: "April 2026"
+start_local = datetime(2026, 4, 1, 0, 0, tzinfo=tz)
+end_local   = datetime(2026, 5, 1, 0, 0, tzinfo=tz)
+
+start_iso = start_local.astimezone(timezone.utc).isoformat().replace("+00:00", "Z").replace("00Z", "00.000Z")
+end_iso   = end_local.astimezone(timezone.utc).isoformat().replace("+00:00", "Z").replace("00Z", "00.000Z")
+print(f"{start_iso}/{end_iso}")
 ```
+
+For "this week" / "last week" use the tenant-local week boundary (Mon→Mon) then convert. For an explicit ISO interval the user provided, take it verbatim — they've already picked their convention.
 
 Save the interval as a single ISO string `"<start>/<end>"`.
 

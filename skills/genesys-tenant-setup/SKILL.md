@@ -114,15 +114,46 @@ Show the title_counts histogram. Auto-suggest titles containing "Specialist" / "
 
 Encourage them to be inclusive of leadership-adjacent titles (e.g. include "Senior Specialist" but NOT "Team Leader") — the workforce table filters to specialists by default but does so against this list.
 
-#### 2h. Targets (with sensible defaults)
+#### 2h. Targets (auto-suggested from the tenant's actual data)
 
-Show:
+The discovery payload includes an `aht_baselines` block from `probe_aht_baselines` — last 60 days of per-user voice/message AHT for the suggested specialist roles. Use those numbers to ground the prompt instead of asking for cold figures:
 
-> *Defaults: voice AHT 285s, message AHT 660s, ACW 15s, pre-break drain 10 min, FTE 160 productive hours/month.*
->
-> *Hit enter to accept all defaults, or override any.*
+```
+Voice AHT — your tenant's actuals (last 60 days, specialists with ≥20 calls):
+  p25 (top-performer median): 240s   p50 (team median): 312s   p75: 401s
+  Team AHT:                                              318s
 
-Don't make the user think about each one unless they want to. Most tenants stay close to defaults.
+Suggested target: 240s (p25 — a target equal to the median wouldn't be a target).
+Use 240s? (y / enter your own)
+```
+
+Same for message AHT and voice ACW. Each `suggested_target_s` in the baselines payload is the p25 across specialists with enough volume.
+
+**Fall back to defaults (voice 285s / message 660s / ACW 15s) only when:**
+- `aht_baselines` was unavailable (analytics scope missing — `_error` field set)
+- `users_with_volume` is below 5 (insufficient sample for percentiles to be meaningful)
+
+In either fall-back case, tell the user that auto-suggestion wasn't possible and show the static defaults instead.
+
+The other two targets are policy choices with no real auto-suggestion:
+
+- `pre_break_min`: drain window before scheduled breaks (default 10 minutes). Override only if the tenant has a custom pre-break SOP.
+- `fte_hours_per_month`: productive handle hours per FTE (default 160 = 40h/wk × 4 wk × 0.85 occupancy). Override if the tenant has a different occupancy assumption.
+
+Don't make the user think about each one unless they want to.
+
+#### 2h-bis. Timezone (auto-suggested from organisation country)
+
+The discovery payload includes an `organisation.suggested_timezone` derived from the org's `defaultCountryCode`. Show:
+
+```
+Detected country: AU
+Suggested timezone: Australia/Sydney
+
+Use Australia/Sydney? (y / enter another IANA zone)
+```
+
+If `timezone_confidence` is `low`, the country wasn't in the lookup table and `suggested_timezone` defaulted to `UTC` — ask the user to enter the correct IANA name (e.g. `America/Los_Angeles`, `Europe/Berlin`). Tenants that span multiple regions should pick their primary CC region.
 
 #### 2i. Output dir + filename pattern (confirm)
 

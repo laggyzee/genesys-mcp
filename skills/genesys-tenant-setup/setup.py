@@ -109,6 +109,47 @@ COMMON_FUNCTIONS = {
 # Channel-name candidates that suggest a 3-segment pattern.
 COMMON_CHANNELS = {"voice", "chat", "messaging", "message", "email", "callback", "sms"}
 
+# Separators to probe for queue-name parsing. Order matters — try longer
+# delimiters first so " - " wins over "-".
+QUEUE_SEPARATORS = (" - ", " / ", " | ", " :: ", "_", ":")
+
+# Country code → IANA timezone mapping. Sensible defaults for the most
+# common Genesys regions; multi-region tenants override in tenant.yaml.
+COUNTRY_TIMEZONES = {
+    "AU": "Australia/Sydney",
+    "NZ": "Pacific/Auckland",
+    "US": "America/New_York",
+    "CA": "America/Toronto",
+    "GB": "Europe/London",
+    "UK": "Europe/London",
+    "IE": "Europe/Dublin",
+    "DE": "Europe/Berlin",
+    "FR": "Europe/Paris",
+    "ES": "Europe/Madrid",
+    "IT": "Europe/Rome",
+    "NL": "Europe/Amsterdam",
+    "BR": "America/Sao_Paulo",
+    "MX": "America/Mexico_City",
+    "JP": "Asia/Tokyo",
+    "IN": "Asia/Kolkata",
+    "SG": "Asia/Singapore",
+    "HK": "Asia/Hong_Kong",
+    "PH": "Asia/Manila",
+    "ZA": "Africa/Johannesburg",
+    "AE": "Asia/Dubai",
+}
+
+# Pre-break presence keyword set covering common English + EU translations.
+# The probe iterates ALL language_labels on each presence (not just en_US)
+# and matches any of these — handles tenants with non-English primary locales.
+PRE_BREAK_KEYWORDS = re.compile(
+    r"pre[\s_-]?break|drain|wind[\s_-]?down|"
+    r"pr[ée][\s_-]?pause|avant[\s_-]?pause|"   # FR
+    r"vor[\s_-]?pause|"                          # DE
+    r"prepausa|antes[\s_-]?de[\s_-]?la[\s_-]?pausa",  # ES
+    re.I,
+)
+
 
 def _retry_read():
     return with_retry_for(init_api)
@@ -127,31 +168,55 @@ def _list_all(call: Any, *, page_size: int = 200, max_pages: int = 50) -> list:
     return out
 
 
+def _detect_separator(queue_names: list[str]) -> tuple[str, float]:
+    """Pick the dominant separator from a list of queue names.
+
+    Returns (separator, confidence). Confidence is the fraction of names that
+    split into 2+ non-empty segments using the chosen separator. Defaults to
+    ``" - "`` if no separator scores higher than 30%.
+    """
+    best_sep = " - "
+    best_score = 0.0
+    for sep in QUEUE_SEPARATORS:
+        if not queue_names:
+            continue
+        hits = 0
+        for name in queue_names:
+            parts = [p.strip() for p in name.split(sep)]
+            if len(parts) >= 2 and all(parts):
+                hits += 1
+        score = hits / len(queue_names)
+        if score > best_score:
+            best_score = score
+            best_sep = sep
+    return best_sep, best_score
+
+
 def probe_queues(api: gc.ApiClient) -> dict:
     """Discover the queue-naming convention from real queue names.
 
     Returns a dict with:
-      - detected_pattern: "{brand} - {function}" or "{brand} - {channel} - {function}"
+      - detected_separator: e.g. " - ", "_", " / " — auto-detected from real
+        queue names; no longer hardcoded to " - "
+      - separator_confidence: fraction of queue names that split cleanly on
+        the chosen separator
+      - detected_pattern: "{brand} - {function}" or "{brand} - {channel} - {function}",
+        with the detected separator interpolated
       - pattern_confidence: "high" | "medium" | "low"
-      - brands: sorted list of candidate brand names (those that appear with
-        multiple known-function values)
-      - functions: sorted list of candidate function names (those that appear
-        with multiple brands)
-      - channels: sorted list of candidate channels (only populated for 3-seg)
-      - skip_substring_suggestions: substrings present in queue names that look
-        like internal/test queues
-      - matched_queues: count of queues that would pass the inferred filter
-      - skipped_queues_sample: up to 5 examples of queues that would be skipped
-      - all_queues: full list of {id, name} for the interviewer to inspect
+      - brands, functions, channels, skip_substring_suggestions, matched_queues,
+        skipped_queues_sample, all_queues — same as v0.5
     """
     routing_api = gc.RoutingApi(api)
     queues = _list_all(routing_api.get_routing_queues, page_size=200)
     queue_dicts = [{"id": q.id, "name": q.name, "member_count": q.member_count} for q in queues]
 
-    # Pass 1: split each name on " - " and bucket by segment count.
+    # Pass 0: detect the dominant separator (was hardcoded to " - " pre-v0.6).
+    sep, sep_confidence = _detect_separator([q["name"] for q in queue_dicts])
+
+    # Pass 1: split each name on the detected separator and bucket by segment count.
     segments_by_count: dict[int, list[list[str]]] = defaultdict(list)
     for q in queue_dicts:
-        parts = [p.strip() for p in q["name"].split(" - ")]
+        parts = [p.strip() for p in q["name"].split(sep)]
         if all(parts) and len(parts) > 1:
             segments_by_count[len(parts)].append(parts)
 
@@ -159,6 +224,8 @@ def probe_queues(api: gc.ApiClient) -> dict:
     if not segments_by_count:
         return {
             "all_queues": queue_dicts,
+            "detected_separator": sep,
+            "separator_confidence": round(sep_confidence, 2),
             "detected_pattern": None,
             "pattern_confidence": "none",
             "brands": [],
@@ -167,7 +234,11 @@ def probe_queues(api: gc.ApiClient) -> dict:
             "skip_substring_suggestions": list(DEFAULT_SKIP_SUBSTRINGS),
             "matched_queues": 0,
             "skipped_queues_sample": [q["name"] for q in queue_dicts[:5]],
-            "note": "No queue names matched a `A - B` shape — tenant uses a different convention",
+            "note": (
+                f"No queue names matched a delimiter-separated shape with "
+                f"separator {sep!r} — tenant may use a custom convention; "
+                f"set queues.name_pattern manually in tenant.yaml."
+            ),
         }
 
     seg_count = max(segments_by_count.keys(), key=lambda k: len(segments_by_count[k]))
@@ -205,7 +276,7 @@ def probe_queues(api: gc.ApiClient) -> dict:
         valid_brands = {
             b for b, fns in function_for_brand.items() if fns & valid_functions
         }
-        detected_pattern = "{brand} - {function}"
+        detected_pattern = f"{{brand}}{sep}{{function}}"
         channels: list[str] = []
         functions = sorted(valid_functions)
         brands = sorted(valid_brands)
@@ -226,14 +297,14 @@ def probe_queues(api: gc.ApiClient) -> dict:
             c for c in channel_set
             if c.lower() in COMMON_CHANNELS or len(c) <= 12
         )
-        detected_pattern = "{brand} - {channel} - {function}"
+        detected_pattern = f"{{brand}}{sep}{{channel}}{sep}{{function}}"
 
     # Pass 3: build skip-substring suggestions by looking at queue names that
     # didn't match the pattern OR have non-function last segments.
     skipped_names: list[str] = []
     suggested_skip: set[str] = set()
     for q in queue_dicts:
-        parts = [p.strip() for p in q["name"].split(" - ")]
+        parts = [p.strip() for p in q["name"].split(sep)]
         skip = False
         if len(parts) != seg_count:
             skip = True
@@ -252,6 +323,8 @@ def probe_queues(api: gc.ApiClient) -> dict:
     return {
         "all_queues": queue_dicts,
         "total_count": len(queue_dicts),
+        "detected_separator": sep,
+        "separator_confidence": round(sep_confidence, 2),
         "detected_pattern": detected_pattern,
         "pattern_confidence": confidence,
         "brands": brands,
@@ -312,22 +385,38 @@ def probe_pre_break_presence(api: gc.ApiClient) -> list[dict]:
         except ApiException:
             raise exc
 
-    keywords = re.compile(r"pre[\s_-]?break|drain|wind[\s_-]?down", re.I)
+    # v0.6: match the PRE_BREAK_KEYWORDS regex against EVERY language_label
+    # on each presence (not just en_US). Catches tenants with non-English
+    # primary locales whose pre-break presence is labelled in their language.
     candidates = []
     for p in resp.entities or []:
         labels = getattr(p, "language_labels", None) or {}
-        # Try common locale keys, then fall back to .name on the older listing.
+        # Pull all label strings to check, plus the older .name field.
+        label_pool: list[str] = list(labels.values())
+        name_attr = getattr(p, "name", None)
+        if name_attr:
+            label_pool.append(name_attr)
+        # Find the first label that matches; surface a non-empty primary
+        # label for the interview prompt.
+        matched_label = next(
+            (lbl for lbl in label_pool if lbl and PRE_BREAK_KEYWORDS.search(lbl)),
+            None,
+        )
+        if matched_label is None:
+            continue
         primary_label = (
             labels.get("en_US") or labels.get("en-US")
-            or next(iter(labels.values()), "") or getattr(p, "name", "") or ""
+            or labels.get("en_AU") or labels.get("en_GB")
+            or matched_label or name_attr or ""
         )
         system = getattr(p, "system_presence", None)
-        if keywords.search(primary_label):
-            candidates.append({
-                "id": p.id,
-                "label": primary_label,
-                "system_presence": system,
-            })
+        candidates.append({
+            "id": p.id,
+            "label": primary_label,
+            "matched_label": matched_label,
+            "all_labels": dict(labels),
+            "system_presence": system,
+        })
     return candidates
 
 
@@ -369,6 +458,169 @@ def probe_users(api: gc.ApiClient) -> dict:
     }
 
 
+def probe_organisation(api: gc.ApiClient) -> dict:
+    """Pull /organizations/me and map defaultCountryCode to a sensible timezone.
+
+    Returns ``{country_code, suggested_timezone, organization_name}`` plus a
+    ``timezone_confidence`` of 'high' (mapping known), 'low' (country unmapped,
+    falling back to UTC). Multi-region tenants override in tenant.yaml.
+    """
+    org_api = gc.OrganizationApi(api)
+    retry = _retry_read()
+    try:
+        org = retry(lambda: org_api.get_organizations_me())()
+    except ApiException as exc:
+        return {"_error": f"organisation read failed ({exc.status}): {exc.reason}"}
+
+    country = getattr(org, "default_country_code", None) or ""
+    country = country.upper()
+    suggested_tz = COUNTRY_TIMEZONES.get(country, "UTC")
+    return {
+        "organization_name": getattr(org, "name", None),
+        "country_code": country or None,
+        "default_language": getattr(org, "default_language", None),
+        "suggested_timezone": suggested_tz,
+        "timezone_confidence": "high" if suggested_tz != "UTC" else "low",
+    }
+
+
+def probe_aht_baselines(
+    api: gc.ApiClient, specialist_user_ids: list[str], days: int = 60,
+) -> dict:
+    """Pull per-user voice/message AHT for the last ``days`` days.
+
+    For each media type (voice, message), computes:
+      - team_aht_s: sum(tHandle) / sum(tAnswered) across all users
+      - per_user_p10 / p25 / p50 / p75 / p90: percentiles of per-user AHT,
+        filtered to users with enough volume to matter (>=20 answered)
+      - suggested_target_s: p25 of per-user AHT (a target equal to current
+        median would be no target at all; p25 is "top-performer median")
+
+    Returns ``{"voice": {...}, "message": {...}, "acw": {...}}``. ACW only
+    aggregates voice (message ACW is non-standard).
+
+    Soft-fails if the user list is empty or analytics scope is missing.
+    """
+    if not specialist_user_ids:
+        return {"_error": "no specialist user ids — probe_users must run first"}
+
+    aapi = gc.AnalyticsApi(api)
+    retry = _retry_read()
+
+    # Build a UTC interval ending now, going back `days` days.
+    from datetime import datetime, timedelta, timezone as _tz
+    end = datetime.now(_tz.utc).replace(microsecond=0)
+    start = end - timedelta(days=days)
+    interval = f"{start.strftime('%Y-%m-%dT%H:%M:%S.000Z')}/{end.strftime('%Y-%m-%dT%H:%M:%S.000Z')}"
+
+    body = {
+        "interval": interval,
+        "groupBy": ["userId", "mediaType"],
+        "filter": {
+            "type": "and",
+            "clauses": [
+                {"type": "or", "predicates": [
+                    {"dimension": "userId", "value": uid}
+                    for uid in specialist_user_ids
+                ]},
+                {"type": "or", "predicates": [
+                    {"dimension": "mediaType", "value": m}
+                    for m in ("voice", "message")
+                ]},
+            ],
+        },
+        "metrics": ["tAnswered", "tHandle", "tAcw"],
+    }
+
+    try:
+        resp = retry(lambda: aapi.post_analytics_conversations_aggregates_query(body))()
+    except ApiException as exc:
+        if exc.status == 403:
+            return {"_error": "no analytics read permission"}
+        return {"_error": f"AHT baseline query failed ({exc.status}): {exc.reason}"}
+
+    # Flatten per-user per-media stats.
+    per_user_media: dict[tuple[str, str], dict] = {}
+    serializer = api.sanitize_for_serialization
+    resp_d = serializer(resp)
+    for r in resp_d.get("results") or []:
+        uid = r["group"].get("userId")
+        media = r["group"].get("mediaType")
+        if not uid or not media:
+            continue
+        stats = {}
+        for bucket in r.get("data") or []:
+            for m in bucket.get("metrics") or []:
+                stats[m["metric"]] = m.get("stats", {})
+        per_user_media[(uid, media)] = stats
+
+    def _aht_p(media: str) -> dict:
+        per_user_aht_s: list[float] = []
+        sum_handle_ms = 0.0
+        sum_answered = 0.0
+        for (uid, m), stats in per_user_media.items():
+            if m != media:
+                continue
+            answered = float(stats.get("tAnswered", {}).get("count", 0) or 0)
+            handle_ms = float(stats.get("tHandle", {}).get("sum", 0) or 0)
+            sum_handle_ms += handle_ms
+            sum_answered += answered
+            if answered >= 20:
+                per_user_aht_s.append((handle_ms / 1000.0) / answered)
+        team_aht_s = (sum_handle_ms / 1000.0) / sum_answered if sum_answered else None
+        result = {
+            "team_aht_s": round(team_aht_s, 1) if team_aht_s else None,
+            "users_with_volume": len(per_user_aht_s),
+            "sample_size_threshold": 20,
+        }
+        if per_user_aht_s:
+            per_user_aht_s.sort()
+            n = len(per_user_aht_s)
+            def _pct(p: float) -> float:
+                idx = max(0, min(n - 1, int(round(p * (n - 1)))))
+                return round(per_user_aht_s[idx], 1)
+            result.update({
+                "p10_aht_s": _pct(0.10),
+                "p25_aht_s": _pct(0.25),
+                "p50_aht_s": _pct(0.50),
+                "p75_aht_s": _pct(0.75),
+                "p90_aht_s": _pct(0.90),
+                "suggested_target_s": _pct(0.25),
+            })
+        return result
+
+    def _acw_p() -> dict:
+        per_user_acw_s: list[float] = []
+        for (uid, m), stats in per_user_media.items():
+            if m != "voice":
+                continue
+            answered = float(stats.get("tAnswered", {}).get("count", 0) or 0)
+            acw_ms = float(stats.get("tAcw", {}).get("sum", 0) or 0)
+            if answered >= 20:
+                per_user_acw_s.append((acw_ms / 1000.0) / answered)
+        result = {"users_with_volume": len(per_user_acw_s)}
+        if per_user_acw_s:
+            per_user_acw_s.sort()
+            n = len(per_user_acw_s)
+            def _pct(p):
+                idx = max(0, min(n - 1, int(round(p * (n - 1)))))
+                return round(per_user_acw_s[idx], 1)
+            result.update({
+                "p25_acw_s": _pct(0.25),
+                "p50_acw_s": _pct(0.50),
+                "p75_acw_s": _pct(0.75),
+                "suggested_target_s": _pct(0.25),
+            })
+        return result
+
+    return {
+        "interval_days": days,
+        "voice": _aht_p("voice"),
+        "message": _aht_p("message"),
+        "acw_voice": _acw_p(),
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Drafting + saving
 # ─────────────────────────────────────────────────────────────────────────────
@@ -395,10 +647,21 @@ def build_draft(discovery: dict) -> dict:
             bu_id = mu["business_unit_id"]
             break
 
+    # Pull AHT auto-suggestions if probe_aht_baselines ran successfully.
+    baselines = discovery.get("aht_baselines") or {}
+    voice_target = (baselines.get("voice") or {}).get("suggested_target_s") or 285
+    msg_target = (baselines.get("message") or {}).get("suggested_target_s") or 660
+    acw_target = (baselines.get("acw_voice") or {}).get("suggested_target_s") or 15
+
+    # Pull timezone suggestion from probe_organisation.
+    org = discovery.get("organisation") or {}
+    suggested_tz = org.get("suggested_timezone") or "UTC"
+
     draft = {
         "tenant": {
             "name": "__SETUP__ replace with your CC display name",
             "short_name": "__SETUP__",
+            "timezone": suggested_tz,
         },
         "brands": {"names": q.get("brands") or []},
         "queues": {
@@ -413,9 +676,9 @@ def build_draft(discovery: dict) -> dict:
         "specialist_roles": discovery["users"]["suggested_specialist_titles"]
                             or ["Specialist", "Customer Service Specialist"],
         "targets": {
-            "voice_aht_s": 285,
-            "message_aht_s": 660,
-            "acw_s": 15,
+            "voice_aht_s": int(round(voice_target)),
+            "message_aht_s": int(round(msg_target)),
+            "acw_s": int(round(acw_target)),
             "pre_break_min": 10,
             "fte_hours_per_month": 160,
         },
@@ -489,12 +752,48 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    discovery = {
-        "queues": probe_queues(api),
+    # Probes that don't depend on other probes run first.
+    users = probe_users(api)
+    queues = probe_queues(api)
+    discovery: dict[str, Any] = {
+        "organisation": probe_organisation(api),
+        "queues": queues,
         "management_units": probe_management_units(api),
         "pre_break_candidates": probe_pre_break_presence(api),
-        "users": probe_users(api),
+        "users": users,
     }
+    # AHT baselines need the specialist user list — resolve from the
+    # suggested specialist titles + active users.
+    specialist_titles = set(users.get("suggested_specialist_titles") or [])
+    specialist_user_ids = [
+        u["id"] for u in users.get("sample_users") or []
+        if u.get("title") in specialist_titles
+    ]
+    # If the small `sample_users` list didn't surface enough specialists,
+    # fall back to filtering the full title_counts pool (cheap — we already
+    # paginated the users list once in probe_users; we just lost the ids).
+    if len(specialist_user_ids) < 5:
+        # Re-paginate to collect all matching ids — cap at 50 for the
+        # aggregates query body size.
+        users_api = gc.UsersApi(api)
+        retry = _retry_read()
+        for page in range(1, 21):
+            try:
+                resp = retry(lambda: users_api.get_users(
+                    state="active", page_size=200, page_number=page,
+                ))()
+            except ApiException:
+                break
+            for u in resp.entities or []:
+                if u.title in specialist_titles and u.id not in specialist_user_ids:
+                    specialist_user_ids.append(u.id)
+                    if len(specialist_user_ids) >= 50:
+                        break
+            if len(specialist_user_ids) >= 50:
+                break
+            if len(resp.entities or []) < 200:
+                break
+    discovery["aht_baselines"] = probe_aht_baselines(api, specialist_user_ids[:50])
 
     if args.draft:
         # Trim the all_queues list before printing the draft (it's noisy)

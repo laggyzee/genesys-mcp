@@ -52,7 +52,7 @@ You are producing a 1:1 coaching brief for a single agent — a self-contained H
    - **Agent**: a name like "Anthony Kha" or an email. You'll resolve to a user_id via `find_user`.
    - **Period**: defaults to the last 28 days (typical 4-week coaching cadence). Accept "last 4 weeks", "last 2 weeks", "April 2026", an ISO interval, etc.
 
-5. **All times are AEST (UTC+10) by default**, same convention as `cc-monthly-report`. Adjust if the tenant lives elsewhere.
+5. **Period strings are interpreted in `cfg.tenant.timezone`** — typically auto-detected by `genesys-tenant-setup` from the org's default country code; defaults to `UTC` if the field is missing. Same convention as `cc-monthly-report`. Use Python's `zoneinfo.ZoneInfo(cfg.tenant.timezone)` to convert local period boundaries to UTC for the Genesys API.
 
 ## Procedure
 

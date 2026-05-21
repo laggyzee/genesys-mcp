@@ -69,6 +69,15 @@ targets:
   fte_hours_per_month: int     # Productive handle hours per FTE per month.
                                # Default 160 (40h/wk × 4 wks × ~0.85 occupancy ≈ 136h, rounded up).
 
+# tenant block also accepts a timezone field (added in v0.6):
+#   tenant:
+#     timezone: string         # IANA name (e.g. "Australia/Sydney",
+#                              # "America/New_York"). Default "UTC".
+#                              # Skills use this to convert period strings
+#                              # ("April 2026", "last week") to ISO-8601 UTC
+#                              # intervals. genesys-tenant-setup auto-suggests
+#                              # from the org's defaultCountryCode.
+
 reports:
   output_dir: string           # Where to save generated HTML reports. Supports ~ expansion.
   filename_pattern: string     # Filename pattern. Placeholders:

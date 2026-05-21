@@ -32,6 +32,15 @@ class TenantConfigError(RuntimeError):
 class _Tenant(BaseModel):
     name: str = Field(..., description="Display name shown in report headlines.")
     short_name: str = Field(..., description="Used in filenames; lowercase + hyphens.")
+    timezone: str = Field(
+        default="UTC",
+        description=(
+            "IANA timezone name (e.g. 'Australia/Sydney', 'America/New_York'). "
+            "Skills use this to convert period strings ('April 2026', 'last week') "
+            "into ISO-8601 UTC intervals. Default UTC keeps existing behaviour "
+            "for tenants that omit the field."
+        ),
+    )
 
     @field_validator("short_name")
     @classmethod
@@ -40,6 +49,23 @@ class _Tenant(BaseModel):
             raise ValueError(
                 "short_name must be lowercase with hyphens (no spaces or slashes), "
                 "e.g. 'acme' or 'acme-cc'"
+            )
+        return v
+
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone(cls, v: str) -> str:
+        # Defer the actual zone resolution to zoneinfo at use-site; here we
+        # just guard against obvious typos like leading/trailing whitespace.
+        v = v.strip()
+        if not v:
+            return "UTC"
+        # Basic shape: 'Area/Location' or 'UTC'
+        if v != "UTC" and "/" not in v:
+            raise ValueError(
+                f"tenant.timezone {v!r} doesn't look like an IANA zone "
+                "(e.g. 'Australia/Sydney', 'America/New_York'). Use 'UTC' "
+                "as a safe default if unsure."
             )
         return v
 

@@ -16,6 +16,20 @@ Curated tools for ops/analytics work — queues, agents, conversations, recordin
 
 Requires Python 3.12+ (developed against 3.14).
 
+### Quickstart (v0.6+) — one-command install
+
+After creating your OAuth client (step 1 below), the fastest path is:
+
+```bash
+git clone https://github.com/laggyzee/genesys-mcp.git
+cd genesys-mcp
+./install.sh
+```
+
+The installer syncs deps, prompts for OAuth creds, registers the MCP with Claude Code, symlinks every skill into `~/.claude/skills/`, and runs the health check. Idempotent — re-running it upgrades cleanly.
+
+If you'd rather do it manually, follow the numbered steps below.
+
 ### 1. Create a Genesys OAuth client
 
 Genesys Admin → Integrations → OAuth → Add Client.
@@ -131,6 +145,11 @@ Or by hand: copy [`skills/cc-monthly-report/tenant.example.yaml`](skills/cc-mont
 | Tool | Purpose |
 |---|---|
 | `routing_diagnostic` | Explains why a specific conversation routed (or didn't) as expected: IVR → queue → outcome path with durations, queue routing rules, eligible-agent counts (session-level from Genesys, current-state for the queue), abandon / answer / transfer classification. v0.5 ships conversation_id mode; aggregate "show me all this week's abandons" mode planned for v0.5.x. |
+
+### Health check (v0.6+)
+| Tool | Purpose |
+|---|---|
+| `mcp_health_check` | End-to-end onboarding check: probes one representative endpoint per OAuth scope (green/red per scope), validates `tenant.yaml` against the schema, verifies the companion skills are symlinked into the Claude Code skills dir. Returns a `verdict` of `ready` / `ready_with_warnings` / `blocked` plus concrete remediation strings for each gap. Also available as a CLI: `python -m genesys_mcp.health_check`. |
 
 ### Speech & text analytics *(needs `speech-and-text-analytics:readonly`)*
 | Tool | Purpose |
