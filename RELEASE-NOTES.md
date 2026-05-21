@@ -1,5 +1,97 @@
 # Release Notes
 
+## v0.6.0 — 21 May 2026
+
+The **first-run experience** release. Cuts time-from-clone-to-working-report by ~70% via a one-command installer, an end-to-end health check, smarter auto-discovery in the tenant-setup wizard, and timezone awareness across the report skills.
+
+### New tool — `mcp_health_check`
+
+[`src/genesys_mcp/tools/health.py`](src/genesys_mcp/tools/health.py) + CLI entry at [`src/genesys_mcp/health_check.py`](src/genesys_mcp/health_check.py).
+
+Probes one cheap representative endpoint per OAuth scope (the same workloads `cc-monthly-report` actually exercises), validates `tenant.yaml` against the Pydantic schema, and checks every companion skill is symlinked into the Claude Code skills dir. Returns a structured report:
+
+```
+genesys-mcp health check
+Verdict: READY WITH WARNINGS
+
+OAuth scopes (region: ap-southeast-2)
+  ✓ analytics:readonly                     Required — powers queue_performance, agent_performance, ...
+  ✓ conversations:readonly                 Required — powers get_conversation, search_conversations, ...
+  ✓ users:readonly                         Required — powers find_user, list_users, ...
+  ✓ routing:readonly                       Required — powers list_queues, get_queue_members, ...
+  ✓ recordings:readonly                    Optional — powers list_recordings, get_recording_url
+  ✓ speech-and-text-analytics:readonly     Optional but recommended — powers get_conversation_summary, ...
+  ✗ quality:readonly                       Optional (v0.5+) — powers qa_evaluations and the QA section of agent_coaching_pack
+      → Genesys Admin → Integrations → OAuth → your client's role → add Quality > readonly
+  ✓ workforce-management:readonly          Optional — powers wfm_schedule, list_management_units, ...
+  ...
+
+Tenant config
+  path: /Users/.../tenant.yaml
+  ✓ loaded: tenant='Acme CC' brands=3 MUs=1
+
+Companion skills
+  ✓ cc-monthly-report        /Users/.../skills/cc-monthly-report
+  ✓ cc-coaching-prep         /Users/.../skills/cc-coaching-prep
+  ✓ genesys-tenant-setup     /Users/.../skills/genesys-tenant-setup
+```
+
+Each gap comes with a concrete remediation string. Required scopes (analytics / conversations / users / routing) flag as blockers; optional scopes only as warnings. Exposed both as an MCP tool (LLM-callable when a workflow fails) and a CLI (`python -m genesys_mcp.health_check`) invoked by `install.sh` after onboarding.
+
+### One-command installer — `install.sh`
+
+New [`install.sh`](install.sh) at the repo root. Single command does:
+
+1. Clone (or `git pull` if already cloned)
+2. `uv sync`
+3. Prompt for OAuth creds → write `~/.config/genesys-mcp.env`
+4. `claude mcp add genesys` (or print the JSON snippet if `claude` CLI is missing)
+5. Symlink every `skills/*/` into `~/.claude/skills/` (or `~/.agents/skills/`, auto-detected)
+6. Run the health check; exits non-zero if blocked
+
+Idempotent — re-run any time to upgrade or re-link. Replaces the README's 5-step manual install for the common case.
+
+New [`Makefile`](Makefile) covers repeat-use targets: `make sync`, `make link-skills`, `make health`.
+
+### Auto-discovery improvements (`genesys-tenant-setup` wizard)
+
+[`skills/genesys-tenant-setup/setup.py`](skills/genesys-tenant-setup/setup.py) gained two new probes and meaningfully smarter behaviour on two existing ones — closing the two v0.4 known limitations and grounding more answers in real tenant data.
+
+- **`probe_organisation()`** — pulls `/organizations/me`, maps `defaultCountryCode` to a sensible IANA timezone via an 18-country lookup table (AU → Australia/Sydney, US → America/New_York, GB → Europe/London, DE → Europe/Berlin, …). Powers the new `tenant.timezone` config field.
+- **`probe_aht_baselines()`** — pulls 60 days of per-user `tHandle` + `tAnswered` aggregates for the discovered specialist roles, then computes p10/p25/p50/p75/p90 of per-user AHT (voice and message, plus ACW for voice). The wizard now prompts with the actual data:
+
+  ```
+  Voice AHT — your tenant's actuals (last 60 days, specialists with ≥20 calls):
+    p25 (top-performer median): 240s   p50 (team median): 312s   p75: 401s
+  Suggested target: 240s   Use 240s? (y / enter your own)
+  ```
+
+  Tenants whose performance differs materially from the 285s "industry default" now get a starting point grounded in their own data, not a guess.
+- **Queue separator auto-detection** — `probe_queues()` no longer hardcodes `" - "`. Samples queue names, scores each of six common separators (` - `, ` / `, ` | `, ` :: `, `_`, `:`), and picks the dominant one. Closes the v0.4 known limitation. Confidence surfaced as `separator_confidence` for the wizard to flag low-signal cases.
+- **Multi-locale pre-break presence** — `probe_pre_break_presence()` now iterates **every** language label on each presence (not just `en_US`) and matches against an expanded keyword set covering English, French (`pré-pause`, `avant pause`), German (`vor pause`), and Spanish (`prepausa`, `antes de la pausa`). Closes the v0.4 known limitation.
+
+### Tenant schema — new `tenant.timezone` field
+
+[`src/genesys_mcp/tenant.py`](src/genesys_mcp/tenant.py) gained a `timezone` field on the `_Tenant` sub-model. Optional with a default of `"UTC"` (existing configs keep working). IANA-name validated (light check — `Area/Location` shape).
+
+The two report skills (`cc-monthly-report` and `cc-coaching-prep`) now read `cfg.tenant.timezone` and use Python's `zoneinfo.ZoneInfo` for period-to-UTC conversion instead of hardcoding AEST/UTC+10. Non-AU tenants no longer need to specify the offset on every prompt.
+
+### Migration notes
+
+- **Existing tenant configs**: keep working unchanged. The new `tenant.timezone` field defaults to `"UTC"`. To benefit from the timezone-aware skills, either re-run `genesys-tenant-setup` (auto-discovers from country code) or add `timezone: "Your/Zone"` under the `tenant:` block by hand.
+- **`pyproject.toml`** bumped from 0.5.0 to 0.6.0.
+- **Tool count**: 38 → 39 (`mcp_health_check`).
+- **New files at repo root**: `install.sh`, `Makefile`. No new runtime dependencies.
+
+### Known limitations / out-of-scope
+
+- **LLM narrative synthesis for the monthly report's 4 hand-written sections** ("Coverage & caveats", "What worked", "What went wrong", "Recommended actions") — still pre-announced, still deferred. Planned for v0.6.1 or v0.7.
+- **`routing_diagnostic` aggregate mode** — still deferred from v0.5; v0.6.1 candidate.
+- **Outbound campaign coverage** — still deferred.
+- **AHT baseline percentiles**: when fewer than 5 specialists have ≥20 answered calls in the 60-day window, the wizard falls back to static defaults (285 / 660 / 15s) rather than show noisy percentiles. Small / brand-new tenants won't get auto-suggestions until they have more activity.
+
+---
+
 ## v0.5.0 — 18 May 2026
 
 The **coaching ecosystem** release. Three new MCP tools plus a new tenant-aware skill (`cc-coaching-prep`) that turns 1:1 prep into a one-prompt HTML brief. Built on the v0.4 tenant-config plumbing — portable from day 1.
@@ -41,7 +133,7 @@ v0.5 ships conversation_id mode only. Aggregate mode (*"show me all this week's 
 
 ### New skill — `cc-coaching-prep`
 
-[`skills/cc-coaching-prep/`](skills/cc-coaching-prep/). One-prompt 1:1 coaching brief for a single agent — *"prep coaching for Anthony for the last 4 weeks"*. Pattern mirrors `cc-monthly-report`: SKILL.md drives orchestration, `build_report.py` does the HTML render. Drops the brief at `<reports.output_dir>/<coaching_filename_pattern>` — typically `~/Documents/coaching-<agent-slug>-<period>.html`.
+[`skills/cc-coaching-prep/`](skills/cc-coaching-prep/). One-prompt 1:1 coaching brief for a single agent — *"prep coaching for [agent] for the last 4 weeks"*. Pattern mirrors `cc-monthly-report`: SKILL.md drives orchestration, `build_report.py` does the HTML render. Drops the brief at `<reports.output_dir>/<coaching_filename_pattern>` — typically `~/Documents/coaching-<agent-slug>-<period>.html`.
 
 The HTML uses the same visual idiom as `cc-monthly-report` — colour-coded vs-target pills (`+15%` green/amber/red), peer-comparison badges, KPI cards, section cards, no JavaScript. Talking points (the LLM-synthesised conversation-starter list on top of the data) are emitted by Claude in chat at the end of the run, not embedded in the HTML, so they don't fossilise between runs.
 
@@ -302,7 +394,7 @@ list) — and `groupBy=[userId, mediaType]` for the auto-split. Canonical metric
 `nConsultTransferred`.
 
 Verified against the live UI: per-agent per-media counts match to the unit (e.g.
-Anthony Kha voice 97 / msg 801 in our test tenant for April matched the UI exactly).
+a sample specialist's voice 97 / msg 801 in a test tenant for April matched the UI exactly).
 
 #### `queue_performance` — filter aligned to canonical shape
 

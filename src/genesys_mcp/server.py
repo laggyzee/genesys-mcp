@@ -16,6 +16,7 @@ from genesys_mcp.tools import (
     conversations,
     directory,
     external_contacts,
+    health,
     presence,
     quality,
     raw,
@@ -68,6 +69,7 @@ wfm.register(mcp)
 quality.register(mcp)
 coaching.register(mcp)
 routing.register(mcp)
+health.register(mcp)
 raw.register(mcp)
 
 

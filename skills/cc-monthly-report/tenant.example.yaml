@@ -11,6 +11,10 @@
 tenant:
   name: "Your Contact Centre"        # Display name shown in report headlines
   short_name: "your-cc"              # Lowercase + hyphens; used in filenames
+  # IANA timezone — skills convert period strings ("April 2026", "last week")
+  # to ISO-8601 UTC using this. genesys-tenant-setup auto-suggests from your
+  # org's defaultCountryCode. Default "UTC" if omitted.
+  timezone: "Australia/Sydney"
 
 brands:
   # Brand names exactly as they appear in queue names per queues.name_pattern below.
