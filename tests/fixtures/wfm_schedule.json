@@ -1,0 +1,85 @@
+{
+  "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+  "business_unit_id": "a3ad1347-a0e8-44ab-b216-807005b60680",
+  "management_unit_ids": [
+    "1c459932-435f-488a-9223-16c00624c36a"
+  ],
+  "schedules": [
+    {
+      "id": "7ed42799-2f78-4c2f-a5c4-cece77615986",
+      "weekDate": "2026-04-27",
+      "weekCount": 3,
+      "published": true
+    },
+    {
+      "id": "d3960893-c2a6-4120-97be-bfbd32b03c9e",
+      "weekDate": "2026-05-18",
+      "weekCount": 2,
+      "published": true
+    }
+  ],
+  "user_count_queried": 10,
+  "daily": [
+    {
+      "date": "2026-05-17",
+      "scheduled_hours": 35.5,
+      "required_hours": 30.9,
+      "gap_hours": -4.6,
+      "scheduled_users": 9
+    },
+    {
+      "date": "2026-05-18",
+      "scheduled_hours": 111.6,
+      "required_hours": 138.2,
+      "gap_hours": 26.7,
+      "scheduled_users": 10
+    },
+    {
+      "date": "2026-05-19",
+      "scheduled_hours": 62.9,
+      "required_hours": 74.0,
+      "gap_hours": 11.1,
+      "scheduled_users": 9
+    },
+    {
+      "date": "2026-05-20",
+      "scheduled_hours": 52.2,
+      "required_hours": 73.5,
+      "gap_hours": 21.2,
+      "scheduled_users": 10
+    },
+    {
+      "date": "2026-05-21",
+      "scheduled_hours": 93.8,
+      "required_hours": 71.3,
+      "gap_hours": -22.5,
+      "scheduled_users": 10
+    },
+    {
+      "date": "2026-05-22",
+      "scheduled_hours": 39.7,
+      "required_hours": 66.0,
+      "gap_hours": 26.3,
+      "scheduled_users": 7
+    },
+    {
+      "date": "2026-05-23",
+      "scheduled_hours": 12.4,
+      "required_hours": 40.8,
+      "gap_hours": 28.4,
+      "scheduled_users": 3
+    },
+    {
+      "date": "2026-05-24",
+      "scheduled_hours": 20.8,
+      "required_hours": 34.0,
+      "gap_hours": 13.3,
+      "scheduled_users": 7
+    }
+  ],
+  "totals": {
+    "scheduled_hours": 428.9,
+    "required_hours": 528.7,
+    "gap_hours": 99.9
+  }
+}

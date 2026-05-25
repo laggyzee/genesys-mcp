@@ -111,9 +111,9 @@ Filter using values from the tenant config:
 
 Save the filtered ID lists as `QUEUE_IDS` and `USER_IDS`. Build a `QMAP` of `{queueId: [brand, queue_name]}` and a `NAME_ROLE` dict of `{userId: [display_name, role]}`. Pass these to the build script in step 4.
 
-### Step 3 — Pull all the data in parallel
+### Step 3 — Pull all the data in parallel (v0.8: 6 calls in one batch)
 
-Issue these tool calls **in parallel**:
+Issue **all six** tool calls in a **single assistant message with parallel tool-use blocks**. This is the meaningful perf optimisation in v0.8 — each call's underlying `_run_conv_details_job` takes 5-15s of polling, so sequential = 45-90s total, parallel = ~15s (bound by the slowest call). Claude Code supports parallel tool calls natively; the skill just has to ask for them.
 
 ```
 queue_performance(queue_ids=QUEUE_IDS, interval=INTERVAL, granularity="P1M")        # monthly totals
@@ -125,6 +125,10 @@ break_overrun_report(user_ids=USER_IDS, interval=INTERVAL,
 repeat_caller_deep_dive(queue_ids=[], interval=INTERVAL, media_type="voice", min_calls=3, max_anis=25)
 wfm_schedule(business_unit_id=BU_ID, management_unit_ids=MU_IDS, user_ids=USER_IDS, interval=INTERVAL)
 ```
+
+**Important:** do not split these across multiple turns or wait for one to return before issuing the next. All six are independent — there are no dependencies between them, so they all go in one batch. The aggregation logic in `build_report.py` doesn't care about the order results come back in.
+
+If a tool call errors (e.g. WFM scope missing), let it fail — `build_report.py` treats missing `wfm_schedule.json` as "no WFM section in the output", and the other sections still render. Don't retry, don't try to work around — just note it and continue.
 
 Where `PRE_BREAK_PRESENCE_ID`, `PRE_BREAK_MIN`, `BU_ID`, and `MU_IDS` come from the tenant config you read in step 0:
 

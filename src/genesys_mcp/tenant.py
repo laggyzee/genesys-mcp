@@ -41,6 +41,17 @@ class _Tenant(BaseModel):
             "for tenants that omit the field."
         ),
     )
+    genesys_app_base_url: str | None = Field(
+        default=None,
+        description=(
+            "Optional Genesys Cloud app base URL (e.g. "
+            "'https://apps.mypurecloud.com.au'). When set, every conversation "
+            "id in generated HTML reports becomes a clickable deep-link to "
+            "the conversation detail view. When unset, falls back to the "
+            "GENESYS_REGION env var → app-host mapping in conversation_links.py. "
+            "Set explicitly only for tenants with custom domains."
+        ),
+    )
 
     @field_validator("short_name")
     @classmethod

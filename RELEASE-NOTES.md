@@ -1,5 +1,98 @@
 # Release Notes
 
+## v0.8.0 — 25 May 2026
+
+The **confidence in correctness** release. Numbers have been verified by hand-spot-check against the Genesys UI since v0.2; v0.8 finally captures that correctness in an automated test suite so future refactors can't silently break it. Plus a release-time reconciliation skill, clickable conversation deep-links, and a faster monthly-report fetch.
+
+### 137-test pytest suite (`make test`)
+
+[`tests/`](tests/) — first automated tests in the repo. Run via `make test`.
+
+What's tested, in order of leverage:
+
+- **Canonical Genesys-UI filter shapes** ([`tests/test_analytics_filters.py`](tests/test_analytics_filters.py)) — the v0.2 UI-parity fix is now pinned. Monkey-patched SDK tests assert every analytics-backed tool builds its filter as the canonical `and+or+or` shape (not the pre-v0.2 flat OR that silently undercounted by up to 8x). Sentinel verified: a flat-OR body fails `_filter_has_canonical_shape`; the and+or shape passes.
+- **Aggregators** ([`tests/test_aggregators.py`](tests/test_aggregators.py)) — golden fixtures captured from a real tenant week (`tests/fixtures/*.json` via `tests/_capture_fixtures.py`). Structural assertions on `aggregate_queue_performance`, `aggregate_agents`, `aggregate_daily_voice_sl`, `compute_performance_leverage`, `extract_themes`, `aggregate_staffing`. Reconciles brand-row totals against per-queue sums to catch double-counting; pins the specialist-role filter; pins 12-column workforce-table count from the v0.2.1 refactor.
+- **Helpers** ([`tests/test_helpers.py`](tests/test_helpers.py)) — parameterised tests for `fmt_secs`, `fmt_int`, `fmt_pct`, `bar_class`, `_vs_target_pct`, `_sentiment_label`, `_trend_label`, `_recommend_action`, the `_aht_with_target` / `_acw_with_target` / `_count_and_min_cell` cell helpers. 75 cases total.
+- **HTML rendering** ([`tests/test_render.py`](tests/test_render.py)) — BeautifulSoup-based structural assertions (NOT byte-identical snapshots — too brittle on CSS tweaks). Column counts pinned, vs-target pill colour bands pinned to thresholds, daily SL chart bars + 80% target line pinned, narrative-synthesis section structure pinned.
+- **Conversation deep-link helper** ([`tests/test_conversation_links.py`](tests/test_conversation_links.py)) — resolution priority, region mapping, fallback rendering.
+
+What's deliberately **not** tested at this layer:
+
+- Raw MCP tool wrappers — they mostly call the SDK 1:1. Testing them mostly tests the SDK. (Exception: filter shapes, which are our logic.)
+- End-to-end live-tenant calls — covered by the new `mcp-reconcile` skill (below) instead.
+- CI/CD on GitHub Actions — solo project for now. Local `make test` before release is sufficient until contributor count > 1.
+
+Fixture refresh: `python tests/_capture_fixtures.py --interval "..." --queue-name-substring "..."` against a live tenant. Re-run when intentionally adding fields to a tool's output. Captured fixtures are tenant-scoped (queue-name substring filter) and cap users to 10 — small, anonymous-enough to commit.
+
+### New skill — `mcp-reconcile`
+
+[`skills/mcp-reconcile/`](skills/mcp-reconcile/). Trigger: *"reconcile the MCP against the Genesys UI"*, *"validate the numbers for last week"*, *"is the MCP still matching the UI?"*.
+
+Pulls the canonical MCP outputs (`queue_performance`, `agent_performance`, `break_overrun_report`, `qa_evaluations`) for a chosen period and writes a Markdown checklist of side-by-side comparisons:
+
+```markdown
+| ✓ | Queue | Media | MCP answered | MCP SL% | MCP avg handle | Notes |
+|---|---|---|---:|---:|---:|---|
+| ☐ | Brand A - Activation | voice | 1,247 | 82.4% | 5m 30s | |
+| ☐ | Brand A - Billing | voice | 891 | 78.1% | 6m 12s | |
+```
+
+Each section's intro names the **exact Genesys UI navigation path** to verify the values against. Cover queues × media, agent voice AHT, QA scores, pre-break overruns — the four highest-stakes numbers. Anything else in the MCP outputs derives from these primitives.
+
+**Pairs with `make test`:** tests prove the aggregator maths is stable across releases; reconciliation proves the source numbers still match the UI. The test suite can't detect a silent Genesys SDK endpoint-semantics change; reconciliation can.
+
+Run before each release and after material refactors.
+
+### Clickable conversation deep-links in coaching briefs
+
+[`src/genesys_mcp/conversation_links.py`](src/genesys_mcp/conversation_links.py) (new) + [`skills/cc-coaching-prep/build_report.py`](skills/cc-coaching-prep/build_report.py).
+
+Today's behaviour: every flagged conversation_id in `cc-coaching-prep`'s flagged-calls table renders as a non-clickable truncated `<code>` string (`83461ea6…`). A supervisor reading the brief and wanting to listen to the call has to copy the id, switch to Genesys, paste it in.
+
+v0.8: each conversation_id becomes a clickable link to the Genesys Cloud conversation detail view:
+
+```
+https://apps.{region}.pure.cloud/directory/#/analytics/interactions/{conv_id}/admin/details
+```
+
+Region resolution priority:
+
+1. `tenant.genesys_app_base_url` in tenant.yaml (explicit override; for custom domains)
+2. `GENESYS_REGION` env var, mapped via a hardcoded 18-region table in `conversation_links.py`
+3. None → falls back to the v0.7 `<code>` rendering (backwards-compatible)
+
+The cc-monthly-report and cc-daily-brief skills currently display ANIs (phone numbers) in their repeat-caller sections, not conversation ids — deep-links don't apply there. The win is concentrated where it matters: the per-call flagged table in coaching prep.
+
+### Parallel data pulls in `cc-monthly-report` Step 3
+
+[`skills/cc-monthly-report/SKILL.md`](skills/cc-monthly-report/SKILL.md). Step 3's six tool calls (`queue_performance` × 2, `agent_performance`, `break_overrun_report`, `repeat_caller_deep_dive`, `wfm_schedule`) are now explicitly required to go out in a single assistant message with parallel tool-use blocks.
+
+The pre-v0.8 wording said *"in parallel"* but didn't make the strict-batching requirement obvious — Claude could (and sometimes did) issue them sequentially. The v0.8 wording is unambiguous: **single message, multiple tool blocks, no waiting between calls.**
+
+Expected wall time: 30-60s → ~10-15s on a typical month (bounded by the slowest call's `_run_conv_details_job` polling, not by serial accumulation).
+
+### Tenant config — `tenant.genesys_app_base_url`
+
+Optional new field. Default `None` — falls back to region-based resolution. Existing configs keep working unchanged.
+
+### Migration notes
+
+- **Existing tenant configs**: keep working unchanged. The new `tenant.genesys_app_base_url` field is fully optional.
+- **`pyproject.toml`** bumped from 0.7.0 to 0.8.0.
+- **New dev dependency group**: `[dependency-groups.test]` with `pytest>=8.0` and `beautifulsoup4>=4.12`. Installed via `uv sync --group test` or implicitly by `make test`.
+- **Tool count**: 40 (unchanged). **Skill count**: 4 → 5 (`mcp-reconcile`).
+- **Fixture data** under `tests/fixtures/` is committed (small, tenant-anonymous after the substring filter). Re-capture with the script when refreshing intentionally.
+
+### Known limitations / out-of-scope
+
+- **CI/CD on GitHub Actions** — deferred until contributor count > 1. Local `make test` works.
+- **Full MCP-tool unit coverage** — most tools are SDK wrappers; deliberately skipped. The filter-shape assertions cover the load-bearing logic.
+- **Routing diagnostic aggregate mode** — still deferred from v0.5.
+- **Outbound campaign coverage** — still deferred.
+- **AHT MAPE in `volume_vs_forecast`** can be inflated when the forecast was scoped to a subset of media types but the actuals query is media-agnostic. v0.7 issue; not addressed in v0.8.
+
+---
+
 ## v0.7.0 — 22 May 2026
 
 The **depth-over-breadth** release. No new domain wrappers — instead a 2x performance win on the slowest existing tool, a new WFM tool that closes the demand/capacity triangle, a new daily-cadence skill, and LLM narrative synthesis for the monthly report (closing a 3-release backlog).

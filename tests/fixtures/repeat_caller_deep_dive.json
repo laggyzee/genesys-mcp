@@ -1,0 +1,3194 @@
+{
+  "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+  "media_type": "voice",
+  "scope": {
+    "max_anis": 10,
+    "ranked_by": "acd_offered_count",
+    "shortlisted": 10,
+    "candidates_meeting_min_calls": 219,
+    "include_summaries": true,
+    "include_sentiment": true,
+    "sta_calls_made": 179,
+    "sta_calls_with_data": 178,
+    "sta_coverage_pct": 99.4,
+    "wrapup_calls_made": 179,
+    "wrapup_calls_with_data": 179,
+    "wrapup_coverage_pct": 100.0
+  },
+  "org_rollup": {
+    "top_topics": [
+      {
+        "topic": "OnePass - Activation (answered)",
+        "count": 29,
+        "anis": 5
+      },
+      {
+        "topic": "Coles - General (answered)",
+        "count": 26,
+        "anis": 2
+      },
+      {
+        "topic": "Coles - Sales (answered)",
+        "count": 25,
+        "anis": 1
+      },
+      {
+        "topic": "Coles - Activation (answered)",
+        "count": 24,
+        "anis": 3
+      },
+      {
+        "topic": "Coles - Activation (abandoned)",
+        "count": 17,
+        "anis": 4
+      },
+      {
+        "topic": "OnePass - Sales (answered)",
+        "count": 16,
+        "anis": 2
+      },
+      {
+        "topic": "OnePass - Technical Support (abandoned)",
+        "count": 16,
+        "anis": 5
+      },
+      {
+        "topic": "OnePass - General (answered)",
+        "count": 14,
+        "anis": 2
+      },
+      {
+        "topic": "Coles - Technical Support (answered)",
+        "count": 13,
+        "anis": 2
+      },
+      {
+        "topic": "OnePass - Billing (answered)",
+        "count": 12,
+        "anis": 3
+      }
+    ],
+    "top_dispositions": [
+      {
+        "disposition": "Account Management/Update/Info",
+        "count": 52
+      },
+      {
+        "disposition": "Simcard Query/Replacement/Activation",
+        "count": 18
+      },
+      {
+        "disposition": "Refund Request",
+        "count": 17
+      },
+      {
+        "disposition": "Activation Help/Guidance/General",
+        "count": 16
+      },
+      {
+        "disposition": "No Response",
+        "count": 11
+      },
+      {
+        "disposition": "Non Mobile Query Coles",
+        "count": 8
+      },
+      {
+        "disposition": "Coles SuperMarket Escalation",
+        "count": 7
+      },
+      {
+        "disposition": "Pre-Sales Pre Paid",
+        "count": 6
+      },
+      {
+        "disposition": "Network Issues",
+        "count": 6
+      },
+      {
+        "disposition": "Pre-Sales Recharges",
+        "count": 5
+      }
+    ],
+    "top_ai_outcomes": {
+      "Mid Flight": 71,
+      "Unresolved Chat": 24,
+      "Resolved": 43,
+      "Escalated": 20,
+      "Query": 9
+    },
+    "top_expected_fixes": [
+      {
+        "fix": "Simpack Recharge",
+        "count": 76
+      },
+      {
+        "fix": "OTHER",
+        "count": 57
+      },
+      {
+        "fix": "N/A",
+        "count": 22
+      },
+      {
+        "fix": "Roaming",
+        "count": 7
+      },
+      {
+        "fix": "Retention Matrix",
+        "count": 3
+      },
+      {
+        "fix": "Data Gifting/Pooling",
+        "count": 1
+      },
+      {
+        "fix": "IMEI Blocked",
+        "count": 1
+      }
+    ],
+    "recommended_actions": {
+      "callback_recommended": 6,
+      "route_review": 2,
+      "escalate_to_retention": 1,
+      "monitor": 1
+    },
+    "sentiment_trends": {
+      "improving": 3,
+      "deteriorating": 3,
+      "stable": 2,
+      "stable_neutral": 2
+    },
+    "single_queue_repeaters": 1,
+    "multi_queue_repeaters": 5,
+    "unresolved_repeaters": [
+      {
+        "ani": "+61482020387",
+        "answered_with_outcome": 6,
+        "unresolved_share": 1.0,
+        "ai_outcomes": {
+          "Mid Flight": 3,
+          "Escalated": 2,
+          "Unresolved Chat": 1
+        }
+      },
+      {
+        "ani": "+61447889386",
+        "answered_with_outcome": 5,
+        "unresolved_share": 1.0,
+        "ai_outcomes": {
+          "Mid Flight": 3,
+          "Escalated": 1,
+          "Query": 1
+        }
+      },
+      {
+        "ani": "+61452087805",
+        "answered_with_outcome": 5,
+        "unresolved_share": 1.0,
+        "ai_outcomes": {
+          "Unresolved Chat": 2,
+          "Mid Flight": 3
+        }
+      },
+      {
+        "ani": "+61409179943",
+        "answered_with_outcome": 4,
+        "unresolved_share": 1.0,
+        "ai_outcomes": {
+          "Unresolved Chat": 2,
+          "Escalated": 1,
+          "Mid Flight": 1
+        }
+      },
+      {
+        "ani": "+61466567616",
+        "answered_with_outcome": 3,
+        "unresolved_share": 1.0,
+        "ai_outcomes": {
+          "Unresolved Chat": 1,
+          "Mid Flight": 1,
+          "Query": 1
+        }
+      },
+      {
+        "ani": "+61436029674",
+        "answered_with_outcome": 2,
+        "unresolved_share": 1.0,
+        "ai_outcomes": {
+          "Mid Flight": 2
+        }
+      },
+      {
+        "ani": "+61399179296",
+        "answered_with_outcome": 81,
+        "unresolved_share": 0.728,
+        "ai_outcomes": {
+          "Mid Flight": 39,
+          "Unresolved Chat": 8,
+          "Resolved": 22,
+          "Escalated": 8,
+          "Query": 4
+        }
+      },
+      {
+        "ani": "+61871303949",
+        "answered_with_outcome": 58,
+        "unresolved_share": 0.655,
+        "ai_outcomes": {
+          "Resolved": 20,
+          "Unresolved Chat": 9,
+          "Query": 3,
+          "Mid Flight": 19,
+          "Escalated": 7
+        }
+      },
+      {
+        "ani": "+61423390732",
+        "answered_with_outcome": 2,
+        "unresolved_share": 0.5,
+        "ai_outcomes": {
+          "Resolved": 1,
+          "Escalated": 1
+        }
+      }
+    ]
+  },
+  "repeaters": [
+    {
+      "ani": "+61399179296",
+      "call_count": 113,
+      "acd_offered_count": 113,
+      "answered_count": 88,
+      "abandoned_in_queue_count": 25,
+      "ivr_only_count": 0,
+      "answer_rate_of_offered_pct": 77.9,
+      "queues_offered": {
+        "Coles - Technical Support": 16,
+        "Coles - Sales": 31,
+        "Coles - General": 29,
+        "Coles - Billing": 8,
+        "Coles - Activation": 25,
+        "Coles - Retention": 4
+      },
+      "dispositions": {
+        "Coles SuperMarket Escalation": 7,
+        "Refund Request": 13,
+        "Account Management/Update/Info": 26,
+        "Discounted Recharge Removal": 1,
+        "Transfer": 1,
+        "No Response": 7,
+        "Non Mobile Query Coles": 8,
+        "Pre-Sales Pre Paid": 1,
+        "Pre-Sales Recharges": 4,
+        "Activation Help/Guidance/General": 5,
+        "Simpack for Recharge": 4,
+        "Network Issues": 2,
+        "Activation Porting Assistance": 1,
+        "Samsung TAC Block": 1,
+        "Simcard Query/Replacement/Activation": 3,
+        "Activation Progress": 1,
+        "Pre-Sales Roaming": 1,
+        "Voucher Query": 1,
+        "Billing Query/Dispute": 1
+      },
+      "ai_outcomes": {
+        "Mid Flight": 39,
+        "Unresolved Chat": 8,
+        "Resolved": 22,
+        "Escalated": 8,
+        "Query": 4
+      },
+      "expected_fixes": {
+        "Simpack Recharge": 39,
+        "OTHER": 28,
+        "N/A": 10,
+        "Data Gifting/Pooling": 1,
+        "Retention Matrix": 1,
+        "IMEI Blocked": 1,
+        "Roaming": 1
+      },
+      "answered_with_outcome": 81,
+      "unresolved_share": 0.728,
+      "topics": [
+        {
+          "topic": "Coles - Sales (answered)",
+          "count": 25,
+          "source": "queue_status"
+        },
+        {
+          "topic": "Coles - General (answered)",
+          "count": 24,
+          "source": "queue_status"
+        },
+        {
+          "topic": "Coles - Activation (answered)",
+          "count": 17,
+          "source": "queue_status"
+        },
+        {
+          "topic": "Coles - Technical Support (answered)",
+          "count": 12,
+          "source": "queue_status"
+        },
+        {
+          "topic": "Coles - Activation (abandoned)",
+          "count": 8,
+          "source": "queue_status"
+        }
+      ],
+      "sentiment_trajectory": [
+        {
+          "conversation_id": "9f69969d-559e-4d7c-b968-1edb1c8ab7da",
+          "time": "2026-05-17T23:43:14.414000+00:00",
+          "queue_name": "Coles - Technical Support",
+          "score": -0.846,
+          "label": "negative",
+          "trend_class": "SlightlyDeclining",
+          "agent_pct": 11.93,
+          "customer_pct": 14.74,
+          "silence_pct": 5.66
+        },
+        {
+          "conversation_id": "4ce567f3-64a5-4826-955c-7873ae28f2e9",
+          "time": "2026-05-17T23:58:58.452000+00:00",
+          "queue_name": "Coles - Technical Support",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 11.37,
+          "customer_pct": 19.88,
+          "silence_pct": 2.41
+        },
+        {
+          "conversation_id": "1b6b232d-510e-48e3-bcc4-3ed47256f5ac",
+          "time": "2026-05-18T00:08:12.856000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": -0.159,
+          "label": "mildly_negative",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 13.7,
+          "customer_pct": 16.18,
+          "silence_pct": 0.54
+        },
+        {
+          "conversation_id": "8462a159-d7ff-43b0-a523-6236b1c0361b",
+          "time": "2026-05-18T00:14:00.913000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": -0.552,
+          "label": "negative",
+          "trend_class": "SlightlyDeclining",
+          "agent_pct": 9.34,
+          "customer_pct": 11.11,
+          "silence_pct": 1.27
+        },
+        {
+          "conversation_id": "0711a189-9b33-4c49-981f-7d60d22ac439",
+          "time": "2026-05-18T00:42:58.756000+00:00",
+          "queue_name": "Coles - General",
+          "score": -0.998,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 8.17,
+          "customer_pct": 18.53,
+          "silence_pct": 3.5
+        },
+        {
+          "conversation_id": "c7951113-8c4d-4dcf-81b3-73033404d454",
+          "time": "2026-05-18T01:06:17.343000+00:00",
+          "queue_name": "Coles - Billing",
+          "score": 0.618,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 5.53,
+          "customer_pct": 10.19,
+          "silence_pct": 1.07
+        },
+        {
+          "conversation_id": "f3371662-9862-4b81-bf06-e29ff5aacd0b",
+          "time": "2026-05-18T01:37:39.581000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.977,
+          "label": "positive",
+          "trend_class": "NoChange",
+          "agent_pct": 12.98,
+          "customer_pct": 8.43,
+          "silence_pct": 0.76
+        },
+        {
+          "conversation_id": "55a95505-d5a4-43b0-94fe-a0add2d602a0",
+          "time": "2026-05-18T01:49:47.267000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 45.03,
+          "customer_pct": 10.32,
+          "silence_pct": 1.86
+        },
+        {
+          "conversation_id": "728f698f-6f6b-429a-bbbb-254aed08c07d",
+          "time": "2026-05-18T02:11:29.347000+00:00",
+          "queue_name": "Coles - Technical Support",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 11.76,
+          "customer_pct": 19.99,
+          "silence_pct": 4.8
+        },
+        {
+          "conversation_id": "8f92c3e6-0133-4691-b3f7-f5949ae15a17",
+          "time": "2026-05-18T02:29:50.363000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": 0.604,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 9.59,
+          "customer_pct": 14.47,
+          "silence_pct": 10.86
+        },
+        {
+          "conversation_id": "52e531c2-bfb6-4724-a50b-1a90a7e5d1f9",
+          "time": "2026-05-18T03:19:08.681000+00:00",
+          "queue_name": "Coles - General",
+          "score": -0.738,
+          "label": "negative",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 19.48,
+          "customer_pct": 44.45,
+          "silence_pct": 2.66
+        },
+        {
+          "conversation_id": "9354be4a-db56-4b57-8436-599aaf2a2f32",
+          "time": "2026-05-18T04:12:50.376000+00:00",
+          "queue_name": "Coles - General",
+          "score": -0.824,
+          "label": "negative",
+          "trend_class": "SlightlyDeclining",
+          "agent_pct": 19.64,
+          "customer_pct": 35.5,
+          "silence_pct": 2.79
+        },
+        {
+          "conversation_id": "266f4c7a-0834-4f27-bca1-5e7ac9e11aee",
+          "time": "2026-05-18T04:48:51.302000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": -0.404,
+          "label": "negative",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 25.86,
+          "customer_pct": 14.65,
+          "silence_pct": 2.72
+        },
+        {
+          "conversation_id": "efce7c50-63b7-48ef-90e3-45dcc4cc335b",
+          "time": "2026-05-18T05:02:35.027000+00:00",
+          "queue_name": "Coles - Billing",
+          "score": 0.965,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 36.17,
+          "customer_pct": 47.0,
+          "silence_pct": 2.4
+        },
+        {
+          "conversation_id": "117a33d4-a0c0-467c-8e9c-d565cccb4d47",
+          "time": "2026-05-18T05:41:54.490000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.583,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 13.65,
+          "customer_pct": 21.96,
+          "silence_pct": 6.46
+        },
+        {
+          "conversation_id": "61f7f723-69fd-4433-b824-3869ddeb1e7c",
+          "time": "2026-05-18T05:43:03.666000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.993,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 29.45,
+          "customer_pct": 21.26,
+          "silence_pct": 5.58
+        },
+        {
+          "conversation_id": "77b4d8ea-d088-4fe4-8c21-f45a2d18a524",
+          "time": "2026-05-18T08:38:05.180000+00:00",
+          "queue_name": "Coles - Technical Support",
+          "score": 0.612,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 3.88,
+          "customer_pct": 3.6,
+          "silence_pct": 2.87
+        },
+        {
+          "conversation_id": "f271904b-c2da-429a-a100-6ce409107807",
+          "time": "2026-05-19T00:33:22.854000+00:00",
+          "queue_name": "Coles - Technical Support",
+          "score": 0.598,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 5.8,
+          "customer_pct": 24.23,
+          "silence_pct": 0.38
+        },
+        {
+          "conversation_id": "e2e50980-545a-4384-94ae-2a72a75fa5bd",
+          "time": "2026-05-19T01:54:06.371000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 8.33,
+          "customer_pct": 9.57,
+          "silence_pct": 11.62
+        },
+        {
+          "conversation_id": "24f1f3fe-3b0f-40d3-9202-49e476b85759",
+          "time": "2026-05-19T02:00:03.090000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": -0.395,
+          "label": "mildly_negative",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 22.29,
+          "customer_pct": 25.22,
+          "silence_pct": 13.16
+        },
+        {
+          "conversation_id": "e61ff023-3514-4aeb-b802-504aa0a7e525",
+          "time": "2026-05-19T02:06:00.482000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 11.97,
+          "customer_pct": 25.45,
+          "silence_pct": 8.86
+        },
+        {
+          "conversation_id": "8b72e7a1-0f76-45fe-9b4c-c37809e3936b",
+          "time": "2026-05-19T02:11:30.451000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": -0.029,
+          "label": "neutral",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 11.11,
+          "customer_pct": 20.99,
+          "silence_pct": 8.45
+        },
+        {
+          "conversation_id": "736c01fe-584c-4e5f-a72f-821a6f9ba901",
+          "time": "2026-05-19T02:59:51.712000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 29.33,
+          "customer_pct": 33.48,
+          "silence_pct": 5.4
+        },
+        {
+          "conversation_id": "8610baf4-006c-4c22-b3b6-59dcf1d5085f",
+          "time": "2026-05-19T03:07:01.150000+00:00",
+          "queue_name": "Coles - General",
+          "score": -0.946,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 39.13,
+          "customer_pct": 16.0,
+          "silence_pct": 29.36
+        },
+        {
+          "conversation_id": "0ed410d8-a2d8-4a0d-af0c-9cf53c6d2530",
+          "time": "2026-05-19T03:39:53.573000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": -0.034,
+          "label": "neutral",
+          "trend_class": "Improving",
+          "agent_pct": 7.25,
+          "customer_pct": 16.3,
+          "silence_pct": 1.69
+        },
+        {
+          "conversation_id": "19ea371d-9d6b-47cf-869f-52ad17361325",
+          "time": "2026-05-19T03:48:09.719000+00:00",
+          "queue_name": "Coles - Retention",
+          "score": 0.635,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 30.68,
+          "customer_pct": 20.32,
+          "silence_pct": 7.55
+        },
+        {
+          "conversation_id": "97e946f2-40c8-4313-8f0e-6eee72391c42",
+          "time": "2026-05-19T04:06:30.250000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": -0.917,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 22.47,
+          "customer_pct": 37.94,
+          "silence_pct": 12.79
+        },
+        {
+          "conversation_id": "095685b5-da0c-4c0e-9b5e-27fc76e71adc",
+          "time": "2026-05-19T04:45:24.150000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": 0.567,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 12.45,
+          "customer_pct": 8.33,
+          "silence_pct": 0.61
+        },
+        {
+          "conversation_id": "03bc7657-acdb-419a-9193-0e2c15ea5d14",
+          "time": "2026-05-19T04:48:11.386000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": -0.825,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 16.92,
+          "customer_pct": 35.46,
+          "silence_pct": 0.39
+        },
+        {
+          "conversation_id": "8dddb341-c0ec-45d7-80d1-dbcfa1718cc0",
+          "time": "2026-05-19T05:08:56.538000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 8.03,
+          "customer_pct": 7.17,
+          "silence_pct": 3.02
+        },
+        {
+          "conversation_id": "e7e20ec7-d77f-49f3-97fd-37707b54b92f",
+          "time": "2026-05-19T05:15:59.220000+00:00",
+          "queue_name": "Coles - Billing",
+          "score": -0.451,
+          "label": "negative",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 21.11,
+          "customer_pct": 24.35,
+          "silence_pct": 5.53
+        },
+        {
+          "conversation_id": "5182fc2b-2c1e-41ac-a2bf-a5511d17e2f0",
+          "time": "2026-05-19T05:36:23.991000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.988,
+          "label": "positive",
+          "trend_class": "NoChange",
+          "agent_pct": 14.7,
+          "customer_pct": 15.16,
+          "silence_pct": 1.27
+        },
+        {
+          "conversation_id": "cb978fe2-35f8-4894-9420-7f05aa04cc28",
+          "time": "2026-05-19T06:22:15.431000+00:00",
+          "queue_name": "Coles - General",
+          "score": -0.083,
+          "label": "neutral",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 3.33,
+          "customer_pct": 4.41,
+          "silence_pct": 14.14
+        },
+        {
+          "conversation_id": "7760cf84-6377-4089-bbff-c3ef75827d05",
+          "time": "2026-05-19T06:25:28.584000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 4.98,
+          "customer_pct": 5.93,
+          "silence_pct": 17.13
+        },
+        {
+          "conversation_id": "ee9c5249-3853-4196-9377-84393a9c67f1",
+          "time": "2026-05-19T06:26:30.755000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 4.36,
+          "customer_pct": 5.71,
+          "silence_pct": 9.73
+        },
+        {
+          "conversation_id": "013fe630-79a2-4697-af2e-fa4f19e8c172",
+          "time": "2026-05-19T06:28:49.724000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.427,
+          "label": "positive",
+          "trend_class": "Improving",
+          "agent_pct": 46.64,
+          "customer_pct": 20.36,
+          "silence_pct": 4.55
+        },
+        {
+          "conversation_id": "5a0cb448-1736-464f-ab57-a62445e6dae9",
+          "time": "2026-05-20T00:19:53.666000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": -0.664,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 25.96,
+          "customer_pct": 32.53,
+          "silence_pct": 2.28
+        },
+        {
+          "conversation_id": "c3745d2a-41f0-4a35-8aa7-71bcff321988",
+          "time": "2026-05-20T01:32:44.197000+00:00",
+          "queue_name": "Coles - Technical Support",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 14.03,
+          "customer_pct": 6.84,
+          "silence_pct": 1.74
+        },
+        {
+          "conversation_id": "b1946f11-0b8a-4df8-9f26-18b4b9218063",
+          "time": "2026-05-20T03:07:26.196000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": 0.874,
+          "label": "positive",
+          "trend_class": "Improving",
+          "agent_pct": 45.92,
+          "customer_pct": 16.76,
+          "silence_pct": 15.93
+        },
+        {
+          "conversation_id": "375c8d38-ee40-48fa-a4c9-0138a7061a2d",
+          "time": "2026-05-20T03:24:01.911000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 17.65,
+          "customer_pct": 21.77,
+          "silence_pct": 36.26
+        },
+        {
+          "conversation_id": "38f4c2d5-13cd-4b41-9981-95fdd47d046b",
+          "time": "2026-05-20T03:24:13.379000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.629,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 45.45,
+          "customer_pct": 23.48,
+          "silence_pct": 5.15
+        },
+        {
+          "conversation_id": "26aa1a2c-e0cf-44fe-91dd-16908e5b9518",
+          "time": "2026-05-20T03:33:36.187000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 20.22,
+          "customer_pct": 18.31,
+          "silence_pct": 3.36
+        },
+        {
+          "conversation_id": "112cc1dc-d359-4f02-9e4e-20acc98326a4",
+          "time": "2026-05-20T03:45:12.252000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.19,
+          "label": "mildly_positive",
+          "trend_class": "Improving",
+          "agent_pct": 47.9,
+          "customer_pct": 27.04,
+          "silence_pct": 10.8
+        },
+        {
+          "conversation_id": "644a7b90-9f83-4ddd-8147-2970b2c28edb",
+          "time": "2026-05-20T04:05:13.907000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 6.3,
+          "customer_pct": 2.47,
+          "silence_pct": 0.43
+        },
+        {
+          "conversation_id": "38b2b850-0d28-44f7-834f-e2170863ba8f",
+          "time": "2026-05-20T04:30:22.239000+00:00",
+          "queue_name": "Coles - Retention",
+          "score": -0.859,
+          "label": "negative",
+          "trend_class": "SlightlyDeclining",
+          "agent_pct": 28.4,
+          "customer_pct": 27.36,
+          "silence_pct": 19.38
+        },
+        {
+          "conversation_id": "ceccbdfe-61d2-4f28-b2e1-c8d8a6506a14",
+          "time": "2026-05-20T04:38:10.965000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.628,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 18.65,
+          "customer_pct": 36.42,
+          "silence_pct": 25.69
+        },
+        {
+          "conversation_id": "4fdc9fbb-11ee-46c7-9705-0dc8dc1eef36",
+          "time": "2026-05-20T05:33:38.839000+00:00",
+          "queue_name": "Coles - Technical Support",
+          "score": -0.876,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 11.75,
+          "customer_pct": 34.09,
+          "silence_pct": 8.6
+        },
+        {
+          "conversation_id": "278f07f4-fdcb-49da-8781-a4d6d05ca5b0",
+          "time": "2026-05-20T07:14:45.069000+00:00",
+          "queue_name": "Coles - General",
+          "score": -0.124,
+          "label": "mildly_negative",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 3.96,
+          "customer_pct": 2.99,
+          "silence_pct": 1.44
+        },
+        {
+          "conversation_id": "f8bc2581-856f-4f00-bc64-aab7fb310aea",
+          "time": "2026-05-20T07:19:59.151000+00:00",
+          "queue_name": "Coles - Billing",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 5.54,
+          "customer_pct": 4.1,
+          "silence_pct": 3.97
+        },
+        {
+          "conversation_id": "41643ae2-c2db-4fa6-b429-496b5985a506",
+          "time": "2026-05-20T07:24:01.974000+00:00",
+          "queue_name": "Coles - Technical Support",
+          "score": -0.023,
+          "label": "neutral",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 12.59,
+          "customer_pct": 10.88,
+          "silence_pct": 6.85
+        },
+        {
+          "conversation_id": "67525970-f811-4f17-8020-2bb7f11e1fca",
+          "time": "2026-05-20T07:24:37.411000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.605,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 17.29,
+          "customer_pct": 6.89,
+          "silence_pct": 8.73
+        },
+        {
+          "conversation_id": "56569305-8aa3-4504-bca3-7c28c807874d",
+          "time": "2026-05-20T07:29:25.900000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": 0.682,
+          "label": "positive",
+          "trend_class": "Improving",
+          "agent_pct": 4.61,
+          "customer_pct": 6.85,
+          "silence_pct": 1.59
+        },
+        {
+          "conversation_id": "29112104-d0bc-4568-8908-5ecf39196c76",
+          "time": "2026-05-21T00:32:00.037000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 1.94,
+          "customer_pct": 0.29,
+          "silence_pct": 1.26
+        },
+        {
+          "conversation_id": "25939e77-68b9-425f-806a-49a7fb807dce",
+          "time": "2026-05-21T00:40:31.863000+00:00",
+          "queue_name": "Coles - General",
+          "score": -0.777,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 8.52,
+          "customer_pct": 6.14,
+          "silence_pct": 8.08
+        },
+        {
+          "conversation_id": "57510359-5aa1-4acb-bc8d-425aaa308c25",
+          "time": "2026-05-21T02:19:28.493000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.588,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 5.49,
+          "customer_pct": 6.97,
+          "silence_pct": 0.99
+        },
+        {
+          "conversation_id": "a0eb66f9-7fd7-460a-a0ec-f233b2e1b1a9",
+          "time": "2026-05-21T03:05:52.904000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.856,
+          "label": "positive",
+          "trend_class": "Improving",
+          "agent_pct": 18.08,
+          "customer_pct": 28.04,
+          "silence_pct": 10.17
+        },
+        {
+          "conversation_id": "7c547d8e-dbe6-4e50-b1ea-08033eda90f3",
+          "time": "2026-05-21T04:12:30.257000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": 0.966,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 21.03,
+          "customer_pct": 47.83,
+          "silence_pct": 1.75
+        },
+        {
+          "conversation_id": "8f9d14f0-01ab-4bd9-a8ea-e50f976a9a01",
+          "time": "2026-05-21T04:24:31.414000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.635,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 5.41,
+          "customer_pct": 10.92,
+          "silence_pct": 2.81
+        },
+        {
+          "conversation_id": "1cb14d66-830d-4e26-9059-a0a16491d03d",
+          "time": "2026-05-21T05:06:47.738000+00:00",
+          "queue_name": "Coles - Billing",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 22.42,
+          "customer_pct": 19.94,
+          "silence_pct": 10.18
+        },
+        {
+          "conversation_id": "f8104662-b9a0-4576-b55e-6b3971964698",
+          "time": "2026-05-21T05:06:56.985000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": -0.322,
+          "label": "mildly_negative",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 7.14,
+          "customer_pct": 13.54,
+          "silence_pct": 61.41
+        },
+        {
+          "conversation_id": "a11c76e4-d770-4993-a04f-5e4bcefa99de",
+          "time": "2026-05-21T07:05:28.766000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 8.44,
+          "customer_pct": 8.53,
+          "silence_pct": 5.38
+        },
+        {
+          "conversation_id": "02159fc7-704a-4b5e-b11a-95adcc641e6f",
+          "time": "2026-05-21T23:46:52.918000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.618,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 35.3,
+          "customer_pct": 23.29,
+          "silence_pct": 26.17
+        },
+        {
+          "conversation_id": "869bd078-874a-48b3-9b52-2af0c8b35b14",
+          "time": "2026-05-22T00:03:36.770000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.613,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 9.9,
+          "customer_pct": 19.34,
+          "silence_pct": 5.98
+        },
+        {
+          "conversation_id": "7c7fbe63-eac7-4478-b039-5c5a8caf95ab",
+          "time": "2026-05-22T01:51:47.736000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.917,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 17.16,
+          "customer_pct": 31.3,
+          "silence_pct": 39.22
+        },
+        {
+          "conversation_id": "77200be1-246c-4ff4-b092-1403dbb9eb0e",
+          "time": "2026-05-22T01:54:57.729000+00:00",
+          "queue_name": "Coles - Billing",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 6.54,
+          "customer_pct": 4.77,
+          "silence_pct": 8.26
+        },
+        {
+          "conversation_id": "45fa5657-9d97-419d-896d-3188d35a1643",
+          "time": "2026-05-22T02:58:22.017000+00:00",
+          "queue_name": "Coles - Technical Support",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 19.09,
+          "customer_pct": 12.75,
+          "silence_pct": 47.61
+        },
+        {
+          "conversation_id": "8010a0af-1604-46f6-9f37-d595cd62d99a",
+          "time": "2026-05-22T03:21:55.033000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 18.79,
+          "customer_pct": 21.33,
+          "silence_pct": 17.23
+        },
+        {
+          "conversation_id": "8709b52d-4f2d-48f0-aa2d-40caeecea152",
+          "time": "2026-05-22T04:57:59.377000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": 0.618,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 24.6,
+          "customer_pct": 37.41,
+          "silence_pct": 3.25
+        },
+        {
+          "conversation_id": "33c1ebae-1b05-4a5e-9f24-123a27e2ea22",
+          "time": "2026-05-22T06:21:24.131000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": 0.614,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 5.38,
+          "customer_pct": 8.56,
+          "silence_pct": null
+        },
+        {
+          "conversation_id": "f1cc6596-591b-430a-a0cd-b818387aaab5",
+          "time": "2026-05-22T06:45:29.890000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.902,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 16.41,
+          "customer_pct": 25.03,
+          "silence_pct": 12.07
+        },
+        {
+          "conversation_id": "661acab4-8259-4d99-9c90-6fab68054a6c",
+          "time": "2026-05-22T07:25:12.287000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.895,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 24.99,
+          "customer_pct": 15.56,
+          "silence_pct": 6.28
+        },
+        {
+          "conversation_id": "e3e735a6-e378-49b5-94ac-f7b901b24e45",
+          "time": "2026-05-23T00:03:54.626000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 0.35,
+          "customer_pct": 0.86,
+          "silence_pct": 1.07
+        },
+        {
+          "conversation_id": "7d46b955-cd00-4a1d-a2f4-f5c5608226ff",
+          "time": "2026-05-23T01:22:58.243000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": 0.439,
+          "label": "positive",
+          "trend_class": "NoChange",
+          "agent_pct": 12.59,
+          "customer_pct": 4.98,
+          "silence_pct": 2.41
+        },
+        {
+          "conversation_id": "18385d20-0f15-4951-9dd7-1600de7b9326",
+          "time": "2026-05-23T01:36:24.420000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": -0.862,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 10.41,
+          "customer_pct": 7.71,
+          "silence_pct": 3.56
+        },
+        {
+          "conversation_id": "98c9bf47-fd81-44c7-8afa-1578281ff44f",
+          "time": "2026-05-23T02:15:37.572000+00:00",
+          "queue_name": "Coles - General",
+          "score": -0.979,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 29.36,
+          "customer_pct": 22.59,
+          "silence_pct": 8.64
+        },
+        {
+          "conversation_id": "7d8969dd-1361-442a-a251-7a9e518db023",
+          "time": "2026-05-23T04:56:48.083000+00:00",
+          "queue_name": "Coles - Retention",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 4.83,
+          "customer_pct": 2.58,
+          "silence_pct": 0.33
+        },
+        {
+          "conversation_id": "cf1dba52-dcca-42a4-94f8-7e8b9822c350",
+          "time": "2026-05-23T05:52:28.880000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 1.44,
+          "customer_pct": 2.22,
+          "silence_pct": 1.27
+        },
+        {
+          "conversation_id": "74179dff-42f7-4fea-be42-7f7e32187aac",
+          "time": "2026-05-23T06:52:15.170000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.9,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 4.17,
+          "customer_pct": 3.27,
+          "silence_pct": 15.96
+        },
+        {
+          "conversation_id": "225e58a4-8370-448d-9c4e-71cfc8e938b9",
+          "time": "2026-05-24T00:55:34.592000+00:00",
+          "queue_name": "Coles - General",
+          "score": -0.23,
+          "label": "mildly_negative",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 7.17,
+          "customer_pct": 8.89,
+          "silence_pct": 6.9
+        },
+        {
+          "conversation_id": "62f45b4f-bd7c-47ef-bf29-4e6eb505d643",
+          "time": "2026-05-24T00:59:03.267000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": -0.156,
+          "label": "mildly_negative",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 6.25,
+          "customer_pct": 5.99,
+          "silence_pct": 2.66
+        },
+        {
+          "conversation_id": "f48d3de3-cf27-4cd9-8f20-7e653a255ddc",
+          "time": "2026-05-24T00:59:24.695000+00:00",
+          "queue_name": "Coles - Billing",
+          "score": 0.885,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 4.5,
+          "customer_pct": 7.3,
+          "silence_pct": 2.38
+        },
+        {
+          "conversation_id": "1a1b301f-4bbe-4457-978c-fc2aa4466bb2",
+          "time": "2026-05-24T01:03:29.856000+00:00",
+          "queue_name": "Coles - Technical Support",
+          "score": 0.87,
+          "label": "positive",
+          "trend_class": "Improving",
+          "agent_pct": 24.8,
+          "customer_pct": 29.63,
+          "silence_pct": 9.24
+        },
+        {
+          "conversation_id": "4b40bbd9-9cab-41b2-a576-519eb04a4a3a",
+          "time": "2026-05-24T01:30:15.173000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": -0.984,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 28.61,
+          "customer_pct": 20.07,
+          "silence_pct": 25.87
+        },
+        {
+          "conversation_id": "c3092bdd-80bf-44ee-8db8-dfbe76521ea5",
+          "time": "2026-05-24T01:34:19.789000+00:00",
+          "queue_name": "Coles - Technical Support",
+          "score": 0.879,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 16.4,
+          "customer_pct": 28.26,
+          "silence_pct": 23.31
+        },
+        {
+          "conversation_id": "e45e8646-4b76-4b67-b3a7-ae3f0743289c",
+          "time": "2026-05-24T02:18:07.445000+00:00",
+          "queue_name": "Coles - Technical Support",
+          "score": 1.0,
+          "label": "positive",
+          "trend_class": "Improving",
+          "agent_pct": 24.54,
+          "customer_pct": 24.12,
+          "silence_pct": 15.34
+        },
+        {
+          "conversation_id": "b6f8425f-a6b6-4195-ae0a-ad9b39a1f8a4",
+          "time": "2026-05-24T03:05:39.656000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.618,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 23.86,
+          "customer_pct": 40.52,
+          "silence_pct": 19.6
+        },
+        {
+          "conversation_id": "5b2c4e61-2884-42b6-94ae-9beb46f158a1",
+          "time": "2026-05-24T03:52:16.322000+00:00",
+          "queue_name": "Coles - Sales",
+          "score": 0.044,
+          "label": "neutral",
+          "trend_class": "NoChange",
+          "agent_pct": 4.07,
+          "customer_pct": 3.66,
+          "silence_pct": 3.34
+        }
+      ],
+      "sentiment_trend": "improving",
+      "last_call": {
+        "conversation_id": "ec2dcd59-4a67-491a-afb5-8597fdd216dd",
+        "time": "2026-05-24T04:49:03.663000+00:00",
+        "queue_name": "Coles - Sales",
+        "status": "abandoned_in_queue",
+        "disposition": null,
+        "ai_outcome": null,
+        "expected_fix": null,
+        "summary": null,
+        "sentiment": null,
+        "sentiment_trend_class": null
+      },
+      "evidence_conversation_ids": [
+        "9f69969d-559e-4d7c-b968-1edb1c8ab7da",
+        "4ce567f3-64a5-4826-955c-7873ae28f2e9",
+        "1b6b232d-510e-48e3-bcc4-3ed47256f5ac",
+        "8462a159-d7ff-43b0-a523-6236b1c0361b",
+        "0711a189-9b33-4c49-981f-7d60d22ac439",
+        "c7951113-8c4d-4dcf-81b3-73033404d454",
+        "f3371662-9862-4b81-bf06-e29ff5aacd0b",
+        "55a95505-d5a4-43b0-94fe-a0add2d602a0",
+        "728f698f-6f6b-429a-bbbb-254aed08c07d",
+        "8f92c3e6-0133-4691-b3f7-f5949ae15a17",
+        "52e531c2-bfb6-4724-a50b-1a90a7e5d1f9",
+        "9354be4a-db56-4b57-8436-599aaf2a2f32",
+        "266f4c7a-0834-4f27-bca1-5e7ac9e11aee",
+        "efce7c50-63b7-48ef-90e3-45dcc4cc335b",
+        "117a33d4-a0c0-467c-8e9c-d565cccb4d47",
+        "61f7f723-69fd-4433-b824-3869ddeb1e7c",
+        "07b6f698-c53a-495e-97bd-a1c7f926a8c6",
+        "96db8f8e-51ae-41fc-b3a5-46165b1307da",
+        "77b4d8ea-d088-4fe4-8c21-f45a2d18a524",
+        "916f415e-fc32-4c8f-beb9-f5aa9cc357b2",
+        "f271904b-c2da-429a-a100-6ce409107807",
+        "a2d70f77-c78e-4abb-b296-28717d207f52",
+        "1e8290f1-605e-43a1-a092-81cea884f201",
+        "e2e50980-545a-4384-94ae-2a72a75fa5bd",
+        "24f1f3fe-3b0f-40d3-9202-49e476b85759",
+        "e61ff023-3514-4aeb-b802-504aa0a7e525",
+        "8b72e7a1-0f76-45fe-9b4c-c37809e3936b",
+        "736c01fe-584c-4e5f-a72f-821a6f9ba901",
+        "8610baf4-006c-4c22-b3b6-59dcf1d5085f",
+        "0ed410d8-a2d8-4a0d-af0c-9cf53c6d2530",
+        "19ea371d-9d6b-47cf-869f-52ad17361325",
+        "97e946f2-40c8-4313-8f0e-6eee72391c42",
+        "e2c35d98-7f61-4f42-b31c-fb8a2a787853",
+        "095685b5-da0c-4c0e-9b5e-27fc76e71adc",
+        "03bc7657-acdb-419a-9193-0e2c15ea5d14",
+        "8dddb341-c0ec-45d7-80d1-dbcfa1718cc0",
+        "e7e20ec7-d77f-49f3-97fd-37707b54b92f",
+        "5182fc2b-2c1e-41ac-a2bf-a5511d17e2f0",
+        "cb978fe2-35f8-4894-9420-7f05aa04cc28",
+        "7760cf84-6377-4089-bbff-c3ef75827d05",
+        "ee9c5249-3853-4196-9377-84393a9c67f1",
+        "013fe630-79a2-4697-af2e-fa4f19e8c172",
+        "5a0cb448-1736-464f-ab57-a62445e6dae9",
+        "c3745d2a-41f0-4a35-8aa7-71bcff321988",
+        "b1946f11-0b8a-4df8-9f26-18b4b9218063",
+        "375c8d38-ee40-48fa-a4c9-0138a7061a2d",
+        "38f4c2d5-13cd-4b41-9981-95fdd47d046b",
+        "26aa1a2c-e0cf-44fe-91dd-16908e5b9518",
+        "112cc1dc-d359-4f02-9e4e-20acc98326a4",
+        "644a7b90-9f83-4ddd-8147-2970b2c28edb",
+        "38b2b850-0d28-44f7-834f-e2170863ba8f",
+        "ceccbdfe-61d2-4f28-b2e1-c8d8a6506a14",
+        "4fdc9fbb-11ee-46c7-9705-0dc8dc1eef36",
+        "278f07f4-fdcb-49da-8781-a4d6d05ca5b0",
+        "f8bc2581-856f-4f00-bc64-aab7fb310aea",
+        "41643ae2-c2db-4fa6-b429-496b5985a506",
+        "67525970-f811-4f17-8020-2bb7f11e1fca",
+        "56569305-8aa3-4504-bca3-7c28c807874d",
+        "29112104-d0bc-4568-8908-5ecf39196c76",
+        "25939e77-68b9-425f-806a-49a7fb807dce",
+        "ea542f3d-db59-46f0-8de9-7b1053f5f03a",
+        "f341bd09-182d-4c7d-a7d2-43a8c2cef7b3",
+        "03cd131a-e946-4d0e-aa88-06d444ef56a6",
+        "a7a82d40-66db-4fb8-a2f2-875c07280e4c",
+        "57510359-5aa1-4acb-bc8d-425aaa308c25",
+        "a0eb66f9-7fd7-460a-a0ec-f233b2e1b1a9",
+        "7c547d8e-dbe6-4e50-b1ea-08033eda90f3",
+        "8f9d14f0-01ab-4bd9-a8ea-e50f976a9a01",
+        "4f42a961-ae97-41a9-aaa3-a40845782ce4",
+        "1cb14d66-830d-4e26-9059-a0a16491d03d",
+        "f8104662-b9a0-4576-b55e-6b3971964698",
+        "8845816e-4a0f-4bf1-9eff-301dddfb88f8",
+        "a11c76e4-d770-4993-a04f-5e4bcefa99de",
+        "02159fc7-704a-4b5e-b11a-95adcc641e6f",
+        "869bd078-874a-48b3-9b52-2af0c8b35b14",
+        "7c7fbe63-eac7-4478-b039-5c5a8caf95ab",
+        "77200be1-246c-4ff4-b092-1403dbb9eb0e",
+        "45fa5657-9d97-419d-896d-3188d35a1643",
+        "8010a0af-1604-46f6-9f37-d595cd62d99a",
+        "8709b52d-4f2d-48f0-aa2d-40caeecea152",
+        "33c1ebae-1b05-4a5e-9f24-123a27e2ea22",
+        "55b4f6f4-85a4-46b3-b359-08253026910a",
+        "f1cc6596-591b-430a-a0cd-b818387aaab5",
+        "661acab4-8259-4d99-9c90-6fab68054a6c",
+        "e3e735a6-e378-49b5-94ac-f7b901b24e45",
+        "b3fbdd6e-7888-4aa6-ba73-439d25b7f97a",
+        "7d46b955-cd00-4a1d-a2f4-f5c5608226ff",
+        "66404c33-af48-49a4-894f-eb3d55e4c0be",
+        "18385d20-0f15-4951-9dd7-1600de7b9326",
+        "98c9bf47-fd81-44c7-8afa-1578281ff44f",
+        "7d8969dd-1361-442a-a251-7a9e518db023",
+        "2965435d-4ef8-4acd-8e3a-546f981da099",
+        "cf1dba52-dcca-42a4-94f8-7e8b9822c350",
+        "afb8328c-aa5c-4813-a026-f348db7c4a5c",
+        "74179dff-42f7-4fea-be42-7f7e32187aac",
+        "4c2a7dba-4cb4-4d63-b2f8-612770c4f9e5",
+        "55a7ff38-fc37-4783-9830-02bc931595ea",
+        "ec7ee95e-7af7-4adf-9621-1bbb20313191",
+        "7299aae9-ad18-416f-8381-c6c740718175",
+        "5d801d17-691e-4629-9bff-0957e9c298b8",
+        "6ebae180-41d3-4551-aa6e-15b85164b0a5",
+        "225e58a4-8370-448d-9c4e-71cfc8e938b9",
+        "62f45b4f-bd7c-47ef-bf29-4e6eb505d643",
+        "f48d3de3-cf27-4cd9-8f20-7e653a255ddc",
+        "1a1b301f-4bbe-4457-978c-fc2aa4466bb2",
+        "4b40bbd9-9cab-41b2-a576-519eb04a4a3a",
+        "c3092bdd-80bf-44ee-8db8-dfbe76521ea5",
+        "e45e8646-4b76-4b67-b3a7-ae3f0743289c",
+        "b6f8425f-a6b6-4195-ae0a-ad9b39a1f8a4",
+        "5b2c4e61-2884-42b6-94ae-9beb46f158a1",
+        "efd744df-a2d1-4fa7-a2dd-1c573242c402",
+        "061010e0-a1c8-450d-b99a-dabdcd94ca6b",
+        "ec2dcd59-4a67-491a-afb5-8597fdd216dd"
+      ],
+      "recommended_action": "callback_recommended"
+    },
+    {
+      "ani": "+61871303949",
+      "call_count": 78,
+      "acd_offered_count": 78,
+      "answered_count": 60,
+      "abandoned_in_queue_count": 18,
+      "ivr_only_count": 0,
+      "answer_rate_of_offered_pct": 76.9,
+      "queues_offered": {
+        "OnePass - Sales": 16,
+        "OnePass - Activation": 19,
+        "OnePass - General": 17,
+        "OnePass - Billing": 14,
+        "OnePass - Technical Support": 12
+      },
+      "dispositions": {
+        "Progress of Refund": 2,
+        "Simcard Query/Replacement/Activation": 7,
+        "No Response": 3,
+        "Refund Request": 2,
+        "Account Management/Update/Info": 18,
+        "Pre-Sales Pre Paid": 5,
+        "Network Issues": 2,
+        "Activation Help/Guidance/General": 4,
+        "Pre-Sales Roaming": 3,
+        "App-related Issues": 1,
+        "Billing Query/Dispute": 2,
+        "Call Quality Issues": 1,
+        "Mobile Data Issues": 1,
+        "Activation Porting Assistance": 2,
+        "OnePass Referred": 2,
+        "Activation Complete/Issue Resolved": 1,
+        "Auto Recharge Query": 1,
+        "Activation Escalated": 1,
+        "Scam/Spam Query": 1,
+        "Pre-Sales Recharges": 1
+      },
+      "ai_outcomes": {
+        "Resolved": 20,
+        "Unresolved Chat": 9,
+        "Query": 3,
+        "Mid Flight": 19,
+        "Escalated": 7
+      },
+      "expected_fixes": {
+        "Simpack Recharge": 25,
+        "N/A": 8,
+        "Roaming": 4,
+        "OTHER": 19,
+        "Retention Matrix": 2
+      },
+      "answered_with_outcome": 58,
+      "unresolved_share": 0.655,
+      "topics": [
+        {
+          "topic": "OnePass - Activation (answered)",
+          "count": 17,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - Sales (answered)",
+          "count": 14,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - General (answered)",
+          "count": 13,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - Billing (answered)",
+          "count": 10,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - Technical Support (answered)",
+          "count": 6,
+          "source": "queue_status"
+        }
+      ],
+      "sentiment_trajectory": [
+        {
+          "conversation_id": "276c1d8c-0f12-4f93-9c65-cfb80463de26",
+          "time": "2026-05-18T00:51:18.608000+00:00",
+          "queue_name": "OnePass - Sales",
+          "score": -0.999,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 31.04,
+          "customer_pct": 12.07,
+          "silence_pct": 30.14
+        },
+        {
+          "conversation_id": "4128e8c4-5072-4ce2-b223-57cc37f1140b",
+          "time": "2026-05-18T01:05:08.200000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 9.5,
+          "customer_pct": 5.12,
+          "silence_pct": 5.63
+        },
+        {
+          "conversation_id": "c911e9c3-cc1b-4e42-90a9-622250ef8f54",
+          "time": "2026-05-18T01:22:40.687000+00:00",
+          "queue_name": "OnePass - General",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": null,
+          "customer_pct": 0.4,
+          "silence_pct": 9.48
+        },
+        {
+          "conversation_id": "32486dc7-e11a-4e59-b584-a5d8271a8271",
+          "time": "2026-05-18T01:25:38.123000+00:00",
+          "queue_name": "OnePass - General",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 3.47,
+          "customer_pct": null,
+          "silence_pct": 7.19
+        },
+        {
+          "conversation_id": "b808c118-b6c6-40ef-9e3c-01046b87a218",
+          "time": "2026-05-18T01:33:30.038000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": -0.729,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 54.49,
+          "customer_pct": 18.77,
+          "silence_pct": 10.31
+        },
+        {
+          "conversation_id": "744fb377-0bb5-4249-b082-2dec24193e8b",
+          "time": "2026-05-18T01:42:10.399000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 12.81,
+          "customer_pct": 15.78,
+          "silence_pct": 2.68
+        },
+        {
+          "conversation_id": "d946b5b9-826e-4c03-9435-674196cf7c65",
+          "time": "2026-05-18T02:25:47.931000+00:00",
+          "queue_name": "OnePass - General",
+          "score": -0.149,
+          "label": "mildly_negative",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 14.05,
+          "customer_pct": 24.48,
+          "silence_pct": 9.31
+        },
+        {
+          "conversation_id": "48559fb4-872c-4373-bc2c-e883f733e752",
+          "time": "2026-05-18T03:05:17.804000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": -0.998,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 17.8,
+          "customer_pct": 39.24,
+          "silence_pct": 2.58
+        },
+        {
+          "conversation_id": "cee2de81-dcf9-4e8f-8c6d-efaac72a14c5",
+          "time": "2026-05-18T03:11:06.724000+00:00",
+          "queue_name": "OnePass - Technical Support",
+          "score": -0.145,
+          "label": "mildly_negative",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 37.07,
+          "customer_pct": 44.28,
+          "silence_pct": 0.81
+        },
+        {
+          "conversation_id": "7a9608b2-5748-4c45-9ea0-78f2d7e890cf",
+          "time": "2026-05-18T04:11:58.875000+00:00",
+          "queue_name": "OnePass - Billing",
+          "score": 0.887,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 27.71,
+          "customer_pct": 25.59,
+          "silence_pct": 4.21
+        },
+        {
+          "conversation_id": "ba7806f1-1eb3-4138-8b72-17e11c361fbd",
+          "time": "2026-05-18T04:53:23.833000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": -0.96,
+          "label": "negative",
+          "trend_class": "SlightlyDeclining",
+          "agent_pct": 26.94,
+          "customer_pct": 16.85,
+          "silence_pct": 14.93
+        },
+        {
+          "conversation_id": "936f741a-289a-4951-8de0-aecd816ad7c2",
+          "time": "2026-05-18T23:45:12.194000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": 0.999,
+          "label": "positive",
+          "trend_class": "NoChange",
+          "agent_pct": 28.88,
+          "customer_pct": 24.67,
+          "silence_pct": 17.03
+        },
+        {
+          "conversation_id": "16de6311-69e1-49c6-942e-7a7fcbcd09aa",
+          "time": "2026-05-18T23:58:37.222000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 18.15,
+          "customer_pct": 20.73,
+          "silence_pct": 39.0
+        },
+        {
+          "conversation_id": "fe1a858a-0119-4f13-b3b9-f944d3d840e7",
+          "time": "2026-05-19T00:34:07.512000+00:00",
+          "queue_name": "OnePass - General",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 6.73,
+          "customer_pct": 3.84,
+          "silence_pct": 1.55
+        },
+        {
+          "conversation_id": "ca12070a-2052-4748-8df9-c9e57b7fafa4",
+          "time": "2026-05-19T00:36:12.132000+00:00",
+          "queue_name": "OnePass - Sales",
+          "score": -0.981,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 23.86,
+          "customer_pct": 20.36,
+          "silence_pct": 10.34
+        },
+        {
+          "conversation_id": "a331d26f-ff19-4f74-8e75-a130fefb75e4",
+          "time": "2026-05-19T00:39:43.019000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": -0.688,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 19.9,
+          "customer_pct": 22.85,
+          "silence_pct": 17.0
+        },
+        {
+          "conversation_id": "f70c1379-775e-450a-9773-9aa2dd95012b",
+          "time": "2026-05-19T00:53:51.452000+00:00",
+          "queue_name": "OnePass - Billing",
+          "score": -1.0,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 11.76,
+          "customer_pct": 27.32,
+          "silence_pct": 22.22
+        },
+        {
+          "conversation_id": "c2c9fa9d-6fd2-4a71-8ca4-b4f1093ee535",
+          "time": "2026-05-19T01:05:17.240000+00:00",
+          "queue_name": "OnePass - General",
+          "score": 0.896,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 14.52,
+          "customer_pct": 16.65,
+          "silence_pct": 8.04
+        },
+        {
+          "conversation_id": "6508bfb6-f74d-45b8-adfe-a6238406a4aa",
+          "time": "2026-05-19T01:17:58.371000+00:00",
+          "queue_name": "OnePass - General",
+          "score": -0.075,
+          "label": "neutral",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 5.79,
+          "customer_pct": 9.24,
+          "silence_pct": 0.19
+        },
+        {
+          "conversation_id": "73af1bd3-deb2-4c9e-a44d-e8de04219e47",
+          "time": "2026-05-19T01:23:03.653000+00:00",
+          "queue_name": "OnePass - General",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 1.21,
+          "customer_pct": 2.48,
+          "silence_pct": 7.15
+        },
+        {
+          "conversation_id": "149ec5c5-c422-4eb6-9025-a5f1eb26ad94",
+          "time": "2026-05-19T02:13:42.211000+00:00",
+          "queue_name": "OnePass - Billing",
+          "score": 0.899,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 16.01,
+          "customer_pct": 12.93,
+          "silence_pct": 15.53
+        },
+        {
+          "conversation_id": "72504f6b-429d-4174-a3be-b4ff6be65e5d",
+          "time": "2026-05-19T04:22:23.818000+00:00",
+          "queue_name": "OnePass - General",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 14.11,
+          "customer_pct": 15.73,
+          "silence_pct": 5.3
+        },
+        {
+          "conversation_id": "188233ff-9823-4b1c-bfbc-f28b88ab19d3",
+          "time": "2026-05-19T04:40:07.573000+00:00",
+          "queue_name": "OnePass - General",
+          "score": 0.887,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 11.64,
+          "customer_pct": 12.89,
+          "silence_pct": 7.66
+        },
+        {
+          "conversation_id": "e77bd9d9-e534-499d-8906-cce6e8433d8e",
+          "time": "2026-05-19T05:44:17.440000+00:00",
+          "queue_name": "OnePass - General",
+          "score": 0.74,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 39.85,
+          "customer_pct": 21.32,
+          "silence_pct": 11.45
+        },
+        {
+          "conversation_id": "d647e0a1-2abf-4126-b508-9c94a59049de",
+          "time": "2026-05-19T06:05:47.055000+00:00",
+          "queue_name": "OnePass - Billing",
+          "score": 0.957,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 18.84,
+          "customer_pct": 13.11,
+          "silence_pct": 0.34
+        },
+        {
+          "conversation_id": "599aadc6-f3a3-49a6-b02d-684e103f5fec",
+          "time": "2026-05-19T06:17:49.909000+00:00",
+          "queue_name": "OnePass - Technical Support",
+          "score": 0.784,
+          "label": "positive",
+          "trend_class": "Improving",
+          "agent_pct": 34.32,
+          "customer_pct": 21.16,
+          "silence_pct": 18.56
+        },
+        {
+          "conversation_id": "6131af6a-6b3d-4b61-94d2-eb30118f230f",
+          "time": "2026-05-20T01:12:31.857000+00:00",
+          "queue_name": "OnePass - Billing",
+          "score": -0.185,
+          "label": "mildly_negative",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 17.42,
+          "customer_pct": 13.14,
+          "silence_pct": 30.84
+        },
+        {
+          "conversation_id": "47364dc0-ac1b-45d2-9934-b69c87c0ebf6",
+          "time": "2026-05-20T01:30:39.294000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": -0.994,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 11.83,
+          "customer_pct": 35.92,
+          "silence_pct": 16.73
+        },
+        {
+          "conversation_id": "a6f32f85-6eca-4e4f-b158-2a5c62979e59",
+          "time": "2026-05-20T02:16:17.702000+00:00",
+          "queue_name": "OnePass - Sales",
+          "score": 0.024,
+          "label": "neutral",
+          "trend_class": "Improving",
+          "agent_pct": 20.54,
+          "customer_pct": 48.64,
+          "silence_pct": 11.07
+        },
+        {
+          "conversation_id": "afd1bf65-8bbd-4177-b27b-b4f2b4d40f09",
+          "time": "2026-05-20T02:35:54.446000+00:00",
+          "queue_name": "OnePass - Sales",
+          "score": 0.635,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 17.05,
+          "customer_pct": 45.43,
+          "silence_pct": 2.55
+        },
+        {
+          "conversation_id": "7191e97a-24d4-4d51-abd0-04d1ec225388",
+          "time": "2026-05-20T03:33:04.037000+00:00",
+          "queue_name": "OnePass - Sales",
+          "score": -0.267,
+          "label": "mildly_negative",
+          "trend_class": "Declining",
+          "agent_pct": 25.55,
+          "customer_pct": 37.61,
+          "silence_pct": 18.57
+        },
+        {
+          "conversation_id": "c16a8eb9-8bc0-47cf-b592-6643d5a16cf4",
+          "time": "2026-05-20T04:09:47.169000+00:00",
+          "queue_name": "OnePass - Technical Support",
+          "score": -0.572,
+          "label": "negative",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 12.98,
+          "customer_pct": 23.76,
+          "silence_pct": 29.05
+        },
+        {
+          "conversation_id": "d8f60534-a4ca-48dd-b9f5-ddab5247938c",
+          "time": "2026-05-20T05:16:27.361000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": 0.897,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 23.11,
+          "customer_pct": 34.61,
+          "silence_pct": 24.94
+        },
+        {
+          "conversation_id": "8117b763-f983-4987-928f-8b64542c3759",
+          "time": "2026-05-20T06:02:03.301000+00:00",
+          "queue_name": "OnePass - Sales",
+          "score": -0.207,
+          "label": "mildly_negative",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 17.02,
+          "customer_pct": 23.89,
+          "silence_pct": 18.02
+        },
+        {
+          "conversation_id": "643b7a1e-91e7-4118-b894-fcd79a8f83cb",
+          "time": "2026-05-20T07:18:35.171000+00:00",
+          "queue_name": "OnePass - Billing",
+          "score": 0.969,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 28.01,
+          "customer_pct": 27.71,
+          "silence_pct": 14.15
+        },
+        {
+          "conversation_id": "6f6c29b6-b86c-47bf-bfe7-3b1e7f2b6b1c",
+          "time": "2026-05-20T23:16:21.858000+00:00",
+          "queue_name": "OnePass - Sales",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 19.61,
+          "customer_pct": 28.17,
+          "silence_pct": 17.55
+        },
+        {
+          "conversation_id": "5c585993-3758-4258-8fc2-e46e6bc05560",
+          "time": "2026-05-20T23:48:04.631000+00:00",
+          "queue_name": "OnePass - Sales",
+          "score": 0.604,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 16.35,
+          "customer_pct": 14.74,
+          "silence_pct": 5.78
+        },
+        {
+          "conversation_id": "d1376e1e-4207-4ab8-b833-a32ba0efc624",
+          "time": "2026-05-21T00:29:23.317000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": -0.992,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 40.52,
+          "customer_pct": 24.04,
+          "silence_pct": 21.53
+        },
+        {
+          "conversation_id": "253a80f2-3b1f-4855-a137-364aefad10c8",
+          "time": "2026-05-21T02:09:34.786000+00:00",
+          "queue_name": "OnePass - Sales",
+          "score": 0.754,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 21.81,
+          "customer_pct": 9.66,
+          "silence_pct": 3.04
+        },
+        {
+          "conversation_id": "df7edcd7-01fe-4740-877c-87100aef67af",
+          "time": "2026-05-21T03:01:14.019000+00:00",
+          "queue_name": "OnePass - Technical Support",
+          "score": -0.603,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 32.32,
+          "customer_pct": 27.63,
+          "silence_pct": 17.09
+        },
+        {
+          "conversation_id": "e0724312-da8d-4353-8a15-a3b704f4879c",
+          "time": "2026-05-21T03:05:31.003000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": 0.837,
+          "label": "positive",
+          "trend_class": "NoChange",
+          "agent_pct": 23.53,
+          "customer_pct": 37.9,
+          "silence_pct": 20.53
+        },
+        {
+          "conversation_id": "e746e069-eb74-4b76-800e-81c100d10ae7",
+          "time": "2026-05-21T05:00:30.499000+00:00",
+          "queue_name": "OnePass - Billing",
+          "score": -0.891,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 19.88,
+          "customer_pct": 24.28,
+          "silence_pct": 45.52
+        },
+        {
+          "conversation_id": "86907471-3858-4dff-88b0-c5cb76824fb5",
+          "time": "2026-05-21T05:43:35.865000+00:00",
+          "queue_name": "OnePass - General",
+          "score": -0.87,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 25.12,
+          "customer_pct": 23.63,
+          "silence_pct": 27.05
+        },
+        {
+          "conversation_id": "17d3ea8f-ee9d-40b1-988d-97b6662d1de7",
+          "time": "2026-05-21T06:39:36.617000+00:00",
+          "queue_name": "OnePass - General",
+          "score": 0.367,
+          "label": "mildly_positive",
+          "trend_class": "Improving",
+          "agent_pct": 24.0,
+          "customer_pct": 24.1,
+          "silence_pct": 12.11
+        },
+        {
+          "conversation_id": "3eec4473-146e-4ef3-a8c6-d909a30c746b",
+          "time": "2026-05-21T07:12:56.854000+00:00",
+          "queue_name": "OnePass - Billing",
+          "score": 0.625,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 39.07,
+          "customer_pct": 13.58,
+          "silence_pct": 6.95
+        },
+        {
+          "conversation_id": "d1f91fe0-a2c3-4932-b464-5959d2442ee5",
+          "time": "2026-05-21T07:37:36.537000+00:00",
+          "queue_name": "OnePass - Sales",
+          "score": -0.539,
+          "label": "negative",
+          "trend_class": "Improving",
+          "agent_pct": 24.24,
+          "customer_pct": 11.43,
+          "silence_pct": 4.41
+        },
+        {
+          "conversation_id": "a4f7f33a-1291-4acd-bb2b-80573f55371e",
+          "time": "2026-05-22T00:10:57.737000+00:00",
+          "queue_name": "OnePass - General",
+          "score": 0.988,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 17.2,
+          "customer_pct": 19.61,
+          "silence_pct": 15.27
+        },
+        {
+          "conversation_id": "3a749a3d-087c-4a89-98f0-494df8b97da5",
+          "time": "2026-05-22T01:01:05.154000+00:00",
+          "queue_name": "OnePass - Technical Support",
+          "score": 0.555,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 9.77,
+          "customer_pct": 25.23,
+          "silence_pct": 4.02
+        },
+        {
+          "conversation_id": "56d13b7c-ffd1-406e-8000-a072cf6302ca",
+          "time": "2026-05-22T01:08:08.347000+00:00",
+          "queue_name": "OnePass - Sales",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 8.88,
+          "customer_pct": 28.81,
+          "silence_pct": 39.24
+        },
+        {
+          "conversation_id": "8dff59ac-e6e3-4649-ab6d-d885c882e4d6",
+          "time": "2026-05-22T02:02:55.745000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": -0.999,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 18.24,
+          "customer_pct": 54.23,
+          "silence_pct": 4.81
+        },
+        {
+          "conversation_id": "18119f2d-8fa1-4b69-919c-4a75354e35bf",
+          "time": "2026-05-22T03:02:18.579000+00:00",
+          "queue_name": "OnePass - Sales",
+          "score": 0.915,
+          "label": "positive",
+          "trend_class": "NoChange",
+          "agent_pct": 22.39,
+          "customer_pct": 30.08,
+          "silence_pct": 16.11
+        },
+        {
+          "conversation_id": "8470514a-6bcb-4cb2-ad09-e2383f6e40b7",
+          "time": "2026-05-22T04:12:41.350000+00:00",
+          "queue_name": "OnePass - Sales",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 2.15,
+          "customer_pct": 14.45,
+          "silence_pct": 20.2
+        },
+        {
+          "conversation_id": "bd13825a-0b0b-4495-8294-c9e938cd6a72",
+          "time": "2026-05-22T05:48:34.675000+00:00",
+          "queue_name": "OnePass - Technical Support",
+          "score": 0.877,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 64.44,
+          "customer_pct": 9.16,
+          "silence_pct": 5.18
+        },
+        {
+          "conversation_id": "04e192e8-ff77-4c79-af0b-dfb0443eb6ee",
+          "time": "2026-05-22T06:12:34.058000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": -0.04,
+          "label": "neutral",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 53.17,
+          "customer_pct": 31.56,
+          "silence_pct": 1.21
+        },
+        {
+          "conversation_id": "b290e08e-1302-4167-9d4e-9814faeb538d",
+          "time": "2026-05-22T06:20:09.710000+00:00",
+          "queue_name": "OnePass - Billing",
+          "score": 0.932,
+          "label": "positive",
+          "trend_class": "NoChange",
+          "agent_pct": 31.43,
+          "customer_pct": 18.71,
+          "silence_pct": 6.42
+        },
+        {
+          "conversation_id": "38d227be-fff6-4bcc-a660-a949fb10a78e",
+          "time": "2026-05-22T07:03:26.177000+00:00",
+          "queue_name": "OnePass - Billing",
+          "score": 0.531,
+          "label": "positive",
+          "trend_class": "Improving",
+          "agent_pct": 0.99,
+          "customer_pct": 1.34,
+          "silence_pct": 0.33
+        },
+        {
+          "conversation_id": "c6cb1eca-a5af-467b-bf42-c0c0c962b42f",
+          "time": "2026-05-22T07:17:43.204000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": 0.612,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 8.53,
+          "customer_pct": 9.16,
+          "silence_pct": 2.69
+        },
+        {
+          "conversation_id": "671e82ec-aad3-4d9d-a927-2aa7039ad045",
+          "time": "2026-05-23T03:44:31.664000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": -0.456,
+          "label": "negative",
+          "trend_class": "SlightlyDeclining",
+          "agent_pct": 2.48,
+          "customer_pct": 3.2,
+          "silence_pct": 0.46
+        },
+        {
+          "conversation_id": "dd76a423-7400-49cf-96b7-7092b3cd3967",
+          "time": "2026-05-23T05:39:31.560000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": 0.989,
+          "label": "positive",
+          "trend_class": "Improving",
+          "agent_pct": 7.09,
+          "customer_pct": 7.73,
+          "silence_pct": 3.35
+        },
+        {
+          "conversation_id": "0e36368c-9f33-4181-9f74-daf503cf4386",
+          "time": "2026-05-24T00:06:32.895000+00:00",
+          "queue_name": "OnePass - Sales",
+          "score": 0.895,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 42.06,
+          "customer_pct": 32.75,
+          "silence_pct": 2.7
+        }
+      ],
+      "sentiment_trend": "improving",
+      "last_call": {
+        "conversation_id": "b532cee9-083f-4751-b354-5629f65d457c",
+        "time": "2026-05-24T04:10:07.821000+00:00",
+        "queue_name": "OnePass - General",
+        "status": "abandoned_in_queue",
+        "disposition": null,
+        "ai_outcome": null,
+        "expected_fix": null,
+        "summary": null,
+        "sentiment": null,
+        "sentiment_trend_class": null
+      },
+      "evidence_conversation_ids": [
+        "276c1d8c-0f12-4f93-9c65-cfb80463de26",
+        "4128e8c4-5072-4ce2-b223-57cc37f1140b",
+        "c911e9c3-cc1b-4e42-90a9-622250ef8f54",
+        "32486dc7-e11a-4e59-b584-a5d8271a8271",
+        "b808c118-b6c6-40ef-9e3c-01046b87a218",
+        "744fb377-0bb5-4249-b082-2dec24193e8b",
+        "d946b5b9-826e-4c03-9435-674196cf7c65",
+        "48559fb4-872c-4373-bc2c-e883f733e752",
+        "16de1215-36f2-4475-9ee6-22ac98f18266",
+        "cee2de81-dcf9-4e8f-8c6d-efaac72a14c5",
+        "7a9608b2-5748-4c45-9ea0-78f2d7e890cf",
+        "ba7806f1-1eb3-4138-8b72-17e11c361fbd",
+        "936f741a-289a-4951-8de0-aecd816ad7c2",
+        "16de6311-69e1-49c6-942e-7a7fcbcd09aa",
+        "fe1a858a-0119-4f13-b3b9-f944d3d840e7",
+        "ca12070a-2052-4748-8df9-c9e57b7fafa4",
+        "a331d26f-ff19-4f74-8e75-a130fefb75e4",
+        "f70c1379-775e-450a-9773-9aa2dd95012b",
+        "c2c9fa9d-6fd2-4a71-8ca4-b4f1093ee535",
+        "6508bfb6-f74d-45b8-adfe-a6238406a4aa",
+        "73af1bd3-deb2-4c9e-a44d-e8de04219e47",
+        "1e0c7e36-ee43-43de-8e5e-241141230191",
+        "149ec5c5-c422-4eb6-9025-a5f1eb26ad94",
+        "72504f6b-429d-4174-a3be-b4ff6be65e5d",
+        "188233ff-9823-4b1c-bfbc-f28b88ab19d3",
+        "e77bd9d9-e534-499d-8906-cce6e8433d8e",
+        "d647e0a1-2abf-4126-b508-9c94a59049de",
+        "599aadc6-f3a3-49a6-b02d-684e103f5fec",
+        "b0f37664-3f87-4de6-b4e4-d34de9a5f600",
+        "86a7f5d1-9b12-4252-b7c3-39f3f456ca9c",
+        "6131af6a-6b3d-4b61-94d2-eb30118f230f",
+        "47364dc0-ac1b-45d2-9934-b69c87c0ebf6",
+        "a6f32f85-6eca-4e4f-b158-2a5c62979e59",
+        "afd1bf65-8bbd-4177-b27b-b4f2b4d40f09",
+        "7191e97a-24d4-4d51-abd0-04d1ec225388",
+        "c16a8eb9-8bc0-47cf-b592-6643d5a16cf4",
+        "d8f60534-a4ca-48dd-b9f5-ddab5247938c",
+        "8117b763-f983-4987-928f-8b64542c3759",
+        "643b7a1e-91e7-4118-b894-fcd79a8f83cb",
+        "a8675077-3919-4db7-a823-a71a496a5fae",
+        "6f6c29b6-b86c-47bf-bfe7-3b1e7f2b6b1c",
+        "5c585993-3758-4258-8fc2-e46e6bc05560",
+        "acccbf3f-610f-4906-8524-09d96704effc",
+        "d1376e1e-4207-4ab8-b833-a32ba0efc624",
+        "6e15abef-d2cb-44c4-abe0-749b0f9d3a10",
+        "253a80f2-3b1f-4855-a137-364aefad10c8",
+        "df7edcd7-01fe-4740-877c-87100aef67af",
+        "e0724312-da8d-4353-8a15-a3b704f4879c",
+        "e746e069-eb74-4b76-800e-81c100d10ae7",
+        "86907471-3858-4dff-88b0-c5cb76824fb5",
+        "95cf6115-a112-478c-9e09-1c78f52da251",
+        "17d3ea8f-ee9d-40b1-988d-97b6662d1de7",
+        "7b718cce-9064-4e33-946f-48b1a6536874",
+        "3eec4473-146e-4ef3-a8c6-d909a30c746b",
+        "190eb779-53ab-47e5-8dbc-b44698b77695",
+        "d1f91fe0-a2c3-4932-b464-5959d2442ee5",
+        "651e42f6-349e-4a95-bb2b-0b45d6b6fff3",
+        "a4f7f33a-1291-4acd-bb2b-80573f55371e",
+        "3a749a3d-087c-4a89-98f0-494df8b97da5",
+        "56d13b7c-ffd1-406e-8000-a072cf6302ca",
+        "8dff59ac-e6e3-4649-ab6d-d885c882e4d6",
+        "18119f2d-8fa1-4b69-919c-4a75354e35bf",
+        "8470514a-6bcb-4cb2-ad09-e2383f6e40b7",
+        "bd13825a-0b0b-4495-8294-c9e938cd6a72",
+        "04e192e8-ff77-4c79-af0b-dfb0443eb6ee",
+        "5571d9ae-e4b9-40f1-ad11-a8a06ebb7edf",
+        "b290e08e-1302-4167-9d4e-9814faeb538d",
+        "38d227be-fff6-4bcc-a660-a949fb10a78e",
+        "c6cb1eca-a5af-467b-bf42-c0c0c962b42f",
+        "9e522dfc-3e1d-417f-9c34-8a44d02f759d",
+        "671e82ec-aad3-4d9d-a927-2aa7039ad045",
+        "f26ab361-3d50-43f5-afd7-c623e47772fd",
+        "15eadeb6-0f7c-4e19-98df-d76ad525b4cc",
+        "dbb1ec75-545f-4ae2-a82f-60995657e664",
+        "dd76a423-7400-49cf-96b7-7092b3cd3967",
+        "0e36368c-9f33-4181-9f74-daf503cf4386",
+        "0ce0a884-dad1-49da-a84f-3c4a59d21220",
+        "b532cee9-083f-4751-b354-5629f65d457c"
+      ],
+      "recommended_action": "callback_recommended"
+    },
+    {
+      "ani": "+61447889386",
+      "call_count": 8,
+      "acd_offered_count": 8,
+      "answered_count": 6,
+      "abandoned_in_queue_count": 2,
+      "ivr_only_count": 0,
+      "answer_rate_of_offered_pct": 75.0,
+      "queues_offered": {
+        "OnePass - General": 1,
+        "OnePass - Technical Support": 2,
+        "OnePass - Activation": 5
+      },
+      "dispositions": {
+        "Simcard Query/Replacement/Activation": 2,
+        "Account Management/Update/Info": 2,
+        "Activation Help/Guidance/General": 2
+      },
+      "ai_outcomes": {
+        "Mid Flight": 3,
+        "Escalated": 1,
+        "Query": 1
+      },
+      "expected_fixes": {
+        "Simpack Recharge": 4,
+        "OTHER": 1
+      },
+      "answered_with_outcome": 5,
+      "unresolved_share": 1.0,
+      "topics": [
+        {
+          "topic": "OnePass - Activation (answered)",
+          "count": 4,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - General (answered)",
+          "count": 1,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - Technical Support (abandoned)",
+          "count": 1,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - Activation (abandoned)",
+          "count": 1,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - Technical Support (answered)",
+          "count": 1,
+          "source": "queue_status"
+        }
+      ],
+      "sentiment_trajectory": [
+        {
+          "conversation_id": "4241f96c-3873-48d8-aa93-e7a9f64c05d9",
+          "time": "2026-05-19T01:10:47.665000+00:00",
+          "queue_name": "OnePass - General",
+          "score": -0.681,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 3.83,
+          "customer_pct": 8.67,
+          "silence_pct": 5.03
+        },
+        {
+          "conversation_id": "a276b513-2bea-4e10-b96f-e5255c484534",
+          "time": "2026-05-20T04:05:59.154000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": -0.972,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 10.65,
+          "customer_pct": 29.38,
+          "silence_pct": 6.38
+        },
+        {
+          "conversation_id": "3e328571-9bc0-4f66-9c66-403b04232391",
+          "time": "2026-05-20T23:32:56.813000+00:00",
+          "queue_name": "OnePass - Technical Support",
+          "score": -0.913,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 22.32,
+          "customer_pct": 21.21,
+          "silence_pct": 12.84
+        },
+        {
+          "conversation_id": "01e848fd-3613-4221-b70c-ecfd487afab1",
+          "time": "2026-05-21T00:35:30.868000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": 0.979,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 14.9,
+          "customer_pct": 8.71,
+          "silence_pct": 1.31
+        },
+        {
+          "conversation_id": "53db6aea-6b06-4592-816d-8ab0fa02df21",
+          "time": "2026-05-21T23:08:13.481000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": 0.635,
+          "label": "positive",
+          "trend_class": "Improving",
+          "agent_pct": 10.13,
+          "customer_pct": 19.05,
+          "silence_pct": 0.89
+        },
+        {
+          "conversation_id": "0e22940c-b9cd-4266-bdaa-4c248292665c",
+          "time": "2026-05-21T23:28:27.528000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": 0.635,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 4.78,
+          "customer_pct": 7.85,
+          "silence_pct": 0.94
+        }
+      ],
+      "sentiment_trend": "improving",
+      "last_call": {
+        "conversation_id": "0e22940c-b9cd-4266-bdaa-4c248292665c",
+        "time": "2026-05-21T23:28:27.528000+00:00",
+        "queue_name": "OnePass - Activation",
+        "status": "answered",
+        "disposition": "Simcard Query/Replacement/Activation",
+        "ai_outcome": "Mid Flight",
+        "expected_fix": "Simpack Recharge",
+        "summary": "Agent Note:  \n\n Auto Summary \n\n Customer reported trouble activating a new SIM and encountering a prompt for Visa card details despite already paying. Agent explained the card entry is for ID verification only and will not be charged, and that the activation won’t complete without it. Customer also asked about porting an old Optus number; agent advised that if the old number is no longer active they cannot transfer it and the customer should select a new mobile number. Next step: customer will try the activation again and contact support if problems persist.",
+        "sentiment": "positive",
+        "sentiment_trend_class": "SlightlyImproving"
+      },
+      "evidence_conversation_ids": [
+        "4241f96c-3873-48d8-aa93-e7a9f64c05d9",
+        "45bd94ec-d540-430d-88b0-7995f6c774a4",
+        "a276b513-2bea-4e10-b96f-e5255c484534",
+        "0bceecbb-624b-4877-944f-f02eb50062cb",
+        "3e328571-9bc0-4f66-9c66-403b04232391",
+        "01e848fd-3613-4221-b70c-ecfd487afab1",
+        "53db6aea-6b06-4592-816d-8ab0fa02df21",
+        "0e22940c-b9cd-4266-bdaa-4c248292665c"
+      ],
+      "recommended_action": "route_review"
+    },
+    {
+      "ani": "+61491044664",
+      "call_count": 8,
+      "acd_offered_count": 8,
+      "answered_count": 2,
+      "abandoned_in_queue_count": 6,
+      "ivr_only_count": 0,
+      "answer_rate_of_offered_pct": 25.0,
+      "queues_offered": {
+        "Coles - Sales": 1,
+        "Coles - Activation": 7
+      },
+      "dispositions": {
+        "Account Management/Update/Info": 1,
+        "Activation Help/Guidance/General": 1
+      },
+      "ai_outcomes": {
+        "Unresolved Chat": 1
+      },
+      "expected_fixes": {
+        "N/A": 1
+      },
+      "answered_with_outcome": 1,
+      "unresolved_share": 1.0,
+      "topics": [
+        {
+          "topic": "Coles - Activation (abandoned)",
+          "count": 5,
+          "source": "queue_status"
+        },
+        {
+          "topic": "Coles - Activation (answered)",
+          "count": 2,
+          "source": "queue_status"
+        },
+        {
+          "topic": "Coles - Sales (abandoned)",
+          "count": 1,
+          "source": "queue_status"
+        }
+      ],
+      "sentiment_trajectory": [
+        {
+          "conversation_id": "5692c4b7-f02e-43eb-9bd4-a1b63c91ae89",
+          "time": "2026-05-21T04:16:46.889000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.277,
+          "label": "mildly_positive",
+          "trend_class": "Declining",
+          "agent_pct": 33.16,
+          "customer_pct": 43.62,
+          "silence_pct": 8.7
+        },
+        {
+          "conversation_id": "37c0c43b-d890-444a-ab8f-3fa880e73e86",
+          "time": "2026-05-23T03:56:01.065000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": -0.999,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 6.08,
+          "customer_pct": 10.97,
+          "silence_pct": 7.5
+        }
+      ],
+      "sentiment_trend": "deteriorating",
+      "last_call": {
+        "conversation_id": "c36b9bb2-3adc-45dd-8c44-5ce85d99546b",
+        "time": "2026-05-23T06:35:48.816000+00:00",
+        "queue_name": "Coles - Activation",
+        "status": "abandoned_in_queue",
+        "disposition": null,
+        "ai_outcome": null,
+        "expected_fix": null,
+        "summary": null,
+        "sentiment": null,
+        "sentiment_trend_class": null
+      },
+      "evidence_conversation_ids": [
+        "46e5d4a6-5d99-4c33-88a3-ba63d6a4d5e6",
+        "5692c4b7-f02e-43eb-9bd4-a1b63c91ae89",
+        "a9499c12-bb01-4472-965e-6e3588cf5e2d",
+        "3f0b4921-a226-4f57-b9d0-c03672e91260",
+        "0c73981a-edc7-4707-bd21-1148fdc85994",
+        "1054494c-5244-410a-b619-fe8b0f5d2658",
+        "37c0c43b-d890-444a-ab8f-3fa880e73e86",
+        "c36b9bb2-3adc-45dd-8c44-5ce85d99546b"
+      ],
+      "recommended_action": "callback_recommended"
+    },
+    {
+      "ani": "+61466567616",
+      "call_count": 7,
+      "acd_offered_count": 7,
+      "answered_count": 3,
+      "abandoned_in_queue_count": 4,
+      "ivr_only_count": 0,
+      "answer_rate_of_offered_pct": 42.9,
+      "queues_offered": {
+        "OnePass - Technical Support": 6,
+        "OnePass - Activation": 1
+      },
+      "dispositions": {
+        "Activation Help/Guidance/General": 2,
+        "Simcard Query/Replacement/Activation": 1
+      },
+      "ai_outcomes": {
+        "Unresolved Chat": 1,
+        "Mid Flight": 1,
+        "Query": 1
+      },
+      "expected_fixes": {
+        "Simpack Recharge": 3
+      },
+      "answered_with_outcome": 3,
+      "unresolved_share": 1.0,
+      "topics": [
+        {
+          "topic": "OnePass - Technical Support (abandoned)",
+          "count": 4,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - Technical Support (answered)",
+          "count": 2,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - Activation (answered)",
+          "count": 1,
+          "source": "queue_status"
+        }
+      ],
+      "sentiment_trajectory": [
+        {
+          "conversation_id": "185a85cd-f9a8-4012-9c62-fbee006ce310",
+          "time": "2026-05-18T00:57:35.338000+00:00",
+          "queue_name": "OnePass - Technical Support",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 6.44,
+          "customer_pct": 4.74,
+          "silence_pct": 18.39
+        },
+        {
+          "conversation_id": "0cd17fb3-9f0f-45e6-a8e0-8f55b1ab300b",
+          "time": "2026-05-19T00:46:39.719000+00:00",
+          "queue_name": "OnePass - Technical Support",
+          "score": -0.485,
+          "label": "negative",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 3.28,
+          "customer_pct": 3.39,
+          "silence_pct": 0.38
+        },
+        {
+          "conversation_id": "aa0cfcf4-b64d-4de5-ae8b-cee30979b665",
+          "time": "2026-05-19T00:55:39.609000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 4.05,
+          "customer_pct": 4.33,
+          "silence_pct": 4.72
+        }
+      ],
+      "sentiment_trend": "stable",
+      "last_call": {
+        "conversation_id": "d4af3a78-7f8b-44d6-a8e6-dd6e90e8ff09",
+        "time": "2026-05-19T01:20:22.425000+00:00",
+        "queue_name": "OnePass - Technical Support",
+        "status": "abandoned_in_queue",
+        "disposition": null,
+        "ai_outcome": null,
+        "expected_fix": null,
+        "summary": null,
+        "sentiment": null,
+        "sentiment_trend_class": null
+      },
+      "evidence_conversation_ids": [
+        "185a85cd-f9a8-4012-9c62-fbee006ce310",
+        "6c5786ce-2eca-4ca5-8d10-180a14d43df2",
+        "2768832e-6540-4bb6-bc50-fb710d551b1e",
+        "0cd17fb3-9f0f-45e6-a8e0-8f55b1ab300b",
+        "b548ff1c-4c4e-4fa7-84ba-6a26a4065b44",
+        "aa0cfcf4-b64d-4de5-ae8b-cee30979b665",
+        "d4af3a78-7f8b-44d6-a8e6-dd6e90e8ff09"
+      ],
+      "recommended_action": "callback_recommended"
+    },
+    {
+      "ani": "+61452087805",
+      "call_count": 7,
+      "acd_offered_count": 7,
+      "answered_count": 6,
+      "abandoned_in_queue_count": 1,
+      "ivr_only_count": 0,
+      "answer_rate_of_offered_pct": 85.7,
+      "queues_offered": {
+        "Coles - Activation": 6,
+        "Coles - Technical Support": 1
+      },
+      "dispositions": {
+        "Activation Complete/Issue Resolved": 1,
+        "Simcard Query/Replacement/Activation": 2,
+        "Network Issues": 1,
+        "Refund Request": 1,
+        "Account Management/Update/Info": 1
+      },
+      "ai_outcomes": {
+        "Unresolved Chat": 2,
+        "Mid Flight": 3
+      },
+      "expected_fixes": {
+        "N/A": 2,
+        "OTHER": 2,
+        "Simpack Recharge": 1
+      },
+      "answered_with_outcome": 5,
+      "unresolved_share": 1.0,
+      "topics": [
+        {
+          "topic": "Coles - Activation (answered)",
+          "count": 5,
+          "source": "queue_status"
+        },
+        {
+          "topic": "Coles - Activation (abandoned)",
+          "count": 1,
+          "source": "queue_status"
+        },
+        {
+          "topic": "Coles - Technical Support (answered)",
+          "count": 1,
+          "source": "queue_status"
+        }
+      ],
+      "sentiment_trajectory": [
+        {
+          "conversation_id": "74bcd385-1b1f-474a-8dc2-c28b71393db3",
+          "time": "2026-05-18T23:15:10.465000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.936,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 48.22,
+          "customer_pct": 6.07,
+          "silence_pct": 0.82
+        },
+        {
+          "conversation_id": "9cd3c751-0b2f-4982-b41d-7ea254f4fb33",
+          "time": "2026-05-20T01:31:55.110000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 35.19,
+          "customer_pct": 18.64,
+          "silence_pct": 4.34
+        },
+        {
+          "conversation_id": "349f09f5-8f3c-4de9-a872-7740b9875028",
+          "time": "2026-05-20T02:28:00.203000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": 0.49,
+          "label": "positive",
+          "trend_class": "Improving",
+          "agent_pct": 47.85,
+          "customer_pct": 18.92,
+          "silence_pct": 12.18
+        },
+        {
+          "conversation_id": "a05e4f3c-a4b4-4666-8585-2ab12887e1b0",
+          "time": "2026-05-20T02:48:34.759000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": -0.974,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 34.77,
+          "customer_pct": 16.09,
+          "silence_pct": 26.11
+        },
+        {
+          "conversation_id": "b054d29f-f2fd-4a22-b630-a8f59f09d319",
+          "time": "2026-05-20T05:10:26.039000+00:00",
+          "queue_name": "Coles - Activation",
+          "score": -1.0,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 27.17,
+          "customer_pct": 13.92,
+          "silence_pct": 4.48
+        },
+        {
+          "conversation_id": "0219f5af-69b6-4a92-b2a8-2b1122732e81",
+          "time": "2026-05-20T05:49:28.277000+00:00",
+          "queue_name": "Coles - Technical Support",
+          "score": 0.617,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 27.16,
+          "customer_pct": 16.48,
+          "silence_pct": 24.69
+        }
+      ],
+      "sentiment_trend": "deteriorating",
+      "last_call": {
+        "conversation_id": "0219f5af-69b6-4a92-b2a8-2b1122732e81",
+        "time": "2026-05-20T05:49:28.277000+00:00",
+        "queue_name": "Coles - Technical Support",
+        "status": "answered",
+        "disposition": "Simcard Query/Replacement/Activation",
+        "ai_outcome": "Mid Flight",
+        "expected_fix": "OTHER",
+        "summary": "Agent Note:  \n\n Auto Summary \n\n Customer Jess Gilmore reported their phone showing SOS/no service despite prior troubleshooting. The agent verified identity, reviewed notes, and suggested ordering a replacement SIM; the customer requested express delivery. The customer completed email verification and the agent ordered an express replacement SIM to the confirmed address, estimating delivery by the end of the week (possibly sooner). The agent advised that if the SIM doesn’t fix the issue, it will be escalated to technical support and could lead to a refund or porting assistance. Next step: cust",
+        "sentiment": "positive",
+        "sentiment_trend_class": "SlightlyImproving"
+      },
+      "evidence_conversation_ids": [
+        "7f925117-fa80-4ec2-ac4c-1fc2635583ac",
+        "74bcd385-1b1f-474a-8dc2-c28b71393db3",
+        "9cd3c751-0b2f-4982-b41d-7ea254f4fb33",
+        "349f09f5-8f3c-4de9-a872-7740b9875028",
+        "a05e4f3c-a4b4-4666-8585-2ab12887e1b0",
+        "b054d29f-f2fd-4a22-b630-a8f59f09d319",
+        "0219f5af-69b6-4a92-b2a8-2b1122732e81"
+      ],
+      "recommended_action": "escalate_to_retention"
+    },
+    {
+      "ani": "+61409179943",
+      "call_count": 7,
+      "acd_offered_count": 7,
+      "answered_count": 4,
+      "abandoned_in_queue_count": 3,
+      "ivr_only_count": 0,
+      "answer_rate_of_offered_pct": 57.1,
+      "queues_offered": {
+        "OnePass - Technical Support": 2,
+        "OnePass - Sales": 2,
+        "OnePass - Activation": 2,
+        "OnePass - Billing": 1
+      },
+      "dispositions": {
+        "Account Management/Update/Info": 1,
+        "Simcard Query/Replacement/Activation": 1,
+        "Activation Help/Guidance/General": 2
+      },
+      "ai_outcomes": {
+        "Unresolved Chat": 2,
+        "Escalated": 1,
+        "Mid Flight": 1
+      },
+      "expected_fixes": {
+        "OTHER": 1,
+        "N/A": 1,
+        "Simpack Recharge": 2
+      },
+      "answered_with_outcome": 4,
+      "unresolved_share": 1.0,
+      "topics": [
+        {
+          "topic": "OnePass - Sales (answered)",
+          "count": 2,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - Activation (abandoned)",
+          "count": 2,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - Technical Support (answered)",
+          "count": 1,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - Technical Support (abandoned)",
+          "count": 1,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - Billing (answered)",
+          "count": 1,
+          "source": "queue_status"
+        }
+      ],
+      "sentiment_trajectory": [
+        {
+          "conversation_id": "e2fac6a4-6eeb-4e2f-82eb-ed9f9b5b39fa",
+          "time": "2026-05-19T00:00:22.967000+00:00",
+          "queue_name": "OnePass - Technical Support",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 2.13,
+          "customer_pct": null,
+          "silence_pct": 5.67
+        },
+        {
+          "conversation_id": "4bfd1f94-7835-43a3-9639-cd20db8ba945",
+          "time": "2026-05-19T00:08:40.326000+00:00",
+          "queue_name": "OnePass - Sales",
+          "score": -0.804,
+          "label": "negative",
+          "trend_class": "Declining",
+          "agent_pct": 19.64,
+          "customer_pct": 39.88,
+          "silence_pct": 11.66
+        },
+        {
+          "conversation_id": "7b413c79-a643-4e47-a390-c7970ca20a31",
+          "time": "2026-05-19T23:04:46.788000+00:00",
+          "queue_name": "OnePass - Sales",
+          "score": 0.739,
+          "label": "positive",
+          "trend_class": "Improving",
+          "agent_pct": 45.09,
+          "customer_pct": 36.37,
+          "silence_pct": 3.56
+        },
+        {
+          "conversation_id": "83b18d61-7654-4e2b-8e83-e73e6ec8e982",
+          "time": "2026-05-21T06:36:48.576000+00:00",
+          "queue_name": "OnePass - Billing",
+          "score": -0.851,
+          "label": "negative",
+          "trend_class": "NoChange",
+          "agent_pct": 9.38,
+          "customer_pct": 25.87,
+          "silence_pct": 8.88
+        }
+      ],
+      "sentiment_trend": "deteriorating",
+      "last_call": {
+        "conversation_id": "1832f95c-5297-444f-b99c-03168eebbec9",
+        "time": "2026-05-21T06:50:17.805000+00:00",
+        "queue_name": "OnePass - Activation",
+        "status": "abandoned_in_queue",
+        "disposition": null,
+        "ai_outcome": null,
+        "expected_fix": null,
+        "summary": null,
+        "sentiment": null,
+        "sentiment_trend_class": null
+      },
+      "evidence_conversation_ids": [
+        "e2fac6a4-6eeb-4e2f-82eb-ed9f9b5b39fa",
+        "4bfd1f94-7835-43a3-9639-cd20db8ba945",
+        "12cc4300-8ef9-437c-b9ef-0ff1c483bf49",
+        "7b413c79-a643-4e47-a390-c7970ca20a31",
+        "d0bb20d2-857c-46d7-b9e0-d2896977d831",
+        "83b18d61-7654-4e2b-8e83-e73e6ec8e982",
+        "1832f95c-5297-444f-b99c-03168eebbec9"
+      ],
+      "recommended_action": "callback_recommended"
+    },
+    {
+      "ani": "+61482020387",
+      "call_count": 7,
+      "acd_offered_count": 7,
+      "answered_count": 6,
+      "abandoned_in_queue_count": 1,
+      "ivr_only_count": 0,
+      "answer_rate_of_offered_pct": 85.7,
+      "queues_offered": {
+        "OnePass - Activation": 7
+      },
+      "dispositions": {
+        "Call Quality Issues": 1,
+        "Network Issues": 1,
+        "Activation Porting Assistance": 1,
+        "Account Management/Update/Info": 1,
+        "No Response": 1,
+        "Simcard Query/Replacement/Activation": 1
+      },
+      "ai_outcomes": {
+        "Mid Flight": 3,
+        "Escalated": 2,
+        "Unresolved Chat": 1
+      },
+      "expected_fixes": {
+        "OTHER": 4,
+        "Simpack Recharge": 2
+      },
+      "answered_with_outcome": 6,
+      "unresolved_share": 1.0,
+      "topics": [
+        {
+          "topic": "OnePass - Activation (answered)",
+          "count": 6,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - Activation (abandoned)",
+          "count": 1,
+          "source": "queue_status"
+        }
+      ],
+      "sentiment_trajectory": [
+        {
+          "conversation_id": "d66664a7-d5e4-4864-a97c-1eb41cd68d8e",
+          "time": "2026-05-20T08:02:04.605000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 12.62,
+          "customer_pct": 16.61,
+          "silence_pct": 8.61
+        },
+        {
+          "conversation_id": "7c8cd594-c1ce-43cb-841c-738085d7da58",
+          "time": "2026-05-20T08:10:51.775000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": -0.096,
+          "label": "neutral",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 19.92,
+          "customer_pct": 7.33,
+          "silence_pct": 10.67
+        },
+        {
+          "conversation_id": "37448d79-ff80-44ea-aa0a-7241fa38d2e9",
+          "time": "2026-05-20T09:05:44.291000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": 0.014,
+          "label": "neutral",
+          "trend_class": "Improving",
+          "agent_pct": 20.88,
+          "customer_pct": 14.34,
+          "silence_pct": 6.03
+        },
+        {
+          "conversation_id": "3b9ec855-928d-4485-8afb-4141d711431b",
+          "time": "2026-05-21T01:06:26.971000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": -0.034,
+          "label": "neutral",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 22.35,
+          "customer_pct": 4.62,
+          "silence_pct": 1.2
+        },
+        {
+          "conversation_id": "c93021ad-a7f8-40e2-ae9d-28b837979d02",
+          "time": "2026-05-23T01:07:13.429000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": -0.185,
+          "label": "mildly_negative",
+          "trend_class": "unknown",
+          "agent_pct": 0.16,
+          "customer_pct": 1.03,
+          "silence_pct": 0.81
+        },
+        {
+          "conversation_id": "bffd6a65-2e2e-4c8f-a6ad-6485ffdbe215",
+          "time": "2026-05-23T01:23:10.427000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": -0.026,
+          "label": "neutral",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 26.03,
+          "customer_pct": 11.62,
+          "silence_pct": 6.99
+        }
+      ],
+      "sentiment_trend": "stable_neutral",
+      "last_call": {
+        "conversation_id": "bffd6a65-2e2e-4c8f-a6ad-6485ffdbe215",
+        "time": "2026-05-23T01:23:10.427000+00:00",
+        "queue_name": "OnePass - Activation",
+        "status": "answered",
+        "disposition": "Simcard Query/Replacement/Activation",
+        "ai_outcome": "Mid Flight",
+        "expected_fix": "Simpack Recharge",
+        "summary": "Agent Note:  \n\n Auto Summary \n\n Customer called about a ticket pending over 48 hours regarding a SIM problem: the current SIM is hard-coded with an incorrect/expired number and the outage has left them without service. Agent confirmed a ticket was raised but the specialist won’t be available until next week, and offered to send a replacement SIM by express post (1–3 business days). Agent initiated two-step-auth email and confirmed the residential address. Next steps: the carrier will post a replacement SIM; customer will install it when received and call back so the agent can reactivate the se",
+        "sentiment": "neutral",
+        "sentiment_trend_class": "SlightlyImproving"
+      },
+      "evidence_conversation_ids": [
+        "d66664a7-d5e4-4864-a97c-1eb41cd68d8e",
+        "7c8cd594-c1ce-43cb-841c-738085d7da58",
+        "0809ba71-fb94-4dd0-990e-e60783d469bf",
+        "37448d79-ff80-44ea-aa0a-7241fa38d2e9",
+        "3b9ec855-928d-4485-8afb-4141d711431b",
+        "c93021ad-a7f8-40e2-ae9d-28b837979d02",
+        "bffd6a65-2e2e-4c8f-a6ad-6485ffdbe215"
+      ],
+      "recommended_action": "monitor"
+    },
+    {
+      "ani": "+61436029674",
+      "call_count": 7,
+      "acd_offered_count": 7,
+      "answered_count": 2,
+      "abandoned_in_queue_count": 5,
+      "ivr_only_count": 0,
+      "answer_rate_of_offered_pct": 28.6,
+      "queues_offered": {
+        "Coles - General": 4,
+        "Coles - Activation": 3
+      },
+      "dispositions": {
+        "Account Management/Update/Info": 1,
+        "Simcard Query/Replacement/Activation": 1
+      },
+      "ai_outcomes": {
+        "Mid Flight": 2
+      },
+      "expected_fixes": {
+        "OTHER": 2
+      },
+      "answered_with_outcome": 2,
+      "unresolved_share": 1.0,
+      "topics": [
+        {
+          "topic": "Coles - Activation (abandoned)",
+          "count": 3,
+          "source": "queue_status"
+        },
+        {
+          "topic": "Coles - General (answered)",
+          "count": 2,
+          "source": "queue_status"
+        },
+        {
+          "topic": "Coles - General (abandoned)",
+          "count": 2,
+          "source": "queue_status"
+        }
+      ],
+      "sentiment_trajectory": [
+        {
+          "conversation_id": "0f8e248b-5565-490d-9337-8635a0940d0f",
+          "time": "2026-05-21T01:08:12.240000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 1.57,
+          "customer_pct": 1.75,
+          "silence_pct": 1.47
+        },
+        {
+          "conversation_id": "bd98d962-927e-4453-bd2a-d75c9ec942d5",
+          "time": "2026-05-21T03:57:33.780000+00:00",
+          "queue_name": "Coles - General",
+          "score": 0.0,
+          "label": "neutral",
+          "trend_class": "unknown",
+          "agent_pct": 30.89,
+          "customer_pct": 21.25,
+          "silence_pct": 10.93
+        }
+      ],
+      "sentiment_trend": "stable_neutral",
+      "last_call": {
+        "conversation_id": "03d10633-5062-4c60-b51c-32a60c1a341a",
+        "time": "2026-05-21T09:57:34.012000+00:00",
+        "queue_name": "Coles - Activation",
+        "status": "abandoned_in_queue",
+        "disposition": null,
+        "ai_outcome": null,
+        "expected_fix": null,
+        "summary": null,
+        "sentiment": null,
+        "sentiment_trend_class": null
+      },
+      "evidence_conversation_ids": [
+        "0f8e248b-5565-490d-9337-8635a0940d0f",
+        "3d9bb3d4-c338-4d9a-90bc-5dcfcff73da4",
+        "d48631b4-ed02-44b2-97a4-180d89c103ed",
+        "bd98d962-927e-4453-bd2a-d75c9ec942d5",
+        "16388001-a5e6-4cb7-aa22-483215da82b1",
+        "7a85ba51-019b-49b0-bd2c-d0b7e7f51150",
+        "03d10633-5062-4c60-b51c-32a60c1a341a"
+      ],
+      "recommended_action": "callback_recommended"
+    },
+    {
+      "ani": "+61423390732",
+      "call_count": 7,
+      "acd_offered_count": 7,
+      "answered_count": 2,
+      "abandoned_in_queue_count": 5,
+      "ivr_only_count": 0,
+      "answer_rate_of_offered_pct": 28.6,
+      "queues_offered": {
+        "OnePass - Technical Support": 4,
+        "OnePass - Billing": 2,
+        "OnePass - Activation": 1
+      },
+      "dispositions": {
+        "Account Management/Update/Info": 1,
+        "Refund Request": 1
+      },
+      "ai_outcomes": {
+        "Resolved": 1,
+        "Escalated": 1
+      },
+      "expected_fixes": {
+        "Roaming": 2
+      },
+      "answered_with_outcome": 2,
+      "unresolved_share": 0.5,
+      "topics": [
+        {
+          "topic": "OnePass - Technical Support (abandoned)",
+          "count": 4,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - Billing (abandoned)",
+          "count": 1,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - Activation (answered)",
+          "count": 1,
+          "source": "queue_status"
+        },
+        {
+          "topic": "OnePass - Billing (answered)",
+          "count": 1,
+          "source": "queue_status"
+        }
+      ],
+      "sentiment_trajectory": [
+        {
+          "conversation_id": "a012a7bc-571e-4ee4-a55c-fd47d0d8dec3",
+          "time": "2026-05-21T23:07:23.868000+00:00",
+          "queue_name": "OnePass - Activation",
+          "score": 0.61,
+          "label": "positive",
+          "trend_class": "SlightlyImproving",
+          "agent_pct": 19.69,
+          "customer_pct": 11.02,
+          "silence_pct": 6.44
+        },
+        {
+          "conversation_id": "8349e9d2-457e-4a50-99b4-5cd90f35b435",
+          "time": "2026-05-22T09:01:15.943000+00:00",
+          "queue_name": "OnePass - Billing",
+          "score": 0.458,
+          "label": "positive",
+          "trend_class": "Improving",
+          "agent_pct": 16.9,
+          "customer_pct": 19.2,
+          "silence_pct": 3.23
+        }
+      ],
+      "sentiment_trend": "stable",
+      "last_call": {
+        "conversation_id": "8349e9d2-457e-4a50-99b4-5cd90f35b435",
+        "time": "2026-05-22T09:01:15.943000+00:00",
+        "queue_name": "OnePass - Billing",
+        "status": "answered",
+        "disposition": "Refund Request",
+        "ai_outcome": "Escalated",
+        "expected_fix": "Roaming",
+        "summary": "Agent Note:  \n\n Auto Summary \n\n Customer contacted support because they could not call their overseas bank in Bulgaria using their mobile number, despite purchasing international add‑ons. Agent confirmed the add‑ons were applied but Bulgaria is not a supported destination, so calls to that number do not route. The agent offered to escalate and submit a refund request for the $20 recharge. Next steps: the refund request will be reviewed by supervisors; the customer will be notified within 24–48 business hours (possible weekend delay) and, if approved, funds should appear in 5–10 days.",
+        "sentiment": "positive",
+        "sentiment_trend_class": "Improving"
+      },
+      "evidence_conversation_ids": [
+        "e1237ab7-79c1-4fe6-abca-3b17674041ce",
+        "9cbfd5fb-3754-430f-a33f-afac6185a6a9",
+        "eae53529-94e3-4940-b363-91e558cf550d",
+        "e2d1275c-4590-47c4-9d01-77ad0df2834c",
+        "62200629-6e6c-4a4e-aa06-77bfc388a64c",
+        "a012a7bc-571e-4ee4-a55c-fd47d0d8dec3",
+        "8349e9d2-457e-4a50-99b4-5cd90f35b435"
+      ],
+      "recommended_action": "route_review"
+    }
+  ]
+}

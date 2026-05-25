@@ -192,7 +192,7 @@ Once installed, just talk to Claude:
 
 ## Companion skills
 
-Four user-installable Claude Code skills ship with this repo. All four depend on a per-tenant config at `~/.config/genesys-mcp/tenant.yaml` — see Setup step 5 above for how to populate it (the easiest path is the `genesys-tenant-setup` wizard).
+Five user-installable Claude Code skills ship with this repo. All depend on a per-tenant config at `~/.config/genesys-mcp/tenant.yaml` — see Setup step 5 above for how to populate it (the easiest path is the `genesys-tenant-setup` wizard).
 
 ### `cc-monthly-report`
 
@@ -244,11 +244,48 @@ Tenant-aware: flag thresholds (sentiment dip, AHT excess %, SL drop pp) and the 
 
 Living at [`skills/cc-daily-brief/`](skills/cc-daily-brief/).
 
+### `mcp-reconcile`
+
+(v0.8) Release-time reconciliation. *"reconcile the MCP against the Genesys UI"* pulls the MCP tool stack for a chosen period (default: last completed week) and outputs a Markdown checklist of side-by-side comparisons:
+
+```markdown
+| ✓ | Queue | Media | MCP answered | Verify in Genesys UI |
+|---|---|---|---:|---|
+| ☐ | Brand A - Activation | voice | 1,247 | Performance → Queues → 18-25 May → Voice column |
+```
+
+You click through the live Genesys UI, tick each row off, and either confirm parity or flag a mismatch. Pairs with `make test`: the test suite proves the aggregator maths is stable; reconciliation proves the source numbers still match the UI. Run before each release.
+
+Living at [`skills/mcp-reconcile/`](skills/mcp-reconcile/).
+
 ### `genesys-tenant-setup`
 
 Generates the per-tenant config (`~/.config/genesys-mcp/tenant.yaml`) by auto-discovering whatever it can from the read-only OAuth client (queue patterns, brand list, WFM units, pre-break presence, specialist roles, AHT baselines, timezone) and asking Claude conversational questions for the rest. Writes a validated YAML file when done. Run it once per tenant — anyone forking the repo will use this.
 
 Living at [`skills/genesys-tenant-setup/`](skills/genesys-tenant-setup/).
+
+## Testing (v0.8+)
+
+The aggregation layer + canonical Genesys-UI filter shapes are covered by a pytest suite:
+
+```bash
+make test
+```
+
+What's tested:
+
+- **Aggregators** in `skills/cc-monthly-report/build_report.py` — pure dict→dict functions. Golden fixtures captured from a live tenant (via `tests/_capture_fixtures.py`); structural assertions ensure refactors don't silently change output counts/totals.
+- **Canonical filter shapes** (`tests/test_analytics_filters.py`) — the v0.2 UI-parity fix is pinned via monkey-patched-SDK tests. A regression to the pre-v0.2 flat-OR shape would fail these tests immediately.
+- **Helper functions** (formatters, threshold classifiers, sentiment/trend labellers) — parameterised unit tests; no fixtures required.
+- **HTML rendering** — BeautifulSoup-based structural assertions on column counts, vs-target pill colours, narrative-synthesis sections.
+- **Conversation deep-link helper** — resolution priority + region mapping + fallback rendering.
+
+What's deliberately **not** tested at this layer:
+
+- Raw MCP tool wrappers in `tools/*.py` — they mostly call the SDK 1:1. Testing them mostly tests the SDK. The filter-shape assertions cover our own logic; the SDK's correctness isn't our problem.
+- End-to-end live-tenant calls — covered by the `mcp-reconcile` skill instead: run a reconciliation checklist before each release and click each row off against the live Genesys UI.
+
+If a refactor breaks something, the test suite catches structural drift; if Genesys changes endpoint semantics, the reconciliation checklist catches numerical drift. Both are needed.
 
 ## Design
 

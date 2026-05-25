@@ -29,6 +29,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
+from genesys_mcp.conversation_links import render_conversation_cell  # noqa: E402
 from genesys_mcp.tenant import TenantConfig, load_config  # noqa: E402
 
 
@@ -394,7 +395,7 @@ def render_wrap_section(pack: dict) -> str:
     return f'<section id="wrap"><h2>3. Wrap-up &amp; handling</h2>{cards}{disp_table}</section>'
 
 
-def render_flagged_section(pack: dict) -> str:
+def render_flagged_section(pack: dict, cfg: TenantConfig | None = None) -> str:
     fc = pack.get("flagged_calls") or {}
     top = fc.get("top") or []
     total = fc.get("total_flagged") or 0
@@ -429,7 +430,7 @@ def render_flagged_section(pack: dict) -> str:
             f'<td class="num">{fmt_secs(c.get("hold_s"))}</td>'
             f'<td class="num">{sentiment_html}</td>'
             f'<td>{reasons}</td>'
-            f'<td><code style="font-size:11px;color:var(--muted);">{escape(c.get("conversation_id") or "")[:8]}…</code></td>'
+            f'<td>{render_conversation_cell(c.get("conversation_id"), tenant_base_url=cfg.tenant.genesys_app_base_url if cfg else None)}</td>'
             f'</tr>'
         )
     return (
@@ -483,7 +484,7 @@ def render_html(pack: dict, period: str, cfg: TenantConfig) -> str:
         + render_performance_section(pack, cfg)
         + render_sentiment_quality(pack)
         + render_wrap_section(pack)
-        + render_flagged_section(pack)
+        + render_flagged_section(pack, cfg)
         + render_focus_section(pack)
         + (
             f'<footer>Generated {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")} · '
