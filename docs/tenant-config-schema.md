@@ -69,7 +69,8 @@ targets:
   fte_hours_per_month: int     # Productive handle hours per FTE per month.
                                # Default 160 (40h/wk × 4 wks × ~0.85 occupancy ≈ 136h, rounded up).
 
-# tenant block also accepts a timezone field (added in v0.6):
+# tenant block also accepts a timezone field (added in v0.6) and an optional
+# genesys_app_base_url (added in v0.8):
 #   tenant:
 #     timezone: string         # IANA name (e.g. "Australia/Sydney",
 #                              # "America/New_York"). Default "UTC".
@@ -77,6 +78,15 @@ targets:
 #                              # ("April 2026", "last week") to ISO-8601 UTC
 #                              # intervals. genesys-tenant-setup auto-suggests
 #                              # from the org's defaultCountryCode.
+#     genesys_app_base_url: string | null
+#                              # Optional Genesys Cloud app base URL
+#                              # (e.g. "https://apps.mypurecloud.com.au").
+#                              # When set, conversation ids in HTML reports
+#                              # become clickable deep-links to the
+#                              # conversation detail view. When None,
+#                              # falls back to a GENESYS_REGION env var
+#                              # mapping (see src/genesys_mcp/conversation_links.py).
+#                              # Set only for custom-domain tenants.
 
 reports:
   output_dir: string           # Where to save generated HTML reports. Supports ~ expansion.

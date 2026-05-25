@@ -1,0 +1,2333 @@
+{
+  "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+  "granularity": "P1M",
+  "summary": [
+    {
+      "user_id": "1a021958-42ad-43c8-b561-5a842f1290c0",
+      "answered": 445,
+      "handled": 519,
+      "outbound_interactions": 75,
+      "transferred": 7,
+      "transfer_rate_pct": 1.3,
+      "avg_handle_s": 939,
+      "avg_talk_s": 259,
+      "avg_acw_s": 16,
+      "avg_held_s": 820,
+      "total_handle_min": 8118.6,
+      "by_media": {
+        "email": {
+          "answered": 36,
+          "handled": 110,
+          "outbound_interactions": 75,
+          "transferred": 4,
+          "avg_handle_s": 1812,
+          "avg_talk_s": 427,
+          "avg_acw_s": 8,
+          "avg_held_s": 3607,
+          "total_handle_min": 3322.3
+        },
+        "message": {
+          "answered": 374,
+          "handled": 374,
+          "outbound_interactions": 0,
+          "transferred": 3,
+          "avg_handle_s": 732,
+          "avg_talk_s": 206,
+          "avg_acw_s": 13,
+          "avg_held_s": 512,
+          "total_handle_min": 4562.0
+        },
+        "voice": {
+          "answered": 35,
+          "handled": 35,
+          "outbound_interactions": 0,
+          "transferred": 0,
+          "avg_handle_s": 402,
+          "avg_talk_s": 302,
+          "avg_acw_s": 67,
+          "avg_held_s": 288,
+          "total_handle_min": 234.4
+        }
+      }
+    },
+    {
+      "user_id": "f483f690-8b92-480c-b97d-ecf8e7a194d2",
+      "answered": 404,
+      "handled": 412,
+      "outbound_interactions": 8,
+      "transferred": 0,
+      "transfer_rate_pct": 0.0,
+      "avg_handle_s": 636,
+      "avg_talk_s": 240,
+      "avg_acw_s": 71,
+      "avg_held_s": 442,
+      "total_handle_min": 4365.8,
+      "by_media": {
+        "email": {
+          "answered": 0,
+          "handled": 8,
+          "outbound_interactions": 8,
+          "transferred": 0,
+          "avg_handle_s": 164,
+          "avg_talk_s": 139,
+          "avg_acw_s": 19,
+          "avg_held_s": 16,
+          "total_handle_min": 21.9
+        },
+        "message": {
+          "answered": 303,
+          "handled": 303,
+          "outbound_interactions": 0,
+          "transferred": 0,
+          "avg_handle_s": 696,
+          "avg_talk_s": 198,
+          "avg_acw_s": 62,
+          "avg_held_s": 454,
+          "total_handle_min": 3514.7
+        },
+        "voice": {
+          "answered": 101,
+          "handled": 101,
+          "outbound_interactions": 0,
+          "transferred": 0,
+          "avg_handle_s": 493,
+          "avg_talk_s": 374,
+          "avg_acw_s": 101,
+          "avg_held_s": 208,
+          "total_handle_min": 829.1
+        }
+      }
+    },
+    {
+      "user_id": "69a74647-5a05-4a3c-bf55-6b4f1752b629",
+      "answered": 344,
+      "handled": 428,
+      "outbound_interactions": 83,
+      "transferred": 5,
+      "transfer_rate_pct": 1.2,
+      "avg_handle_s": 1075,
+      "avg_talk_s": 304,
+      "avg_acw_s": 39,
+      "avg_held_s": 1014,
+      "total_handle_min": 7670.2,
+      "by_media": {
+        "email": {
+          "answered": 69,
+          "handled": 153,
+          "outbound_interactions": 83,
+          "transferred": 4,
+          "avg_handle_s": 1666,
+          "avg_talk_s": 332,
+          "avg_acw_s": 6,
+          "avg_held_s": 1955,
+          "total_handle_min": 4248.2
+        },
+        "message": {
+          "answered": 180,
+          "handled": 180,
+          "outbound_interactions": 0,
+          "transferred": 0,
+          "avg_handle_s": 829,
+          "avg_talk_s": 213,
+          "avg_acw_s": 38,
+          "avg_held_s": 577,
+          "total_handle_min": 2486.4
+        },
+        "voice": {
+          "answered": 95,
+          "handled": 95,
+          "outbound_interactions": 0,
+          "transferred": 1,
+          "avg_handle_s": 591,
+          "avg_talk_s": 430,
+          "avg_acw_s": 96,
+          "avg_held_s": 247,
+          "total_handle_min": 935.6
+        }
+      }
+    },
+    {
+      "user_id": "784d3601-85f6-4114-821e-cb7768f582df",
+      "answered": 277,
+      "handled": 283,
+      "outbound_interactions": 6,
+      "transferred": 3,
+      "transfer_rate_pct": 1.1,
+      "avg_handle_s": 722,
+      "avg_talk_s": 214,
+      "avg_acw_s": 289,
+      "avg_held_s": 344,
+      "total_handle_min": 3404.2,
+      "by_media": {
+        "email": {
+          "answered": 0,
+          "handled": 4,
+          "outbound_interactions": 4,
+          "transferred": 0,
+          "avg_handle_s": 211,
+          "avg_talk_s": 161,
+          "avg_acw_s": 48,
+          "avg_held_s": 6,
+          "total_handle_min": 14.1
+        },
+        "message": {
+          "answered": 168,
+          "handled": 168,
+          "outbound_interactions": 0,
+          "transferred": 2,
+          "avg_handle_s": 957,
+          "avg_talk_s": 182,
+          "avg_acw_s": 424,
+          "avg_held_s": 361,
+          "total_handle_min": 2679.1
+        },
+        "voice": {
+          "answered": 109,
+          "handled": 111,
+          "outbound_interactions": 2,
+          "transferred": 1,
+          "avg_handle_s": 384,
+          "avg_talk_s": 264,
+          "avg_acw_s": 92,
+          "avg_held_s": 190,
+          "total_handle_min": 711.0
+        }
+      }
+    },
+    {
+      "user_id": "624b9917-52b1-4b9c-bc24-c4920def560a",
+      "answered": 214,
+      "handled": 236,
+      "outbound_interactions": 19,
+      "transferred": 1,
+      "transfer_rate_pct": 0.4,
+      "avg_handle_s": 351,
+      "avg_talk_s": 233,
+      "avg_acw_s": 31,
+      "avg_held_s": 287,
+      "total_handle_min": 1381.7,
+      "by_media": {
+        "email": {
+          "answered": 1,
+          "handled": 19,
+          "outbound_interactions": 18,
+          "transferred": 1,
+          "avg_handle_s": 256,
+          "avg_talk_s": 130,
+          "avg_acw_s": 11,
+          "avg_held_s": 242,
+          "total_handle_min": 81.1
+        },
+        "message": {
+          "answered": 29,
+          "handled": 29,
+          "outbound_interactions": 0,
+          "transferred": 0,
+          "avg_handle_s": 621,
+          "avg_talk_s": 257,
+          "avg_acw_s": 13,
+          "avg_held_s": 424,
+          "total_handle_min": 300.2
+        },
+        "voice": {
+          "answered": 184,
+          "handled": 188,
+          "outbound_interactions": 1,
+          "transferred": 0,
+          "avg_handle_s": 319,
+          "avg_talk_s": 240,
+          "avg_acw_s": 36,
+          "avg_held_s": 211,
+          "total_handle_min": 1000.5
+        }
+      }
+    },
+    {
+      "user_id": "fa224267-2bce-45db-a8b3-d14508af85df",
+      "answered": 163,
+      "handled": 491,
+      "outbound_interactions": 324,
+      "transferred": 0,
+      "transfer_rate_pct": 0.0,
+      "avg_handle_s": 427,
+      "avg_talk_s": 286,
+      "avg_acw_s": 6,
+      "avg_held_s": 1251,
+      "total_handle_min": 3494.7,
+      "by_media": {
+        "email": {
+          "answered": 162,
+          "handled": 388,
+          "outbound_interactions": 224,
+          "transferred": 0,
+          "avg_handle_s": 507,
+          "avg_talk_s": 309,
+          "avg_acw_s": 5,
+          "avg_held_s": 1293,
+          "total_handle_min": 3280.2
+        },
+        "message": {
+          "answered": 0,
+          "handled": 1,
+          "outbound_interactions": 0,
+          "transferred": 0,
+          "avg_handle_s": 327,
+          "avg_talk_s": 318,
+          "avg_acw_s": 5,
+          "avg_held_s": 4,
+          "total_handle_min": 5.5
+        },
+        "voice": {
+          "answered": 1,
+          "handled": 102,
+          "outbound_interactions": 100,
+          "transferred": 0,
+          "avg_handle_s": 123,
+          "avg_talk_s": 144,
+          "avg_acw_s": 9,
+          "avg_held_s": 61,
+          "total_handle_min": 209.0
+        }
+      }
+    },
+    {
+      "user_id": "8c94f284-fe28-4d58-b7bd-ea5d17b81623",
+      "answered": 143,
+      "handled": 144,
+      "outbound_interactions": 0,
+      "transferred": 2,
+      "transfer_rate_pct": 1.4,
+      "avg_handle_s": 994,
+      "avg_talk_s": 513,
+      "avg_acw_s": 149,
+      "avg_held_s": 520,
+      "total_handle_min": 2385.7,
+      "by_media": {
+        "email": {
+          "answered": 1,
+          "handled": 1,
+          "outbound_interactions": 0,
+          "transferred": 1,
+          "avg_handle_s": 758,
+          "avg_talk_s": 737,
+          "avg_acw_s": 21,
+          "avg_held_s": null,
+          "total_handle_min": 12.6
+        },
+        "message": {
+          "answered": 39,
+          "handled": 40,
+          "outbound_interactions": 0,
+          "transferred": 0,
+          "avg_handle_s": 1114,
+          "avg_talk_s": 282,
+          "avg_acw_s": 76,
+          "avg_held_s": 782,
+          "total_handle_min": 742.6
+        },
+        "voice": {
+          "answered": 103,
+          "handled": 103,
+          "outbound_interactions": 0,
+          "transferred": 1,
+          "avg_handle_s": 950,
+          "avg_talk_s": 598,
+          "avg_acw_s": 179,
+          "avg_held_s": 330,
+          "total_handle_min": 1630.5
+        }
+      }
+    },
+    {
+      "user_id": "0395286d-74b5-4bf5-bec3-8cef508edd0d",
+      "answered": 31,
+      "handled": 35,
+      "outbound_interactions": 4,
+      "transferred": 0,
+      "transfer_rate_pct": 0.0,
+      "avg_handle_s": 1553,
+      "avg_talk_s": 1094,
+      "avg_acw_s": 56,
+      "avg_held_s": 486,
+      "total_handle_min": 905.9,
+      "by_media": {
+        "email": {
+          "answered": 0,
+          "handled": 4,
+          "outbound_interactions": 4,
+          "transferred": 0,
+          "avg_handle_s": 8297,
+          "avg_talk_s": 6429,
+          "avg_acw_s": 8,
+          "avg_held_s": 1860,
+          "total_handle_min": 553.2
+        },
+        "message": {
+          "answered": 3,
+          "handled": 3,
+          "outbound_interactions": 0,
+          "transferred": 0,
+          "avg_handle_s": 604,
+          "avg_talk_s": 505,
+          "avg_acw_s": 99,
+          "avg_held_s": null,
+          "total_handle_min": 30.2
+        },
+        "voice": {
+          "answered": 28,
+          "handled": 28,
+          "outbound_interactions": 0,
+          "transferred": 0,
+          "avg_handle_s": 691,
+          "avg_talk_s": 394,
+          "avg_acw_s": 59,
+          "avg_held_s": 266,
+          "total_handle_min": 322.6
+        }
+      }
+    },
+    {
+      "user_id": "fa20b31b-9876-4bbe-8b2b-d1b888277f50",
+      "answered": 31,
+      "handled": 39,
+      "outbound_interactions": 8,
+      "transferred": 0,
+      "transfer_rate_pct": 0.0,
+      "avg_handle_s": 937,
+      "avg_talk_s": 656,
+      "avg_acw_s": 215,
+      "avg_held_s": 149,
+      "total_handle_min": 608.8,
+      "by_media": {
+        "email": {
+          "answered": 0,
+          "handled": 6,
+          "outbound_interactions": 6,
+          "transferred": 0,
+          "avg_handle_s": 1387,
+          "avg_talk_s": 590,
+          "avg_acw_s": 777,
+          "avg_held_s": 121,
+          "total_handle_min": 138.7
+        },
+        "message": {
+          "answered": 8,
+          "handled": 8,
+          "outbound_interactions": 0,
+          "transferred": 0,
+          "avg_handle_s": 1399,
+          "avg_talk_s": 1323,
+          "avg_acw_s": 76,
+          "avg_held_s": null,
+          "total_handle_min": 186.5
+        },
+        "voice": {
+          "answered": 23,
+          "handled": 25,
+          "outbound_interactions": 2,
+          "transferred": 0,
+          "avg_handle_s": 681,
+          "avg_talk_s": 458,
+          "avg_acw_s": 125,
+          "avg_held_s": 150,
+          "total_handle_min": 283.6
+        }
+      }
+    },
+    {
+      "user_id": "f4a9cb6a-95b5-40e3-b89c-0dc16d78d48c",
+      "answered": 29,
+      "handled": 33,
+      "outbound_interactions": 4,
+      "transferred": 0,
+      "transfer_rate_pct": 0.0,
+      "avg_handle_s": 1376,
+      "avg_talk_s": 942,
+      "avg_acw_s": 63,
+      "avg_held_s": 611,
+      "total_handle_min": 756.8,
+      "by_media": {
+        "email": {
+          "answered": 0,
+          "handled": 4,
+          "outbound_interactions": 4,
+          "transferred": 0,
+          "avg_handle_s": 5186,
+          "avg_talk_s": 2778,
+          "avg_acw_s": 105,
+          "avg_held_s": 2303,
+          "total_handle_min": 345.7
+        },
+        "message": {
+          "answered": 11,
+          "handled": 11,
+          "outbound_interactions": 0,
+          "transferred": 0,
+          "avg_handle_s": 1079,
+          "avg_talk_s": 984,
+          "avg_acw_s": 27,
+          "avg_held_s": 187,
+          "total_handle_min": 197.9
+        },
+        "voice": {
+          "answered": 18,
+          "handled": 18,
+          "outbound_interactions": 0,
+          "transferred": 0,
+          "avg_handle_s": 711,
+          "avg_talk_s": 509,
+          "avg_acw_s": 76,
+          "avg_held_s": 189,
+          "total_handle_min": 213.2
+        }
+      }
+    }
+  ],
+  "results": [
+    {
+      "group": {
+        "mediaType": "email",
+        "userId": "0395286d-74b5-4bf5-bec3-8cef508edd0d"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nOutbound",
+              "stats": {
+                "count": 4
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 8243.0,
+                "min": 6937.0,
+                "count": 4,
+                "sum": 30597.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 10323108.0,
+                "min": 2362590.0,
+                "count": 4,
+                "sum": 33189848.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 2536368.0,
+                "min": 984843.0,
+                "count": 4,
+                "sum": 7441674.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 9285060.0,
+                "min": 82692.0,
+                "count": 4,
+                "sum": 25717577.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "email",
+        "userId": "1a021958-42ad-43c8-b561-5a842f1290c0"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nBlindTransferred",
+              "stats": {
+                "count": 4
+              }
+            },
+            {
+              "metric": "nOutbound",
+              "stats": {
+                "count": 75
+              }
+            },
+            {
+              "metric": "nTransferred",
+              "stats": {
+                "count": 4
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 61058.0,
+                "min": 3227.0,
+                "count": 110,
+                "sum": 902717.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 431550161.0,
+                "min": 1725784.0,
+                "count": 36,
+                "sum": 7781576123.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 21684216.0,
+                "min": 11622.0,
+                "count": 110,
+                "sum": 199337153.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 17979141.0,
+                "min": 4399.0,
+                "count": 42,
+                "sum": 151488054.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 7528391.0,
+                "min": 6241.0,
+                "count": 110,
+                "sum": 46946382.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "email",
+        "userId": "624b9917-52b1-4b9c-bc24-c4920def560a"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nBlindTransferred",
+              "stats": {
+                "count": 1
+              }
+            },
+            {
+              "metric": "nOutbound",
+              "stats": {
+                "count": 18
+              }
+            },
+            {
+              "metric": "nTransferred",
+              "stats": {
+                "count": 1
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 47247.0,
+                "min": 2676.0,
+                "count": 19,
+                "sum": 206681.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 222.0,
+                "min": 222.0,
+                "count": 1,
+                "sum": 222.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 1156184.0,
+                "min": 50850.0,
+                "count": 19,
+                "sum": 4864911.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 957030.0,
+                "min": 6041.0,
+                "count": 9,
+                "sum": 2179848.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 305767.0,
+                "min": 39267.0,
+                "count": 19,
+                "sum": 2478382.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "email",
+        "userId": "69a74647-5a05-4a3c-bf55-6b4f1752b629"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nBlindTransferred",
+              "stats": {
+                "count": 4
+              }
+            },
+            {
+              "metric": "nOutbound",
+              "stats": {
+                "count": 83
+              }
+            },
+            {
+              "metric": "nTransferred",
+              "stats": {
+                "count": 4
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 65671.0,
+                "min": 980.0,
+                "count": 153,
+                "sum": 902151.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 328250574.0,
+                "min": 53722556.0,
+                "count": 69,
+                "sum": 11879787104.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 29309793.0,
+                "min": 30102.0,
+                "count": 153,
+                "sum": 254894792.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 26299018.0,
+                "min": 1822.0,
+                "count": 104,
+                "sum": 203272191.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 6224280.0,
+                "min": 7609.0,
+                "count": 153,
+                "sum": 50720450.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "email",
+        "userId": "784d3601-85f6-4114-821e-cb7768f582df"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nOutbound",
+              "stats": {
+                "count": 4
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 76696.0,
+                "min": 21851.0,
+                "count": 4,
+                "sum": 193109.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 266877.0,
+                "min": 140437.0,
+                "count": 4,
+                "sum": 843950.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 5806.0,
+                "min": 5806.0,
+                "count": 1,
+                "sum": 5806.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 205417.0,
+                "min": 118586.0,
+                "count": 4,
+                "sum": 645035.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "email",
+        "userId": "8c94f284-fe28-4d58-b7bd-ea5d17b81623"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nBlindTransferred",
+              "stats": {
+                "count": 1
+              }
+            },
+            {
+              "metric": "nTransferred",
+              "stats": {
+                "count": 1
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 21035.0,
+                "min": 21035.0,
+                "count": 1,
+                "sum": 21035.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 221.0,
+                "min": 221.0,
+                "count": 1,
+                "sum": 221.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 758060.0,
+                "min": 758060.0,
+                "count": 1,
+                "sum": 758060.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 737025.0,
+                "min": 737025.0,
+                "count": 1,
+                "sum": 737025.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "email",
+        "userId": "f483f690-8b92-480c-b97d-ecf8e7a194d2"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nOutbound",
+              "stats": {
+                "count": 8
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 64061.0,
+                "min": 5471.0,
+                "count": 8,
+                "sum": 151952.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 261632.0,
+                "min": 61915.0,
+                "count": 8,
+                "sum": 1313477.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 32083.0,
+                "min": 2667.0,
+                "count": 3,
+                "sum": 47284.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 256161.0,
+                "min": 50767.0,
+                "count": 8,
+                "sum": 1114241.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "email",
+        "userId": "f4a9cb6a-95b5-40e3-b89c-0dc16d78d48c"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nOutbound",
+              "stats": {
+                "count": 4
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 118984.0,
+                "min": 87415.0,
+                "count": 4,
+                "sum": 419014.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 11234336.0,
+                "min": 3138506.0,
+                "count": 4,
+                "sum": 20742533.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 3101949.0,
+                "min": 1048609.0,
+                "count": 4,
+                "sum": 9211046.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 8013403.0,
+                "min": 40969.0,
+                "count": 4,
+                "sum": 11112473.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "email",
+        "userId": "fa20b31b-9876-4bbe-8b2b-d1b888277f50"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nOutbound",
+              "stats": {
+                "count": 6
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 3678614.0,
+                "min": 2310.0,
+                "count": 6,
+                "sum": 4660659.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 5241762.0,
+                "min": 158490.0,
+                "count": 6,
+                "sum": 8322143.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 121476.0,
+                "min": 121476.0,
+                "count": 1,
+                "sum": 121476.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 1891079.0,
+                "min": 7197.0,
+                "count": 6,
+                "sum": 3540008.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "email",
+        "userId": "fa224267-2bce-45db-a8b3-d14508af85df"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nOutbound",
+              "stats": {
+                "count": 224
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 53852.0,
+                "min": 3231.0,
+                "count": 388,
+                "sum": 1872927.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 227160580.0,
+                "min": 203.0,
+                "count": 162,
+                "sum": 9064820611.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 24592579.0,
+                "min": 5708.0,
+                "count": 388,
+                "sum": 196813784.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 14530471.0,
+                "min": 483.0,
+                "count": 58,
+                "sum": 75022443.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 12549268.0,
+                "min": 1774.0,
+                "count": 388,
+                "sum": 119918414.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "message",
+        "userId": "0395286d-74b5-4bf5-bec3-8cef508edd0d"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 160229.0,
+                "min": 59308.0,
+                "count": 3,
+                "sum": 297460.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 361998.0,
+                "min": 201.0,
+                "count": 3,
+                "sum": 376879.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 819522.0,
+                "min": 344811.0,
+                "count": 3,
+                "sum": 1813218.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 741599.0,
+                "min": 285503.0,
+                "count": 3,
+                "sum": 1515758.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "message",
+        "userId": "1a021958-42ad-43c8-b561-5a842f1290c0"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nBlindTransferred",
+              "stats": {
+                "count": 3
+              }
+            },
+            {
+              "metric": "nTransferred",
+              "stats": {
+                "count": 3
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 308785.0,
+                "min": 855.0,
+                "count": 374,
+                "sum": 4971544.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 57197804.0,
+                "min": 164.0,
+                "count": 374,
+                "sum": 137448703.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 2729838.0,
+                "min": 20554.0,
+                "count": 374,
+                "sum": 273717694.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 2065164.0,
+                "min": 1327.0,
+                "count": 374,
+                "sum": 191583895.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 1992353.0,
+                "min": 350.0,
+                "count": 374,
+                "sum": 77162255.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "message",
+        "userId": "624b9917-52b1-4b9c-bc24-c4920def560a"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 43873.0,
+                "min": 4830.0,
+                "count": 29,
+                "sum": 376173.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 2033268.0,
+                "min": 183.0,
+                "count": 29,
+                "sum": 6793037.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 1745172.0,
+                "min": 18211.0,
+                "count": 29,
+                "sum": 18009987.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 832029.0,
+                "min": 8943.0,
+                "count": 24,
+                "sum": 10182473.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 1360580.0,
+                "min": 4827.0,
+                "count": 29,
+                "sum": 7451341.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "message",
+        "userId": "69a74647-5a05-4a3c-bf55-6b4f1752b629"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 267031.0,
+                "min": 1516.0,
+                "count": 180,
+                "sum": 6891696.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 1450778.0,
+                "min": 165.0,
+                "count": 180,
+                "sum": 21403573.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 3560170.0,
+                "min": 87555.0,
+                "count": 180,
+                "sum": 149181407.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 1995612.0,
+                "min": 1796.0,
+                "count": 180,
+                "sum": 103936975.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 1471456.0,
+                "min": 5672.0,
+                "count": 180,
+                "sum": 38352736.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "message",
+        "userId": "784d3601-85f6-4114-821e-cb7768f582df"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nBlindTransferred",
+              "stats": {
+                "count": 2
+              }
+            },
+            {
+              "metric": "nTransferred",
+              "stats": {
+                "count": 2
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 25542025.0,
+                "min": 3093.0,
+                "count": 168,
+                "sum": 71282644.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 1389910.0,
+                "min": 169.0,
+                "count": 168,
+                "sum": 13472383.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 25566678.0,
+                "min": 9754.0,
+                "count": 168,
+                "sum": 160746557.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 1310543.0,
+                "min": 791.0,
+                "count": 163,
+                "sum": 58820517.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 1705875.0,
+                "min": 272.0,
+                "count": 168,
+                "sum": 30643396.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "message",
+        "userId": "8c94f284-fe28-4d58-b7bd-ea5d17b81623"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 610304.0,
+                "min": 3505.0,
+                "count": 40,
+                "sum": 3043589.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 400746.0,
+                "min": 2513.0,
+                "count": 39,
+                "sum": 4107374.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 3523703.0,
+                "min": 184970.0,
+                "count": 40,
+                "sum": 44556198.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 2109759.0,
+                "min": 22009.0,
+                "count": 39,
+                "sum": 30506505.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 1397847.0,
+                "min": 24091.0,
+                "count": 39,
+                "sum": 11006104.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "message",
+        "userId": "f483f690-8b92-480c-b97d-ecf8e7a194d2"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 10412246.0,
+                "min": 2549.0,
+                "count": 303,
+                "sum": 18937086.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 4302918.0,
+                "min": 157.0,
+                "count": 303,
+                "sum": 66354266.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 10441145.0,
+                "min": 12938.0,
+                "count": 303,
+                "sum": 210882746.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 1676764.0,
+                "min": 670.0,
+                "count": 291,
+                "sum": 132086630.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 1229354.0,
+                "min": 4862.0,
+                "count": 303,
+                "sum": 59859030.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "message",
+        "userId": "f4a9cb6a-95b5-40e3-b89c-0dc16d78d48c"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 139379.0,
+                "min": 935.0,
+                "count": 11,
+                "sum": 300699.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 429223.0,
+                "min": 163.0,
+                "count": 11,
+                "sum": 1374799.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 2374474.0,
+                "min": 232612.0,
+                "count": 11,
+                "sum": 11871104.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 236820.0,
+                "min": 72753.0,
+                "count": 4,
+                "sum": 748121.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 2373539.0,
+                "min": 182596.0,
+                "count": 11,
+                "sum": 10822284.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "message",
+        "userId": "fa20b31b-9876-4bbe-8b2b-d1b888277f50"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 398116.0,
+                "min": 5980.0,
+                "count": 8,
+                "sum": 606356.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 583973.0,
+                "min": 179.0,
+                "count": 8,
+                "sum": 1105576.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 2937648.0,
+                "min": 405780.0,
+                "count": 8,
+                "sum": 11190208.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 2917769.0,
+                "min": 350514.0,
+                "count": 8,
+                "sum": 10583852.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "message",
+        "userId": "fa224267-2bce-45db-a8b3-d14508af85df"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 4910.0,
+                "min": 4910.0,
+                "count": 1,
+                "sum": 4910.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 327276.0,
+                "min": 327276.0,
+                "count": 1,
+                "sum": 327276.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 4144.0,
+                "min": 4144.0,
+                "count": 1,
+                "sum": 4144.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 318222.0,
+                "min": 318222.0,
+                "count": 1,
+                "sum": 318222.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "voice",
+        "userId": "0395286d-74b5-4bf5-bec3-8cef508edd0d"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 296035.0,
+                "min": 12874.0,
+                "count": 28,
+                "sum": 1649335.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 245812.0,
+                "min": 373.0,
+                "count": 28,
+                "sum": 885594.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 1630513.0,
+                "min": 210160.0,
+                "count": 28,
+                "sum": 19353775.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 694281.0,
+                "min": 14515.0,
+                "count": 25,
+                "sum": 6661240.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 916263.0,
+                "min": 169971.0,
+                "count": 28,
+                "sum": 11043200.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "voice",
+        "userId": "1a021958-42ad-43c8-b561-5a842f1290c0"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 310116.0,
+                "min": 2047.0,
+                "count": 35,
+                "sum": 2356917.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 2051532.0,
+                "min": 378.0,
+                "count": 35,
+                "sum": 4020744.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 1260165.0,
+                "min": 23205.0,
+                "count": 35,
+                "sum": 14062256.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 662412.0,
+                "min": 120500.0,
+                "count": 4,
+                "sum": 1150836.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 942682.0,
+                "min": 16435.0,
+                "count": 35,
+                "sum": 10554503.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "voice",
+        "userId": "624b9917-52b1-4b9c-bc24-c4920def560a"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nOutbound",
+              "stats": {
+                "count": 1
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 372969.0,
+                "min": 4677.0,
+                "count": 187,
+                "sum": 6818439.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 1738706.0,
+                "min": 348.0,
+                "count": 184,
+                "sum": 33801166.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 1874559.0,
+                "min": 20126.0,
+                "count": 188,
+                "sum": 60027508.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 509683.0,
+                "min": 56697.0,
+                "count": 38,
+                "sum": 8009831.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 1735850.0,
+                "min": 10086.0,
+                "count": 188,
+                "sum": 45160602.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "voice",
+        "userId": "69a74647-5a05-4a3c-bf55-6b4f1752b629"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nBlindTransferred",
+              "stats": {
+                "count": 1
+              }
+            },
+            {
+              "metric": "nTransferred",
+              "stats": {
+                "count": 1
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 508934.0,
+                "min": 5606.0,
+                "count": 95,
+                "sum": 9082916.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 1007022.0,
+                "min": 365.0,
+                "count": 95,
+                "sum": 21168911.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 3259597.0,
+                "min": 81480.0,
+                "count": 95,
+                "sum": 56136118.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 789420.0,
+                "min": 4825.0,
+                "count": 25,
+                "sum": 6172215.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 2750335.0,
+                "min": 42108.0,
+                "count": 95,
+                "sum": 40880987.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "voice",
+        "userId": "784d3601-85f6-4114-821e-cb7768f582df"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nBlindTransferred",
+              "stats": {
+                "count": 1
+              }
+            },
+            {
+              "metric": "nOutbound",
+              "stats": {
+                "count": 2
+              }
+            },
+            {
+              "metric": "nTransferred",
+              "stats": {
+                "count": 1
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 374839.0,
+                "min": 7665.0,
+                "count": 111,
+                "sum": 10234663.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 1094973.0,
+                "min": 356.0,
+                "count": 109,
+                "sum": 17536889.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 2229316.0,
+                "min": 31656.0,
+                "count": 111,
+                "sum": 42659858.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 746056.0,
+                "min": 4895.0,
+                "count": 16,
+                "sum": 3047132.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 2180404.0,
+                "min": 18818.0,
+                "count": 111,
+                "sum": 29334898.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "voice",
+        "userId": "8c94f284-fe28-4d58-b7bd-ea5d17b81623"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nBlindTransferred",
+              "stats": {
+                "count": 1
+              }
+            },
+            {
+              "metric": "nTransferred",
+              "stats": {
+                "count": 1
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 771745.0,
+                "min": 20902.0,
+                "count": 103,
+                "sum": 18410003.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 1186584.0,
+                "min": 346.0,
+                "count": 103,
+                "sum": 21065964.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 4482325.0,
+                "min": 60930.0,
+                "count": 103,
+                "sum": 97829228.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 1239455.0,
+                "min": 13328.0,
+                "count": 54,
+                "sum": 17809636.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 3920600.0,
+                "min": 40028.0,
+                "count": 103,
+                "sum": 61609589.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "voice",
+        "userId": "f483f690-8b92-480c-b97d-ecf8e7a194d2"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 595744.0,
+                "min": 729.0,
+                "count": 101,
+                "sum": 10151346.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 4244822.0,
+                "min": 362.0,
+                "count": 101,
+                "sum": 39289104.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 2190223.0,
+                "min": 15497.0,
+                "count": 101,
+                "sum": 49748997.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 450852.0,
+                "min": 58366.0,
+                "count": 9,
+                "sum": 1872446.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 2111146.0,
+                "min": 521.0,
+                "count": 101,
+                "sum": 37725205.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "voice",
+        "userId": "f4a9cb6a-95b5-40e3-b89c-0dc16d78d48c"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 157365.0,
+                "min": 16939.0,
+                "count": 18,
+                "sum": 1364377.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 138401.0,
+                "min": 367.0,
+                "count": 18,
+                "sum": 535475.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 1303079.0,
+                "min": 187995.0,
+                "count": 18,
+                "sum": 12792422.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 330624.0,
+                "min": 78224.0,
+                "count": 12,
+                "sum": 2270665.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 981845.0,
+                "min": 144875.0,
+                "count": 18,
+                "sum": 9157380.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "voice",
+        "userId": "fa20b31b-9876-4bbe-8b2b-d1b888277f50"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nOutbound",
+              "stats": {
+                "count": 2
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 644785.0,
+                "min": 11502.0,
+                "count": 25,
+                "sum": 3122303.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 271991.0,
+                "min": 358.0,
+                "count": 23,
+                "sum": 602173.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 2430288.0,
+                "min": 56811.0,
+                "count": 25,
+                "sum": 17017501.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 653623.0,
+                "min": 3371.0,
+                "count": 16,
+                "sum": 2406096.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 1694765.0,
+                "min": 11234.0,
+                "count": 25,
+                "sum": 11448510.0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "group": {
+        "mediaType": "voice",
+        "userId": "fa224267-2bce-45db-a8b3-d14508af85df"
+      },
+      "data": [
+        {
+          "interval": "2026-05-17T14:00:00.000Z/2026-05-24T14:00:00.000Z",
+          "metrics": [
+            {
+              "metric": "nOutbound",
+              "stats": {
+                "count": 100
+              }
+            },
+            {
+              "metric": "tAcw",
+              "stats": {
+                "max": 68998.0,
+                "min": 2408.0,
+                "count": 102,
+                "sum": 906569.0
+              }
+            },
+            {
+              "metric": "tAnswered",
+              "stats": {
+                "max": 972361.0,
+                "min": 972361.0,
+                "count": 1,
+                "sum": 972361.0
+              }
+            },
+            {
+              "metric": "tHandle",
+              "stats": {
+                "max": 1089038.0,
+                "min": 7850.0,
+                "count": 102,
+                "sum": 12538225.0
+              }
+            },
+            {
+              "metric": "tHeldComplete",
+              "stats": {
+                "max": 60551.0,
+                "min": 60551.0,
+                "count": 1,
+                "sum": 60551.0
+              }
+            },
+            {
+              "metric": "tTalkComplete",
+              "stats": {
+                "max": 1061060.0,
+                "min": 6657.0,
+                "count": 63,
+                "sum": 9089576.0
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

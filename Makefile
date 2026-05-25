@@ -8,6 +8,7 @@ help:
 	@echo "  make link-skills  — re-symlink every skill under skills/ into the"
 	@echo "                      Claude Code skills directory (idempotent)"
 	@echo "  make health       — run the genesys-mcp health check"
+	@echo "  make test         — run the pytest suite (v0.8+)"
 	@echo ""
 	@echo "  For fresh installs, run ./install.sh instead — it covers the"
 	@echo "  whole bootstrap (deps + credentials + MCP registration + skills"
@@ -40,3 +41,6 @@ link-skills:
 
 health:
 	uv run python -m genesys_mcp.health_check
+
+test:
+	uv run --group test python -m pytest
