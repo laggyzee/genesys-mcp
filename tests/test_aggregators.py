@@ -268,6 +268,115 @@ class TestComputePerformanceLeverage:
                 assert val >= 0, f"{key} should be non-negative; got {val}"
 
 
+# ── aggregate_hourly_heatmap (v0.9) ──
+
+class TestAggregateHourlyHeatmap:
+    """Hour-of-day × day-of-week heatmap from PT1H queue_performance output."""
+
+    def test_returns_canonical_shape(
+        self, build_report_monthly, fix_queue_performance_hourly, fix_qmap,
+    ):
+        result = build_report_monthly.aggregate_hourly_heatmap(
+            fix_queue_performance_hourly, fix_qmap, tz_offset_hours=10,
+        )
+        assert "cells" in result
+        assert "days_used" in result
+        assert isinstance(result["cells"], list)
+        assert result["days_used"] >= 1
+
+    def test_cells_have_dow_hour_offered_sl_pct(
+        self, build_report_monthly, fix_queue_performance_hourly, fix_qmap,
+    ):
+        result = build_report_monthly.aggregate_hourly_heatmap(
+            fix_queue_performance_hourly, fix_qmap, tz_offset_hours=10,
+        )
+        assert result["cells"], "fixture should produce cells with traffic"
+        for cell in result["cells"]:
+            assert 0 <= cell["dow"] <= 6
+            assert 0 <= cell["hour"] <= 23
+            assert "offered" in cell
+            assert "sl_pct" in cell
+            if cell["sl_pct"] is not None:
+                # SL can technically exceed 100% on hourly buckets when
+                # calls offered in one hour answer in the next (or v.v.) —
+                # this is a quirk of Genesys's hour-bucketed aggregates, not
+                # a bug in our aggregator. Allow ≤120% before flagging.
+                assert 0 <= cell["sl_pct"] <= 120, (
+                    f"SL out of plausible range at dow={cell['dow']} "
+                    f"hour={cell['hour']}: {cell['sl_pct']}%"
+                )
+
+    def test_tz_offset_shifts_bucket_assignment(
+        self, build_report_monthly, fix_queue_performance_hourly, fix_qmap,
+    ):
+        # Same fixture, different tz_offset_hours should distribute volume
+        # differently across (dow, hour) buckets — the bucket key depends
+        # on local hour, not UTC hour.
+        result_utc = build_report_monthly.aggregate_hourly_heatmap(
+            fix_queue_performance_hourly, fix_qmap, tz_offset_hours=0,
+        )
+        result_aest = build_report_monthly.aggregate_hourly_heatmap(
+            fix_queue_performance_hourly, fix_qmap, tz_offset_hours=10,
+        )
+        utc_keys = {(c["dow"], c["hour"]) for c in result_utc["cells"]}
+        aest_keys = {(c["dow"], c["hour"]) for c in result_aest["cells"]}
+        # The key sets should differ if any UTC hour crosses a +10 boundary
+        # (always true for a full week of data spanning the day boundary).
+        assert utc_keys != aest_keys, (
+            "tz_offset_hours should change bucket distribution"
+        )
+
+
+# ── aggregate_agent_voice_sparklines (v0.9) ──
+
+class TestAggregateAgentVoiceSparklines:
+    """Per-agent daily voice AHT trajectory from P1D agent_performance output."""
+
+    def test_returns_dict_keyed_by_user_id(
+        self, build_report_monthly, fix_agent_performance_daily,
+    ):
+        result = build_report_monthly.aggregate_agent_voice_sparklines(
+            fix_agent_performance_daily,
+        )
+        assert isinstance(result, dict)
+        # Some agents will be in the fixture; not all need daily voice data
+        if result:
+            for uid, series in result.items():
+                assert isinstance(series, list)
+                for day in series:
+                    assert "date" in day
+                    assert "voice_aht_s" in day
+                    assert "voice_answered" in day
+
+    def test_series_sorted_by_date(
+        self, build_report_monthly, fix_agent_performance_daily,
+    ):
+        result = build_report_monthly.aggregate_agent_voice_sparklines(
+            fix_agent_performance_daily,
+        )
+        for uid, series in result.items():
+            dates = [d["date"] for d in series]
+            assert dates == sorted(dates), (
+                f"sparkline data for {uid} not sorted by date"
+            )
+
+    def test_aht_only_populated_when_answered(
+        self, build_report_monthly, fix_agent_performance_daily,
+    ):
+        # Days with 0 answered should have voice_aht_s = None (gap),
+        # not a divide-by-zero crash.
+        result = build_report_monthly.aggregate_agent_voice_sparklines(
+            fix_agent_performance_daily,
+        )
+        for uid, series in result.items():
+            for day in series:
+                if day["voice_answered"] == 0:
+                    assert day["voice_aht_s"] is None, (
+                        f"zero-answered day for {uid} on {day['date']} should "
+                        f"have voice_aht_s=None"
+                    )
+
+
 # ── aggregate_staffing ──
 
 class TestAggregateStaffing:

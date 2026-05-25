@@ -97,6 +97,36 @@ class TestRenderWorkforceTable:
         html = build_report_monthly.render_workforce_table([self._sample_row()])
         assert "Anthony Kha" in html
 
+    def test_sparkline_renders_when_provided(self, build_report_monthly):
+        # v0.9: passing sparklines for an agent should inject an inline SVG
+        # next to their voice AHT cell.
+        row = self._sample_row()
+        row["user_id"] = "anthony-uid"
+        sparklines = {
+            "anthony-uid": [
+                {"date": "2026-05-17", "voice_aht_s": 340, "voice_answered": 15},
+                {"date": "2026-05-18", "voice_aht_s": 330, "voice_answered": 18},
+                {"date": "2026-05-19", "voice_aht_s": 320, "voice_answered": 22},
+                {"date": "2026-05-20", "voice_aht_s": 310, "voice_answered": 17},
+            ],
+        }
+        html = build_report_monthly.render_workforce_table([row], sparklines=sparklines)
+        soup = BeautifulSoup(html, "html.parser")
+        polylines = soup.find_all("polyline")
+        assert polylines, "expected at least one sparkline polyline in the workforce table"
+
+    def test_sparkline_omitted_when_not_provided(self, build_report_monthly):
+        # No sparklines arg → v0.6-era behaviour (no inline SVG trend).
+        # Backwards-compatible default.
+        row = self._sample_row()
+        row["user_id"] = "anthony-uid"
+        html = build_report_monthly.render_workforce_table([row])
+        soup = BeautifulSoup(html, "html.parser")
+        # No SVGs anywhere
+        assert not soup.find_all("polyline"), (
+            "default render shouldn't include sparkline SVG"
+        )
+
 
 # ── render_brand_table ──
 
@@ -185,6 +215,108 @@ class TestRenderDailySLChart:
         # The "80% target" label on the line — sentinel for the threshold
         # being unchanged. Update only when target shifts deliberately.
         assert "80%" in html
+
+
+# ── Hour-of-day heatmap (v0.9) ──
+
+class TestRenderHourlyHeatmap:
+    def _sample_heatmap(self) -> dict:
+        # Mon 10am quiet, Tue 10am hot, weekend understaffed
+        cells = []
+        for dow in range(7):
+            for hour in (8, 9, 10, 11, 12, 13, 14):
+                if dow == 0 and hour == 10:
+                    cells.append({"dow": dow, "hour": hour, "offered": 35,
+                                  "answered": 4, "over_sla": 30, "sl_pct": 11.4})
+                elif dow == 1 and hour == 14:
+                    cells.append({"dow": dow, "hour": hour, "offered": 37,
+                                  "answered": 15, "over_sla": 20, "sl_pct": 40.5})
+                elif dow >= 5:
+                    cells.append({"dow": dow, "hour": hour, "offered": 25,
+                                  "answered": 5, "over_sla": 20, "sl_pct": 20.0})
+                else:
+                    cells.append({"dow": dow, "hour": hour, "offered": 20,
+                                  "answered": 16, "over_sla": 4, "sl_pct": 80.0})
+        return {"cells": cells, "days_used": 7}
+
+    def test_renders_svg_with_correct_dow_count(self, build_report_monthly):
+        html = build_report_monthly.render_hourly_heatmap(self._sample_heatmap())
+        soup = BeautifulSoup(html, "html.parser")
+        svg = soup.find("svg")
+        assert svg is not None, "heatmap should render an inline SVG"
+        # 7 DOW row labels (one text per day)
+        texts = [t.get_text() for t in svg.find_all("text")]
+        for dow_label in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"):
+            assert dow_label in texts, f"missing DOW label {dow_label}"
+
+    def test_empty_heatmap_returns_placeholder(self, build_report_monthly):
+        html = build_report_monthly.render_hourly_heatmap(
+            {"cells": [], "days_used": 0},
+        )
+        assert "No hourly data" in html
+
+    def test_legend_text_present(self, build_report_monthly):
+        # The legend explains the green/amber/red colour bands. Pin it so
+        # someone tweaking the colour scale also updates the explanation.
+        html = build_report_monthly.render_hourly_heatmap(self._sample_heatmap())
+        assert "Green" in html or "green" in html
+        assert "red" in html.lower()
+
+    def test_high_volume_cells_show_count(self, build_report_monthly):
+        # Cells with ≥10 offered should overlay the count in the SVG
+        html = build_report_monthly.render_hourly_heatmap(self._sample_heatmap())
+        assert ">35<" in html  # Mon 10am cell with 35 offered
+        assert ">37<" in html  # Tue 2pm with 37 offered
+
+
+# ── Sparklines (v0.9) ──
+
+class TestRenderVoiceAhtSparkline:
+    def test_renders_svg(self, build_report_monthly):
+        daily = [
+            {"date": "2026-05-17", "voice_aht_s": 320.0, "voice_answered": 15},
+            {"date": "2026-05-18", "voice_aht_s": 310.0, "voice_answered": 18},
+            {"date": "2026-05-19", "voice_aht_s": 290.0, "voice_answered": 22},
+            {"date": "2026-05-20", "voice_aht_s": 270.0, "voice_answered": 17},
+        ]
+        html = build_report_monthly.render_voice_aht_sparkline(daily, target_s=285)
+        soup = BeautifulSoup(html, "html.parser")
+        assert soup.find("svg") is not None
+        assert soup.find("polyline") is not None, "sparkline should have a polyline"
+        # Target line should be dashed
+        lines = soup.find_all("line")
+        assert any("dasharray" in (l.get("stroke-dasharray", "") or l.get("style", ""))
+                   for l in lines) or any(
+            "stroke-dasharray" in str(l) for l in lines
+        )
+
+    def test_short_series_returns_dash(self, build_report_monthly):
+        # 0 or 1 days isn't a trend — render a placeholder dash
+        html = build_report_monthly.render_voice_aht_sparkline([], target_s=285)
+        assert "—" in html
+        html = build_report_monthly.render_voice_aht_sparkline(
+            [{"date": "2026-05-17", "voice_aht_s": 300.0, "voice_answered": 10}],
+            target_s=285,
+        )
+        assert "—" in html
+
+    def test_gap_days_break_polyline(self, build_report_monthly):
+        # A None voice_aht_s in the middle of a series should break the line
+        # into two polylines (not draw across the gap).
+        daily = [
+            {"date": "2026-05-17", "voice_aht_s": 300.0, "voice_answered": 15},
+            {"date": "2026-05-18", "voice_aht_s": 310.0, "voice_answered": 18},
+            {"date": "2026-05-19", "voice_aht_s": None,   "voice_answered": 0},
+            {"date": "2026-05-20", "voice_aht_s": 290.0, "voice_answered": 17},
+            {"date": "2026-05-21", "voice_aht_s": 280.0, "voice_answered": 20},
+        ]
+        html = build_report_monthly.render_voice_aht_sparkline(daily, target_s=285)
+        soup = BeautifulSoup(html, "html.parser")
+        polylines = soup.find_all("polyline")
+        # Expect 2 segments: 17-18 and 20-21
+        assert len(polylines) == 2, (
+            f"expected 2 polyline segments for series with gap; got {len(polylines)}"
+        )
 
 
 # ── Narrative synthesis (v0.7) ──

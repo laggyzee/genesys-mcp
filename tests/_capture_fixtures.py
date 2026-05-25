@@ -146,10 +146,22 @@ def main() -> int:
             "interval": args.interval,
             "granularity": "P1D",
         })
+        # v0.9: hourly granularity drives the hour-of-day heatmap
+        await _capture("queue_performance_hourly.json", "queue_performance", {
+            "queue_ids": queue_ids,
+            "interval": args.interval,
+            "granularity": "PT1H",
+        })
         await _capture("agent_performance.json", "agent_performance", {
             "user_ids": user_ids,
             "interval": args.interval,
             "granularity": "P1M",
+        })
+        # v0.9: daily granularity drives the per-agent voice-AHT sparklines
+        await _capture("agent_performance_daily.json", "agent_performance", {
+            "user_ids": user_ids,
+            "interval": args.interval,
+            "granularity": "P1D",
         })
         await _capture("break_overrun_report.json", "break_overrun_report", {
             "user_ids": user_ids,

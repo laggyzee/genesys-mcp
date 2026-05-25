@@ -1,5 +1,95 @@
 # Release Notes
 
+## v0.9.0 — 25 May 2026
+
+The **visual upgrade + close the v0.5 promise** release. Three deliverables: an intra-day heatmap + per-agent sparklines that answer questions the prior reports couldn't, the long-deferred routing aggregate mode (promised in v0.5, deferred through v0.6, v0.7, v0.8 — finally shipped), and LLM narrative synthesis extended to `cc-daily-brief` + `cc-coaching-prep`. Plus an explicit "what we keep deferring and why" section in the plan so the backlog doesn't grow in silence.
+
+### New visualisation — hour-of-day × day-of-week heatmap
+
+[`skills/cc-monthly-report/build_report.py`](skills/cc-monthly-report/build_report.py) — new `aggregate_hourly_heatmap` aggregator + `render_hourly_heatmap` SVG renderer.
+
+The gap: every report answered *"how did we do, total?"* and *"how did we do, daily?"* but not *"when in the day were we understaffed?"*. CC supervisors ask the intra-day question constantly.
+
+v0.9: a 7×N inline-SVG heatmap (rows = Mon-Sun, columns = hours-of-day, cell colour = voice SL%, cell label = offered volume). Reveals patterns instantly that the daily line chart averages away.
+
+Verified on a 7-day window of live tenant data: surfaces Mon 10am SL 11%, Tue 2pm SL 41%, weekend understaffing — all invisible in the daily SL trend chart. Pure SVG, no JS, print-friendly. Tenant timezone resolved via `zoneinfo.ZoneInfo(cfg.tenant.timezone)` so the bucketing is in local time, not UTC.
+
+Powered by a new `queue_performance.json` pull at `granularity=PT1H` — added to the cc-monthly-report Step 3 parallel batch.
+
+### New visualisation — per-agent voice-AHT sparklines
+
+[`skills/cc-monthly-report/build_report.py`](skills/cc-monthly-report/build_report.py) — new `aggregate_agent_voice_sparklines` + `render_voice_aht_sparkline` (~70×20px inline SVG).
+
+The gap: the workforce table shows headline voice AHT (e.g. "330s") but not *direction of travel*. *"330s and trending down"* and *"330s but actually worsening"* are very different signals; the prior table couldn't tell them apart.
+
+v0.9: a tiny SVG trend line next to each agent's voice AHT cell. Green polyline = improving (final < first), amber = worsening. Dashed horizontal line at the voice-AHT target so the relation-to-target is read at a glance. Gaps in days-without-voice break the line cleanly (no false trend across off days).
+
+Powered by a new `agent_performance.json` pull at `granularity=P1D` — also added to Step 3's parallel batch.
+
+### Long-deferred — `routing_diagnostic_aggregate` mode (the v0.5 promise)
+
+[`src/genesys_mcp/tools/routing.py`](src/genesys_mcp/tools/routing.py) — new tool alongside the existing per-call `routing_diagnostic`.
+
+Promised in v0.5 release notes. Deferred through v0.6 ("re-evaluate post-v0.7"). Deferred through v0.7 ("re-evaluate post-v0.8"). Deferred through v0.8 ("partial overlap with cc-daily-brief"). Four deferrals is one too many — v0.9 ships it.
+
+```
+routing_diagnostic_aggregate(
+    queue_id="...", interval="2026-05-17/2026-05-24",
+    outcome_filter="abandoned", bucket_size="15min",
+)
+```
+
+Returns: counts per failure mode (`no_eligible_agents` / `all_eligible_busy` / `abandoned_in_ivr`), top-5 worst time-buckets, affected skills, and 10 sample conversation ids for drill-down via the per-call mode.
+
+Verified against a live tenant's general inbound queue over a 7-day window: surfaced 147 abandons, all classified as `no_eligible_agents` — matches v0.7's manual finding that the tenant's issue is staffing levels, not skill routing. Worst hours bunched on Mon 18:00 and Wed 18:00 local time (the evening-rush staffing dip).
+
+**Sharp edge worth knowing about**: `flaggedReason` on customer sessions is empty in many tenants. The classifier uses *absence of an agent-purpose interact segment* as the abandon detector instead — reconciles cleanly against `nOffered - nAnswered` counts from queue_performance.
+
+Pairs with the v0.7 cc-daily-brief "worst routes" section: daily-brief surfaces *which* queues failed; aggregate mode surfaces *why*.
+
+### LLM narrative synthesis — extended to `cc-daily-brief` + `cc-coaching-prep`
+
+v0.7 shipped narrative synthesis for `cc-monthly-report` only. v0.9 extends the pattern, with skill-specific section shapes:
+
+- **`cc-daily-brief`** — 2 sections: *Headline* (1 paragraph) + *Today's priorities* (3 bullets). Daily briefs are meant to be glanced at; the 4-section monthly shape would be overkill. Renders as a single combined "Daily summary" panel at the top of the brief.
+- **`cc-coaching-prep`** — 3 sections: *Strengths to acknowledge* + *Areas to coach* + *Suggested talking points*. Renders as a new section 6 ("Coaching narrative") after the Recommended Focus section. **The v0.5-era talking points were chat-only; v0.9 makes them part of the HTML brief** — so they survive between runs and the TL can re-read them before the 1:1 instead of scrolling chat history.
+
+Each skill gets the same `--with-narrative <md-file>` flag pattern as the v0.7 monthly implementation. The `_md_inline` / `_md_section_body_to_html` / `parse_narrative_md` helpers are duplicated across the three skills (~50 lines × 3) rather than extracted to a shared module — three copies of stable code is cheaper than a shared-package abstraction at this scale. Revisit if it grows.
+
+### Step 3 expanded to 7 parallel pulls
+
+[`skills/cc-monthly-report/SKILL.md`](skills/cc-monthly-report/SKILL.md) Step 3 now lists 7 tool calls instead of 5: the existing 5 plus `queue_performance(granularity=PT1H)` and `agent_performance(granularity=P1D)` for the new visualisations. Same strict parallel-batching requirement as v0.8 — single message, multiple tool blocks.
+
+### Tests: 137 → 152
+
+[`tests/`](tests/) gains coverage for the two new aggregators (`aggregate_hourly_heatmap`, `aggregate_agent_voice_sparklines`), the two new renderers (`render_hourly_heatmap`, `render_voice_aht_sparkline`), and the workforce-table sparkline integration. Real-data edge case captured: hourly SL can exceed 100% when calls offered in one bucket answer in the next (Genesys quirk, not our bug — test assertion now allows ≤120%).
+
+### Migration notes
+
+- **Existing tenant configs**: unchanged. No new schema fields.
+- **`pyproject.toml`** bumped from 0.8.0 to 0.9.0.
+- **Tool count**: 40 → 41 (`routing_diagnostic_aggregate`).
+- **Skill count**: 5 (unchanged — the new narrative-synthesis support extends existing skills).
+- **`tests/fixtures/`** gained `queue_performance_hourly.json` (2.1 MB) and `agent_performance_daily.json` (147 KB). Re-capture via `tests/_capture_fixtures.py` against a live tenant to refresh.
+
+### What we explicitly removed from the backlog (honest accounting)
+
+| Item | Status |
+|---|---|
+| **Outbound campaign coverage** | **Removed from active backlog** after 4 deferrals. Re-add if/when an outbound-shop user opens an issue. The MCP author's tenant is inbound-heavy and can't self-smoke-test outbound features; deferring further is more honest than pretending it's next. |
+| **CI/CD on GitHub Actions** | Still deferred, but with an explicit trigger now: *"when the first external PR lands"*. Until then, local `make test` is enough. |
+| **Mobile / PDF polish** | Quietly dropped unless someone reports it. Real ask hasn't materialised. |
+
+The reverse — what's getting added to the backlog going forward — is **distribution / discoverability**. The MCP doesn't lack features; it lacks visibility. v0.10 should probably be "GitHub Pages site with anonymised sample reports" rather than another feature.
+
+### Known limitations / out-of-scope
+
+- **`routing_diagnostic_aggregate` failure-mode classifier** is heuristic and doesn't yet cross-ref against WFM. `no_eligible_agents` might mean *"nobody scheduled"* or *"everyone scheduled was logged out"*. v0.10 candidate.
+- **`affected_skills`** in the aggregate mode requires `activeSkillIds` to be populated on the session — empty for tenants where skill routing isn't the bottleneck.
+- **Heatmap timezone** uses `zoneinfo` if the IANA name resolves; falls back to UTC otherwise. Tenants with custom `cfg.tenant.timezone` strings that aren't IANA-resolvable will see UTC-bucketed heatmaps.
+
+---
+
 ## v0.8.0 — 25 May 2026
 
 The **confidence in correctness** release. Numbers have been verified by hand-spot-check against the Genesys UI since v0.2; v0.8 finally captures that correctness in an automated test suite so future refactors can't silently break it. Plus a release-time reconciliation skill, clickable conversation deep-links, and a faster monthly-report fetch.

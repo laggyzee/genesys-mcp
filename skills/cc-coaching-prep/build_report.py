@@ -477,7 +477,130 @@ def _date_short(s):
         return s[:10]
 
 
-def render_html(pack: dict, period: str, cfg: TenantConfig) -> str:
+# ── Narrative synthesis (v0.9) ──
+# Three sections specific to coaching: Strengths, Areas to coach,
+# Suggested talking points. The v0.5 SKILL.md emitted "talking points"
+# in chat only; v0.9 makes them part of the HTML brief so they survive
+# between runs.
+
+_NARRATIVE_SECTIONS = (
+    ("Strengths to acknowledge", "strengths",
+     "What's going well — open the coaching with these."),
+    ("Areas to coach", "areas",
+     "Specific gaps to address, evidence-grounded (numbers from the data)."),
+    ("Suggested talking points", "talking-points",
+     "5-7 bullets the TL can use to open the conversation."),
+)
+
+
+def _md_inline(text: str) -> str:
+    """Minimal inline markdown: **bold**, *italic*, `code`, [link](url).
+
+    Duplicated from cc-monthly-report — 50 lines isn't worth a shared module.
+    """
+    import re
+    out = escape(text)
+    out = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", out)
+    out = re.sub(r"\*(.+?)\*", r"<em>\1</em>", out)
+    out = re.sub(r"`([^`]+)`", r"<code>\1</code>", out)
+    out = re.sub(
+        r"\[([^\]]+)\]\(([^)]+)\)",
+        lambda m: f'<a href="{escape(m.group(2))}">{m.group(1)}</a>',
+        out,
+    )
+    return out
+
+
+def _md_section_body_to_html(body: str) -> str:
+    lines = body.strip().split("\n")
+    out_blocks: list[str] = []
+    para: list[str] = []
+    bullets: list[str] = []
+
+    def _flush_para():
+        if para:
+            text = " ".join(para).strip()
+            if text:
+                out_blocks.append(f"<p>{_md_inline(text)}</p>")
+            para.clear()
+
+    def _flush_bullets():
+        if bullets:
+            items = "".join(f"<li>{_md_inline(b)}</li>" for b in bullets)
+            out_blocks.append(f"<ul>{items}</ul>")
+            bullets.clear()
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            _flush_para()
+            _flush_bullets()
+            continue
+        if stripped.startswith("- "):
+            _flush_para()
+            bullets.append(stripped[2:])
+        else:
+            _flush_bullets()
+            para.append(stripped)
+    _flush_para()
+    _flush_bullets()
+    return "\n".join(out_blocks)
+
+
+def parse_narrative_md(path: Path) -> dict[str, str]:
+    """Parse a narrative markdown file by `## Heading` boundaries."""
+    text = path.read_text()
+    expected = {title.lower(): slug for title, slug, _desc in _NARRATIVE_SECTIONS}
+    sections: dict[str, str] = {}
+    current_slug: str | None = None
+    current_lines: list[str] = []
+
+    def _close():
+        if current_slug and current_lines:
+            sections[current_slug] = _md_section_body_to_html("\n".join(current_lines))
+
+    for line in text.splitlines():
+        if line.startswith("## "):
+            _close()
+            heading = line[3:].strip()
+            current_slug = expected.get(heading.lower())
+            current_lines = []
+        else:
+            if current_slug is not None:
+                current_lines.append(line)
+    _close()
+    return sections
+
+
+def render_narrative_block(narrative: dict[str, str] | None) -> str:
+    """Render the 3-section narrative block for the coaching brief.
+
+    Renders as a single combined `<section class="narrative">` placed BEFORE
+    the Recommended Focus section (after the data-grounded sections). The
+    talking points become embedded in the HTML rather than being chat-only.
+    """
+    if not narrative:
+        return ""
+    parts: list[str] = []
+    for title, slug, _desc in _NARRATIVE_SECTIONS:
+        body_html = narrative.get(slug)
+        if not body_html:
+            continue
+        parts.append(f'<h3 style="margin-top:16px;">{escape(title)}</h3>{body_html}')
+    if not parts:
+        return ""
+    return (
+        '<section id="coaching-narrative" class="narrative" '
+        'style="border-left:3px solid var(--accent);'
+        'background:linear-gradient(to right, var(--accent-soft) 0%, var(--bg) 6%);">'
+        '<h2>6. Coaching narrative</h2>'
+        f'{"".join(parts)}'
+        '</section>'
+    )
+
+
+def render_html(pack: dict, period: str, cfg: TenantConfig,
+                narrative: dict[str, str] | None = None) -> str:
     body = (
         render_header(pack, period, cfg)
         + render_toc()
@@ -486,6 +609,7 @@ def render_html(pack: dict, period: str, cfg: TenantConfig) -> str:
         + render_wrap_section(pack)
         + render_flagged_section(pack, cfg)
         + render_focus_section(pack)
+        + render_narrative_block(narrative)
         + (
             f'<footer>Generated {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")} · '
             f"genesys-mcp cc-coaching-prep · "
@@ -508,11 +632,23 @@ def main() -> int:
     p.add_argument("--period-slug", required=True, help="Period slug for filename, e.g. 'april-2026'")
     p.add_argument("--output", default=None,
                    help="Output HTML path (defaults to cfg.coaching_output_path).")
+    p.add_argument("--with-narrative",
+                   help="(v0.9) Path to a markdown file with 3 narrative sections "
+                        "('## Strengths to acknowledge', '## Areas to coach', "
+                        "'## Suggested talking points'). Each body renders via the "
+                        "minimal markdown subset and slots in as section 6 of the "
+                        "brief, after Recommended Focus. Optional; omitting it "
+                        "produces the v0.5-era data-only brief (talking points "
+                        "stay chat-only).")
     args = p.parse_args()
 
     cfg = load_config()
     pack = json.loads(Path(args.coaching_pack).read_text())
-    html = render_html(pack, args.period, cfg)
+    narrative = (
+        parse_narrative_md(Path(args.with_narrative).expanduser())
+        if args.with_narrative else None
+    )
+    html = render_html(pack, args.period, cfg, narrative=narrative)
 
     out_path = (
         Path(args.output).expanduser() if args.output

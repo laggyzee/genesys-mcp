@@ -93,6 +93,16 @@ def fix_queue_performance_daily() -> dict:
 
 
 @pytest.fixture(scope="session")
+def fix_queue_performance_hourly() -> dict:
+    return _load_fixture("queue_performance_hourly.json")
+
+
+@pytest.fixture(scope="session")
+def fix_agent_performance_daily() -> dict:
+    return _load_fixture("agent_performance_daily.json")
+
+
+@pytest.fixture(scope="session")
 def fix_agent_performance() -> dict:
     return _load_fixture("agent_performance.json")
 
