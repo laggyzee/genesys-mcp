@@ -118,11 +118,28 @@ def _aggregates_for_users(
     for r in resp.get("results") or []:
         uid = r["group"].get("userId")
         media = r["group"].get("mediaType", "?")
+        # P7D granularity over a multi-week interval yields several buckets per
+        # (uid, media). Accumulate count/sum across all of them; min/max combine
+        # via min()/max(). Picking a single bucket would truncate to ~1/N of the
+        # real volume.
+        accum: dict[str, dict[str, float]] = {}
         for bucket in r.get("data") or []:
-            stats_by_metric = {
-                m["metric"]: m.get("stats", {}) for m in bucket.get("metrics") or []
-            }
-            out[uid][media] = stats_by_metric
+            for m in bucket.get("metrics") or []:
+                metric = m["metric"]
+                stats = m.get("stats") or {}
+                slot = accum.setdefault(metric, {})
+                for k in ("count", "sum"):
+                    if k in stats and stats[k] is not None:
+                        slot[k] = slot.get(k, 0) + stats[k]
+                if stats.get("min") is not None:
+                    slot["min"] = (
+                        min(slot["min"], stats["min"]) if "min" in slot else stats["min"]
+                    )
+                if stats.get("max") is not None:
+                    slot["max"] = (
+                        max(slot["max"], stats["max"]) if "max" in slot else stats["max"]
+                    )
+        out[uid][media] = accum
     return out
 
 
