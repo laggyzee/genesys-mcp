@@ -1,5 +1,39 @@
 # Release Notes
 
+## v0.9.1 — 26 May 2026
+
+Two bug fixes caught while running a full report stack against a live tenant over a 24-day window.
+
+### `agent_coaching_pack` was undercounting Section 1 by ~Nx for any multi-bucket interval
+
+[`src/genesys_mcp/tools/coaching.py`](src/genesys_mcp/tools/coaching.py) — `_aggregates_for_users` queries with `granularity="P7D"`. A 24-day interval returns ~4 buckets per (userId, mediaType). The reduction loop was overwriting per-bucket stats instead of accumulating them, so only the last bucket's counts and sums survived — Section 1 of the coaching brief showed roughly 1/N of the true volume.
+
+Empirical: a top-volume specialist over a 24-day window read voice=45, message=125, total handle 35h. After the fix: voice=395, message=1033, total handle 309h — matches the monthly report's headline answered count exactly and lines up with the per-conversation walk total in Section 3.
+
+Fix accumulates `count` and `sum` across buckets; `min` / `max` combine via `min()` / `max()`. Pinned by two new regression tests in [`tests/test_analytics_filters.py`](tests/test_analytics_filters.py) (`TestAggregatesForUsersAccumulation`).
+
+### `mcp-reconcile` was emitting 0 agent rows
+
+[`skills/mcp-reconcile/build_checklist.py`](skills/mcp-reconcile/build_checklist.py) — `_agent_voice_rows` expected a `derived` block on the `agent_performance` result, but that tool only produces raw metric stats (no derived layer; the derived block lives on `queue_performance`). Reading from the wrong shape filtered every row out.
+
+Fix reads `tAnswered.count` and `tHandle.sum` directly from the raw metrics. The reconcile checklist now populates the per-agent voice section as intended.
+
+### Tests
+
+- 152 → 154 tests (+2 for the accumulation regression).
+- No fixture refresh required — the fixes are pure reduction-logic changes; aggregator outputs are unchanged where the prior code happened to land on a single bucket.
+
+### Upgrade
+
+```bash
+cd ~/code/genesys-mcp && git pull && uv sync
+make test                  # 154 tests should pass
+```
+
+No SKILL.md or report-shape changes — running cc-coaching-prep or mcp-reconcile after upgrade produces correct numbers without re-capturing fixtures or changing inputs.
+
+---
+
 ## v0.9.0 — 25 May 2026
 
 The **visual upgrade + close the v0.5 promise** release. Three deliverables: an intra-day heatmap + per-agent sparklines that answer questions the prior reports couldn't, the long-deferred routing aggregate mode (promised in v0.5, deferred through v0.6, v0.7, v0.8 — finally shipped), and LLM narrative synthesis extended to `cc-daily-brief` + `cc-coaching-prep`. Plus an explicit "what we keep deferring and why" section in the plan so the backlog doesn't grow in silence.

@@ -238,3 +238,100 @@ class TestAgentCoachingPackFilter:
                 if c.get("predicates")}
         assert "userId" in dims
         assert "mediaType" in dims
+
+
+class TestAggregatesForUsersAccumulation:
+    """Pin the multi-bucket accumulation in _aggregates_for_users.
+
+    The coaching pack queries with granularity=P7D, so a 24-day interval
+    returns ~4 buckets per (userId, mediaType). A pre-v0.9.1 bug overwrote
+    instead of accumulating — Section 1 KPIs read ~1/N of the true volume.
+    This test pins the fix: per-bucket counts and sums must accumulate.
+    """
+
+    def test_multi_bucket_counts_and_sums_accumulate(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ):
+        import PureCloudPlatformClientV2 as gc
+        from genesys_mcp import client as gen_client
+        from genesys_mcp.tools.coaching import _aggregates_for_users
+
+        # Synthetic response: 4 P7D buckets for one user × voice media.
+        # tAnswered.count totals: 100 + 100 + 100 + 95 = 395 (Jasmine's
+        # real voice answered for the 1-24 May 2026 interval).
+        # tHandle.sum totals: 4 × 32_700_000 ms ≈ 36.3 hours.
+        fake_response = {
+            "results": [{
+                "group": {"userId": "u1", "mediaType": "voice"},
+                "data": [
+                    {"metrics": [
+                        {"metric": "tAnswered", "stats": {"count": 100}},
+                        {"metric": "tHandle", "stats": {"count": 100, "sum": 32_700_000}},
+                    ]},
+                    {"metrics": [
+                        {"metric": "tAnswered", "stats": {"count": 100}},
+                        {"metric": "tHandle", "stats": {"count": 100, "sum": 32_700_000}},
+                    ]},
+                    {"metrics": [
+                        {"metric": "tAnswered", "stats": {"count": 100}},
+                        {"metric": "tHandle", "stats": {"count": 100, "sum": 32_700_000}},
+                    ]},
+                    {"metrics": [
+                        {"metric": "tAnswered", "stats": {"count": 95}},
+                        {"metric": "tHandle", "stats": {"count": 95, "sum": 32_700_000}},
+                    ]},
+                ],
+            }],
+        }
+
+        def fake_aggregates(self, body, **kwargs):
+            return fake_response
+
+        monkeypatch.setattr(
+            gc.AnalyticsApi,
+            "post_analytics_conversations_aggregates_query",
+            fake_aggregates,
+        )
+        monkeypatch.setattr(gen_client, "_api_client", gc.ApiClient())
+
+        stats = _aggregates_for_users(["u1"], "2026-04-30T14:00:00.000Z/2026-05-24T14:00:00.000Z")
+
+        # Critical assertion: counts SUM across buckets, not overwrite.
+        # Pre-fix this returned 95 (last bucket only).
+        assert stats["u1"]["voice"]["tAnswered"]["count"] == 395
+        assert stats["u1"]["voice"]["tHandle"]["count"] == 395
+        assert stats["u1"]["voice"]["tHandle"]["sum"] == 4 * 32_700_000
+
+    def test_min_max_combine_across_buckets(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ):
+        import PureCloudPlatformClientV2 as gc
+        from genesys_mcp import client as gen_client
+        from genesys_mcp.tools.coaching import _aggregates_for_users
+
+        fake_response = {
+            "results": [{
+                "group": {"userId": "u1", "mediaType": "voice"},
+                "data": [
+                    {"metrics": [{"metric": "tHandle", "stats": {
+                        "count": 10, "sum": 100, "min": 5.0, "max": 50.0,
+                    }}]},
+                    {"metrics": [{"metric": "tHandle", "stats": {
+                        "count": 10, "sum": 100, "min": 2.0, "max": 75.0,
+                    }}]},
+                ],
+            }],
+        }
+        monkeypatch.setattr(
+            gc.AnalyticsApi,
+            "post_analytics_conversations_aggregates_query",
+            lambda self, body, **kw: fake_response,
+        )
+        monkeypatch.setattr(gen_client, "_api_client", gc.ApiClient())
+
+        stats = _aggregates_for_users(["u1"], "2026-05-01/2026-05-24")
+        slot = stats["u1"]["voice"]["tHandle"]
+        assert slot["min"] == 2.0
+        assert slot["max"] == 75.0
+        assert slot["count"] == 20
+        assert slot["sum"] == 200

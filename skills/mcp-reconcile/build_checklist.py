@@ -70,9 +70,12 @@ def _queue_rows(qp: dict, qmap: dict) -> list[dict]:
 
 
 def _agent_voice_rows(ap: dict, user_roles: dict) -> list[dict]:
-    """Per-user voice AHT + answered. Filter to specialists (the reconciliation focus)."""
+    """Per-user voice AHT + answered. Filter to specialists (the reconciliation focus).
+
+    agent_performance returns raw metrics (no derived block). Read tAnswered.count
+    for the answered total and compute AHT from tHandle.sum / tHandle.count (ms).
+    """
     out: list[dict] = []
-    # ap shape: {results: [{group: {userId, mediaType}, data: [{derived: {...}}]}]}
     per_user: dict[str, dict] = {}
     for r in ap.get("results") or []:
         grp = r.get("group") or {}
@@ -80,13 +83,18 @@ def _agent_voice_rows(ap: dict, user_roles: dict) -> list[dict]:
         media = grp.get("mediaType")
         if not uid or media != "voice":
             continue
-        derived = (r.get("data") or [{}])[0].get("derived") or {}
+        bucket = (r.get("data") or [{}])[0]
+        metrics = {m["metric"]: (m.get("stats") or {}) for m in (bucket.get("metrics") or [])}
+        answered = int(metrics.get("tAnswered", {}).get("count", 0) or 0)
+        handle_count = int(metrics.get("tHandle", {}).get("count", 0) or 0)
+        handle_sum_ms = float(metrics.get("tHandle", {}).get("sum", 0) or 0)
+        voice_aht_s = (handle_sum_ms / 1000.0 / handle_count) if handle_count else None
         per_user[uid] = {
             "user_id": uid,
             "name": user_roles.get(uid, ["?", "?"])[0],
             "role": user_roles.get(uid, ["?", "?"])[1],
-            "voice_answered": int(derived.get("answered") or 0),
-            "voice_aht_s": derived.get("avg_handle_s"),
+            "voice_answered": answered,
+            "voice_aht_s": voice_aht_s,
         }
     return sorted(
         [r for r in per_user.values() if r["voice_answered"] >= 5],
