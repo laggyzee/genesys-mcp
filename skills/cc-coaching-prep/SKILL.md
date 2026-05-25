@@ -104,7 +104,56 @@ cd ~/code/genesys-mcp/skills/cc-coaching-prep
 
 The script reads `cfg.coaching_output_path(agent_slug, period_slug)` to resolve the output path — typically `~/Documents/coaching-<agent>-<period>.html`.
 
-### Step 6 — Report
+### Step 6 — Synthesise the coaching narrative (v0.9+)
+
+Open the freshly-generated HTML and skim the data sections — performance vs targets, peer comparison, sentiment + QA, wrap-up discipline, top flagged calls, recommended focus. Use those numbers (not your prior assumptions) to draft a **3-section coaching narrative** for the TL. The format is deliberately conversational because a coaching brief is read before a 1:1, not stared at on a screen:
+
+```markdown
+## Strengths to acknowledge
+
+Open the coaching with what's going well. 2-4 bullets, each grounded in a specific number from the data:
+
+- **What** — *brief evidence*
+- **What** — *brief evidence*
+
+Even for struggling agents there's almost always something to lead with. Find it.
+
+## Areas to coach
+
+2-3 specific gaps, each grounded in a number:
+
+- **What** — *brief evidence with the number*
+- **What** — *brief evidence*
+
+Don't list every flag — pick the ones with the most leverage. Match the v0.5-era "Recommended coaching focus" section if you can; expand on it here.
+
+## Suggested talking points
+
+5-7 bullets the TL can read just before walking into the 1:1. Each one should:
+
+- Reference a **specific number** from the pack (*"your AHT was 330s on 55 calls"*)
+- Be a **question, not a statement** (*"what was going on with that 12-minute call to Activation on Wed?"*)
+- Acknowledge what's going well too — never list only negatives
+
+These supplement the data sections; they don't replace them.
+```
+
+Save to `/tmp/cc-coaching-prep-{agent-slug}/narrative.md`, then re-run the build script with `--with-narrative`:
+
+```bash
+python ~/code/genesys-mcp/skills/cc-coaching-prep/build_report.py \
+  --coaching-pack /tmp/cc-coaching-prep-{agent-slug}/coaching_pack.json \
+  --agent-slug "{agent-slug}" \
+  --period "{period-label}" \
+  --period-slug "{period-slug}" \
+  --with-narrative /tmp/cc-coaching-prep-{agent-slug}/narrative.md
+```
+
+The script slots the 3-section narrative as a new section 6 ("Coaching narrative") in the HTML, after the Recommended Focus section. **The talking points now live IN the HTML** — they survive between runs and the TL can re-read them before the 1:1 instead of scrolling back through chat history.
+
+If the user explicitly says *"skip the narrative"*, omit the flag and ship the data-only brief — v0.5 behaviour, still valid.
+
+### Step 7 — Report
 
 Tell the user the output path. If `quality.scope_available` was `false` in the pack, mention that the QA section is empty because the OAuth client doesn't have `quality:readonly` (and how to grant it).
 
@@ -120,17 +169,15 @@ The skill produces a single HTML file with these sections (mirroring the visual 
 4. **Wrap-up discipline** — note rate, top dispositions handled
 5. **Top flagged calls** — table with conversation_id, started_at, media, queue, handle_s, hold_s, sentiment, flag reasons (one row per call)
 6. **Recommended coaching focus** — heuristic top-3 with concrete evidence (e.g. *"Voice AHT 330s vs target 285s (+15.8%) — 0.7 handle-hours over target this period"*)
-7. **Talking points** (synthesised by you, the LLM, from the data) — short, specific, actionable. Suggested format: 2-3 bullets per recommended-focus area, framed as questions the TL might ask.
+7. **Coaching narrative** (v0.9+, when `--with-narrative` is passed) — LLM-synthesised 3-section commentary: *Strengths to acknowledge*, *Areas to coach*, *Suggested talking points*. Embedded in the HTML so it survives between runs.
 
-## Tone for talking points
+## Tone for the coaching narrative
 
-Talking points are the LLM-synthesised section — there's no MCP tool for them. Use the structured `agent_coaching_pack` payload to write 2-3 bullets per recommended-focus area. Each bullet should:
+The narrative section (v0.9+) is the LLM-synthesised commentary on top of the data. Three things to keep in mind:
 
-- Reference a specific number from the pack ("your AHT was X seconds on N calls")
-- Be a question, not a statement ("what was going on with that 12-minute call to the activation queue on…?")
-- Acknowledge what's going well too — don't list only negatives, it makes for a worse coaching session
-
-Embed them as a `<section>` after Recommended Focus in the rendered HTML.
+- **Specific numbers, not generic praise.** *"Your QA score of 97.9% across 5 evaluations is the highest in your team this period"* not *"great work on QA"*. The TL needs ammunition for a real conversation.
+- **Questions, not statements, in the talking points.** *"What was going on with the 12-minute call to Activation on Wed?"* opens a conversation; *"You took too long on that Activation call"* closes one.
+- **Strengths first, then areas, then questions.** Coaching sessions that lead with negatives go badly. Even struggling agents have something to acknowledge — find it. (And if you genuinely can't, that's a different conversation — escalate to the manager, don't soften it into the brief.)
 
 ## Configurable behaviour
 

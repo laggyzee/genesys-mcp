@@ -118,7 +118,9 @@ Issue **all six** tool calls in a **single assistant message with parallel tool-
 ```
 queue_performance(queue_ids=QUEUE_IDS, interval=INTERVAL, granularity="P1M")        # monthly totals
 queue_performance(queue_ids=QUEUE_IDS, interval=INTERVAL, granularity="P1D")        # daily SL trend
+queue_performance(queue_ids=QUEUE_IDS, interval=INTERVAL, granularity="PT1H")       # (v0.9) hour-of-day heatmap
 agent_performance(user_ids=USER_IDS, interval=INTERVAL, granularity="P1M")
+agent_performance(user_ids=USER_IDS, interval=INTERVAL, granularity="P1D")          # (v0.9) per-agent sparklines
 break_overrun_report(user_ids=USER_IDS, interval=INTERVAL,
                      pre_break_organization_presence_id=PRE_BREAK_PRESENCE_ID,
                      pre_break_target_min=PRE_BREAK_MIN)
@@ -141,14 +143,16 @@ If any of these returns "result exceeds maximum allowed tokens" and saves to a f
 
 ```
 /tmp/cc-report-{period-slug}/queue_performance.json          # P1M result
-/tmp/cc-report-{period-slug}/queue_performance_daily.json    # P1D result
-/tmp/cc-report-{period-slug}/agent_performance.json
+/tmp/cc-report-{period-slug}/queue_performance_daily.json    # P1D result — daily SL chart
+/tmp/cc-report-{period-slug}/queue_performance_hourly.json   # (v0.9) PT1H result — hour-of-day heatmap
+/tmp/cc-report-{period-slug}/agent_performance.json          # P1M
+/tmp/cc-report-{period-slug}/agent_performance_daily.json    # (v0.9) P1D — per-agent sparklines
 /tmp/cc-report-{period-slug}/break_overrun_report.json
 /tmp/cc-report-{period-slug}/repeat_caller_deep_dive.json
 /tmp/cc-report-{period-slug}/wfm_schedule.json               # WFM scheduled vs forecast
 ```
 
-The daily SL file feeds the voice service-level chart in section 2. The wfm_schedule file feeds the demand-vs-capacity table and the synthesised "more staff vs better staff" recommendation in section 6. Either can be skipped if you don't need that section, but the report is much more useful with both.
+The hourly file feeds the new (v0.9) hour-of-day × day-of-week heatmap in section 2 — reveals intra-day staffing-shape patterns the daily line chart averages away. The daily agent-perf file powers the per-agent voice-AHT sparklines in the workforce table — distinguishes *"330s and improving"* from *"330s and worsening"*. Either can be skipped — the report falls back to the v0.7 layout for the missing visualisation.
 
 ### Step 4 — Run the build script
 

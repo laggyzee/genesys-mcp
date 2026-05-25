@@ -102,7 +102,41 @@ python ~/code/genesys-mcp/skills/cc-daily-brief/build_report.py \
 
 The script loads tenant.yaml, reads each JSON file from the data directory, computes yesterday-vs-rolling-median deltas per queue, surfaces flagged agents per `flag_thresholds`, picks worst routes by SL drop, builds the repeat-caller hotlist, and writes the HTML.
 
-### Step 4 — Confirm + brief
+### Step 4 — Synthesise narrative sections (v0.9+)
+
+Open the freshly-generated HTML and skim the data sections — headline KPIs, flagged routes, flagged agents, callbacks, adherence. Use those numbers (not your prior assumptions) to draft 2 short narrative sections that go at the top of the brief for the supervisor's morning glance:
+
+```markdown
+## Headline
+
+One paragraph (≤ 80 words). What's the headline of yesterday? Use the **rolling median** as the comparison anchor — *"Voice SL 65% (rolling 78%), driven by a Tuesday 10am drop where 3 of 4 eligible specialists were on extended interactions"*. Name the **one or two things that explain most of the variance**. Don't list every flag — that's what the data sections below are for.
+
+## Today's priorities
+
+Top 3 actions for **today**, not yesterday. Sorted by impact-per-effort. Each one bullet:
+
+- **Action — owner / effort** — *brief evidence from the data*
+- **Action — owner / effort** — *brief evidence*
+- **Action — owner / effort** — *brief evidence*
+```
+
+Save to `/tmp/cc-daily-brief-{date-slug}/narrative.md`, then re-run the build script with the `--with-narrative` flag pointing at it:
+
+```bash
+python ~/code/genesys-mcp/skills/cc-daily-brief/build_report.py \
+  --target-date "{date-slug}" \
+  --day-interval "{day-interval}" \
+  --window-interval "{window-interval}" \
+  --data-dir /tmp/cc-daily-brief-{date-slug} \
+  --output "$OUTPUT_PATH" \
+  --with-narrative /tmp/cc-daily-brief-{date-slug}/narrative.md
+```
+
+The build script parses by `## Heading`, runs each section's body through a minimal markdown subset (paragraphs, **bold**, *italic*, `code`, [links], `- bullets`), and slots the combined narrative as a single "Daily summary" section at the top of the brief, above the data sections.
+
+If the user explicitly says *"skip the narrative"* or yesterday's data is genuinely unremarkable (everything within the rolling median bands), omit the `--with-narrative` flag and ship the data-only brief — that's the v0.7-era behaviour and it's still a valid output.
+
+### Step 5 — Confirm + brief
 
 After the script succeeds, post a short summary in chat (don't paste HTML):
 

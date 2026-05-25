@@ -275,6 +275,134 @@ def adherence_flags(brk: dict, user_names: dict[str, str] | None = None,
     return rows[:top_n]
 
 
+# ── Narrative synthesis (v0.9) ──
+# Mirrors the v0.7 cc-monthly-report pattern with daily-brief-specific
+# section shape. Two sections instead of four: a short Headline paragraph
+# + a top-3 Priorities list. Daily briefs are meant to be glanced at; they
+# don't need the long-form caveats/wins/wrongs/recommendations structure.
+
+_NARRATIVE_SECTIONS = (
+    ("Headline", "headline",
+     "1 paragraph: how did we go vs yesterday + the rolling median, what stands out."),
+    ("Today's priorities", "priorities",
+     "Top 3 actions for the morning standup, sorted by impact."),
+)
+
+
+def _md_inline(text: str) -> str:
+    """Minimal inline markdown: **bold**, *italic*, `code`, [link](url).
+
+    Existing HTML is escaped first so untrusted-ish LLM output can't inject
+    markup beyond what we explicitly support. Identical to the v0.7
+    cc-monthly-report implementation — duplicated rather than shared because
+    a 50-line abstraction across three skills isn't worth a shared module yet.
+    """
+    import re
+    out = escape(text)
+    out = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", out)
+    out = re.sub(r"\*(.+?)\*", r"<em>\1</em>", out)
+    out = re.sub(r"`([^`]+)`", r"<code>\1</code>", out)
+    out = re.sub(
+        r"\[([^\]]+)\]\(([^)]+)\)",
+        lambda m: f'<a href="{escape(m.group(2))}">{m.group(1)}</a>',
+        out,
+    )
+    return out
+
+
+def _md_section_body_to_html(body: str) -> str:
+    """Block-level subset: paragraphs and `- ` bullet lists."""
+    lines = body.strip().split("\n")
+    out_blocks: list[str] = []
+    para: list[str] = []
+    bullets: list[str] = []
+
+    def _flush_para():
+        if para:
+            text = " ".join(para).strip()
+            if text:
+                out_blocks.append(f"<p>{_md_inline(text)}</p>")
+            para.clear()
+
+    def _flush_bullets():
+        if bullets:
+            items = "".join(f"<li>{_md_inline(b)}</li>" for b in bullets)
+            out_blocks.append(f"<ul>{items}</ul>")
+            bullets.clear()
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            _flush_para()
+            _flush_bullets()
+            continue
+        if stripped.startswith("- "):
+            _flush_para()
+            bullets.append(stripped[2:])
+        else:
+            _flush_bullets()
+            para.append(stripped)
+    _flush_para()
+    _flush_bullets()
+    return "\n".join(out_blocks)
+
+
+def parse_narrative_md(path: Path) -> dict[str, str]:
+    """Parse a narrative markdown file by `## Heading` boundaries.
+
+    Returns ``{heading_slug: html_body}`` for whichever expected headings
+    appear; missing sections are simply omitted (the renderer skips them).
+    """
+    text = path.read_text()
+    expected = {title.lower(): slug for title, slug, _desc in _NARRATIVE_SECTIONS}
+    sections: dict[str, str] = {}
+    current_slug: str | None = None
+    current_lines: list[str] = []
+
+    def _close():
+        if current_slug and current_lines:
+            sections[current_slug] = _md_section_body_to_html("\n".join(current_lines))
+
+    for line in text.splitlines():
+        if line.startswith("## "):
+            _close()
+            heading = line[3:].strip()
+            current_slug = expected.get(heading.lower())
+            current_lines = []
+        else:
+            if current_slug is not None:
+                current_lines.append(line)
+    _close()
+    return sections
+
+
+def render_narrative_block(narrative: dict[str, str] | None) -> str:
+    """Render the narrative block (single combined HTML) for daily-brief.
+
+    Unlike cc-monthly-report (which has 4 separate sections), daily-brief's
+    2 narrative sections render as a single combined `<section>` at the top
+    of the report — short enough to read inline without TOC anchors.
+    """
+    if not narrative:
+        return ""
+    parts: list[str] = []
+    for title, slug, _desc in _NARRATIVE_SECTIONS:
+        body_html = narrative.get(slug)
+        if not body_html:
+            continue
+        parts.append(f'<h3 style="margin-top:14px;">{escape(title)}</h3>{body_html}')
+    if not parts:
+        return ""
+    return (
+        '<section class="narrative" '
+        'style="border-left:3px solid var(--accent);'
+        'background:linear-gradient(to right, var(--accent-soft) 0%, var(--bg) 6%);">'
+        '<h2>Daily summary</h2>'
+        f'{"".join(parts)}'
+        '</section>'
+    )
+
+
 # ── CSS — trimmed from cc-monthly-report's; same visual idiom ──
 
 CSS = """
@@ -322,7 +450,8 @@ footer { color:var(--muted); font-size:11px; padding-top:12px; margin-top:18px; 
 def render_html(cfg: TenantConfig, target_date: str, day_interval: str,
                 window_interval: str, headline: dict, worst: list[dict],
                 flagged: list[dict], hotlist: list[dict],
-                adherence: list[dict]) -> str:
+                adherence: list[dict],
+                narrative: dict[str, str] | None = None) -> str:
     voice_sl_today = headline["voice_sl_today"]
     voice_sl_base = headline["voice_sl_baseline"]
     sl_cls = ("good" if voice_sl_today and voice_sl_today >= 80
@@ -449,6 +578,7 @@ def render_html(cfg: TenantConfig, target_date: str, day_interval: str,
         f'thresholds: AHT +{cfg.daily_brief.flag_thresholds.aht_excess_pct:.0f}%, '
         f'SL drop {cfg.daily_brief.flag_thresholds.sl_drop_pp:.0f}pp</div>'
         f'</header>'
+        f'{render_narrative_block(narrative)}'
         f'<section><h2>1. Headline KPIs</h2>{headline_html}</section>'
         f'<section><h2>2. Worst routes</h2>{worst_html}</section>'
         f'<section><h2>3. Flagged agents (voice AHT)</h2>{flagged_html}</section>'
@@ -469,6 +599,13 @@ def main() -> int:
     p.add_argument("--data-dir", required=True)
     p.add_argument("--output", default=None,
                    help="Output HTML path (defaults to cfg.daily_brief_output_path)")
+    p.add_argument("--with-narrative",
+                   help="(v0.9) Path to a markdown file with 2 narrative sections "
+                        "('## Headline', '## Today\\'s priorities'). Each section's "
+                        "body renders via a minimal markdown subset (paragraphs, "
+                        "**bold**, *italic*, `code`, [links], - bullets) and slots "
+                        "in at the top of the brief. Optional; omitting it produces "
+                        "the v0.7-era data-only brief.")
     args = p.parse_args()
 
     cfg = load_config()
@@ -499,9 +636,13 @@ def main() -> int:
     hotlist = repeat_caller_hotlist(deep)
     adherence = adherence_flags(brk, user_names=user_names)
 
+    narrative = (
+        parse_narrative_md(Path(args.with_narrative).expanduser())
+        if args.with_narrative else None
+    )
     html = render_html(cfg, args.target_date, args.day_interval,
                        args.window_interval, headline, worst, flagged,
-                       hotlist, adherence)
+                       hotlist, adherence, narrative=narrative)
 
     out_path = (Path(args.output).expanduser() if args.output
                 else cfg.daily_brief_output_path(args.target_date))

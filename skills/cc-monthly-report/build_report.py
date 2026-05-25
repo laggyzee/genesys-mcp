@@ -201,7 +201,7 @@ def aggregate_agents(ap: dict, brk: dict, user_roles: dict[str, list[str]],
         m_excess_min = max((msg_aht - MSG_AHT_TARGET_S), 0) * m_ans / 60 if msg_aht else 0
 
         rows.append({
-            "name": name, "role": role,
+            "user_id": uid, "name": name, "role": role,
             "answered": ans_no_email,
             "voice_ans": v_ans,
             "msg_ans": m_ans,
@@ -225,6 +225,184 @@ def aggregate_agents(ap: dict, brk: dict, user_roles: dict[str, list[str]],
         })
     rows.sort(key=lambda r: -(r["answered"] or 0))
     return rows
+
+
+def aggregate_agent_voice_sparklines(ap_daily: dict) -> dict[str, list[dict]]:
+    """Per-agent daily voice AHT trajectory for inline sparkline rendering.
+
+    Returns ``{user_id: [{date, voice_aht_s, voice_answered}, ...]}`` sorted
+    by date. Days with zero voice answered are included (sparkline gap) so
+    the visual trajectory reflects "agent didn't take voice that day" vs
+    "low-AHT day" honestly.
+
+    Powers the 7-day mini-trend next to each agent's headline AHT in the
+    workforce table. Distinguishes "330s and trending down" from "330s but
+    actually worsening" — the v0.6 workforce table couldn't show that.
+    """
+    by_user: dict[str, list[dict]] = defaultdict(list)
+    for grp in ap_daily.get("results") or []:
+        gk = grp.get("group") or {}
+        uid = gk.get("userId")
+        media = gk.get("mediaType")
+        if not uid or media != "voice":
+            continue
+        for bucket in grp.get("data") or []:
+            interval = bucket.get("interval") or ""
+            day = interval.split("T", 1)[0] if interval else None
+            if not day:
+                continue
+            ms = {m["metric"]: (m.get("stats") or {}) for m in (bucket.get("metrics") or [])}
+            answered = int(ms.get("tAnswered", {}).get("count", 0) or 0)
+            handle_sum_ms = float(ms.get("tHandle", {}).get("sum", 0) or 0)
+            aht_s = (handle_sum_ms / 1000.0 / answered) if answered else None
+            by_user[uid].append({
+                "date": day,
+                "voice_aht_s": aht_s,
+                "voice_answered": answered,
+            })
+    for uid in by_user:
+        by_user[uid].sort(key=lambda r: r["date"])
+    return dict(by_user)
+
+
+def render_voice_aht_sparkline(daily: list[dict], target_s: int = 285) -> str:
+    """Inline SVG sparkline of an agent's daily voice AHT.
+
+    Compact (~80×20px) — fits next to the headline AHT cell in the workforce
+    table without disrupting the row layout. Pure SVG, no JS, no external libs.
+    Dashed horizontal line at the voice-AHT target so the trajectory's
+    relation-to-target is read at a glance.
+    """
+    # Filter to days with answered > 0 (gaps = days off; show as gaps in line)
+    valid = [(i, d) for i, d in enumerate(daily) if d.get("voice_aht_s") is not None]
+    if len(valid) < 2:
+        return '<span style="color:var(--muted);font-size:11px;">—</span>'
+
+    w = 70
+    h = 20
+    pad_top = 2
+    pad_bot = 2
+
+    # Determine y-axis range — target plus actual range, with some padding
+    all_vals = [d["voice_aht_s"] for _, d in valid]
+    y_min = min(min(all_vals) * 0.9, target_s * 0.85)
+    y_max = max(max(all_vals) * 1.05, target_s * 1.15)
+    y_range = y_max - y_min if y_max > y_min else 1.0
+
+    n = len(daily)
+    def _x(idx: int) -> float:
+        return (idx / max(1, n - 1)) * w
+    def _y(val: float) -> float:
+        norm = (val - y_min) / y_range
+        return (pad_top + (1 - norm) * (h - pad_top - pad_bot))
+
+    # Target dashed line
+    y_target = _y(target_s)
+    parts = [
+        f'<line x1="0" y1="{y_target:.1f}" x2="{w}" y2="{y_target:.1f}" '
+        f'stroke="#a0aec0" stroke-width="0.5" stroke-dasharray="2,2"/>'
+    ]
+
+    # Build polyline; break on missing days (skip gaps cleanly)
+    segments: list[list[tuple[float, float]]] = [[]]
+    for i, d in enumerate(daily):
+        v = d.get("voice_aht_s")
+        if v is None:
+            if segments[-1]:
+                segments.append([])
+            continue
+        segments[-1].append((_x(i), _y(v)))
+
+    for seg in segments:
+        if len(seg) < 2:
+            continue
+        pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in seg)
+        # Colour: green if final value ≤ target, amber if ≤ +20%, red otherwise
+        final_val = seg[-1][1]
+        # final_val is a y-coordinate; we need the underlying data value
+        # — easier to determine from final data point's voice_aht_s
+        # Use trend direction: green if improving (final < first), else colour by absolute
+        first_val_y = seg[0][1]
+        improving = final_val > first_val_y  # higher y = lower AHT (better)
+        stroke = "#38a169" if improving else "#c05621"
+        parts.append(
+            f'<polyline points="{pts}" fill="none" '
+            f'stroke="{stroke}" stroke-width="1.5"/>'
+        )
+        # Endpoint marker
+        x_end, y_end = seg[-1]
+        parts.append(
+            f'<circle cx="{x_end:.1f}" cy="{y_end:.1f}" r="2" fill="{stroke}"/>'
+        )
+
+    return (
+        f'<svg width="{w}" height="{h}" '
+        f'style="display:inline-block;vertical-align:middle;margin-left:6px;">'
+        f'{"".join(parts)}'
+        f'</svg>'
+    )
+
+
+def aggregate_hourly_heatmap(qp_hourly: dict, qmap: dict[str, list[str]],
+                              tz_offset_hours: int = 0) -> dict:
+    """Aggregate hourly queue_performance into a day-of-week × hour-of-day heatmap.
+
+    Returns ``{cells: [{dow, hour, offered, answered, over_sla, sl_pct}], days_used}``
+    where ``dow`` is 0-6 (Mon-Sun) and ``hour`` is 0-23, both in **tenant-local**
+    time (the Genesys API returns UTC intervals; ``tz_offset_hours`` shifts them
+    into the tenant's timezone for human-readable bucketing).
+
+    Reveals intra-day patterns invisible in daily aggregates — *"Tuesday 10am
+    we get hammered"* is a 3-second read instead of a 30-minute Excel pivot.
+    """
+    from datetime import datetime, timedelta, timezone
+    by_cell: dict[tuple[int, int], dict] = defaultdict(
+        lambda: {"offered": 0, "answered": 0, "over_sla": 0}
+    )
+    days_observed: set[str] = set()
+    for grp in qp_hourly.get("results") or []:
+        gk = grp.get("group") or {}
+        if gk.get("queueId") not in qmap or gk.get("mediaType") != "voice":
+            continue
+        for bucket in grp.get("data") or []:
+            interval = bucket.get("interval") or ""
+            try:
+                start_utc = datetime.fromisoformat(
+                    interval.split("/")[0].replace("Z", "+00:00")
+                )
+            except (ValueError, IndexError):
+                continue
+            local = start_utc + timedelta(hours=tz_offset_hours)
+            dow = local.weekday()
+            hour = local.hour
+            days_observed.add(local.date().isoformat())
+
+            d = bucket.get("derived") or {}
+            ms = {m["metric"]: (m.get("stats") or {}) for m in (bucket.get("metrics") or [])}
+            offered = ms.get("nOffered", {}).get("count", 0) or 0
+            answered = d.get("answered") or 0
+            over = ms.get("nOverSla", {}).get("count", 0) or 0
+            cell = by_cell[(dow, hour)]
+            cell["offered"] += offered
+            cell["answered"] += answered
+            cell["over_sla"] += over
+
+    cells: list[dict] = []
+    for (dow, hour), c in sorted(by_cell.items()):
+        offered = c["offered"]
+        sl_pct = (
+            max(c["answered"] - c["over_sla"], 0) / offered * 100
+            if offered else None
+        )
+        cells.append({
+            "dow": dow,
+            "hour": hour,
+            "offered": offered,
+            "answered": c["answered"],
+            "over_sla": c["over_sla"],
+            "sl_pct": sl_pct,
+        })
+    return {"cells": cells, "days_used": len(days_observed)}
 
 
 def aggregate_daily_voice_sl(qp_daily: dict, qmap: dict[str, list[str]]) -> list[dict]:
@@ -530,6 +708,126 @@ def render_daily_sl_chart(daily: list[dict]) -> str:
 {stats_html}"""
 
 
+# v0.9 day labels for the heatmap. Genesys returns UTC; we render in tenant-local
+# weekday order so a CC manager sees Mon-Fri at the top.
+_DOW_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _heatmap_cell_colour(sl_pct: float | None, offered: int) -> str:
+    """Diverging colour scale: red (low SL) → amber → green (high SL).
+
+    Cells with no traffic (offered=0) render as a near-empty light grey so the
+    eye is drawn to actual data, not gaps. SL bands match `bar_class`.
+    """
+    if not offered:
+        return "#f5f7fa"  # light grey — "no traffic"
+    if sl_pct is None:
+        return "#e2e8f0"
+    if sl_pct >= 80:
+        # gradient from light green (80%) to deep green (100%)
+        intensity = min(1.0, (sl_pct - 80) / 20)
+        # interpolate #c6f6d5 (light) → #38a169 (deep)
+        r = int(198 - (198 - 56) * intensity)
+        g = int(246 - (246 - 161) * intensity)
+        b = int(213 - (213 - 105) * intensity)
+        return f"rgb({r},{g},{b})"
+    if sl_pct >= 50:
+        # amber band
+        intensity = (sl_pct - 50) / 30
+        r = int(254 - (254 - 254) * intensity)
+        g = int(178 + (213 - 178) * intensity)
+        b = int(120 + (170 - 120) * intensity)
+        return f"rgb({r},{g},{b})"
+    # red band: deep red (0%) to light red (50%)
+    intensity = sl_pct / 50 if sl_pct else 0
+    r = int(197 + (254 - 197) * intensity)
+    g = int(48 + (215 - 48) * intensity)
+    b = int(48 + (215 - 48) * intensity)
+    return f"rgb({r},{g},{b})"
+
+
+def render_hourly_heatmap(heatmap: dict) -> str:
+    """Render a day-of-week × hour-of-day SVG heatmap of voice SL.
+
+    Pure inline SVG, no JS, no external dependencies — same constraints as
+    every other chart. ~700px wide; print-friendly.
+    """
+    cells = heatmap.get("cells") or []
+    days_used = heatmap.get("days_used", 0)
+    if not cells or days_used == 0:
+        return '<p style="color:var(--muted);font-size:13px;">No hourly data available.</p>'
+
+    # Group cells by (dow, hour) → cell dict
+    by_key: dict[tuple[int, int], dict] = {(c["dow"], c["hour"]): c for c in cells}
+
+    # Determine which hours are present (skip dead hours: 00-05 likely empty)
+    hours_with_traffic = sorted({h for (_, h), c in by_key.items() if c["offered"] > 0})
+    if not hours_with_traffic:
+        return '<p style="color:var(--muted);font-size:13px;">No voice traffic in any hour.</p>'
+    hour_min = hours_with_traffic[0]
+    hour_max = hours_with_traffic[-1]
+    hours_to_show = list(range(hour_min, hour_max + 1))
+
+    cell_w = 26
+    cell_h = 22
+    label_w = 40  # day-of-week column on the left
+    header_h = 18  # hour-of-day row on top
+    svg_w = label_w + cell_w * len(hours_to_show) + 4
+    svg_h = header_h + cell_h * 7 + 4
+
+    # Hour headers
+    hour_headers = "".join(
+        f'<text x="{label_w + idx * cell_w + cell_w / 2}" y="{header_h - 4}" '
+        f'text-anchor="middle" font-size="10" fill="var(--muted)">{h}</text>'
+        for idx, h in enumerate(hours_to_show)
+    )
+
+    # DOW rows
+    rows_svg: list[str] = []
+    for dow in range(7):
+        y = header_h + dow * cell_h
+        rows_svg.append(
+            f'<text x="{label_w - 6}" y="{y + cell_h / 2 + 4}" text-anchor="end" '
+            f'font-size="11" fill="var(--ink-soft)" font-weight="600">{_DOW_LABELS[dow]}</text>'
+        )
+        for idx, hour in enumerate(hours_to_show):
+            c = by_key.get((dow, hour))
+            offered = c["offered"] if c else 0
+            sl_pct = c.get("sl_pct") if c else None
+            colour = _heatmap_cell_colour(sl_pct, offered)
+            x = label_w + idx * cell_w
+            sl_label = f"{sl_pct:.0f}%" if sl_pct is not None else ""
+            tip = (
+                f"{_DOW_LABELS[dow]} {hour:02d}:00 — SL {sl_label}, "
+                f"{offered} offered" if c else
+                f"{_DOW_LABELS[dow]} {hour:02d}:00 — no traffic"
+            )
+            rows_svg.append(
+                f'<rect x="{x}" y="{y}" width="{cell_w - 1}" height="{cell_h - 1}" '
+                f'fill="{colour}" stroke="#fff" stroke-width="1"><title>{escape(tip)}</title></rect>'
+            )
+            # Overlay offered count when there's enough traffic to show
+            if offered >= 10 and cell_w >= 22:
+                rows_svg.append(
+                    f'<text x="{x + cell_w / 2}" y="{y + cell_h / 2 + 4}" '
+                    f'text-anchor="middle" font-size="9" '
+                    f'fill="rgba(0,0,0,0.55)" font-weight="500">{offered}</text>'
+                )
+
+    return (
+        f'<div style="overflow-x:auto;margin:14px 0 8px;">'
+        f'<svg width="{svg_w}" height="{svg_h}" '
+        f'style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;">'
+        f'{hour_headers}{"".join(rows_svg)}'
+        f'</svg>'
+        f'</div>'
+        f'<p style="color:var(--muted);font-size:12px;margin:4px 0 16px;">'
+        f'Hour-of-day × day-of-week voice SL. Green = ≥80%, amber = 50-80%, red = &lt;50%. '
+        f'Cells with no traffic shown as light grey. Numbers in each cell = voice offered. '
+        f'Aggregated across {days_used} days of the period.</p>'
+    )
+
+
 def render_brand_table(brand_rows: list[dict]) -> str:
     rows_html = []
     for r in brand_rows:
@@ -629,7 +927,17 @@ def _count_and_min_cell(count: int, minutes: float, sessions_known: bool = True,
     return f'{count_html} / {minutes} min'
 
 
-def render_workforce_table(rows: list[dict]) -> str:
+def render_workforce_table(rows: list[dict],
+                           sparklines: dict[str, list[dict]] | None = None) -> str:
+    """Render the per-agent workforce table.
+
+    When ``sparklines`` is provided (a dict of user_id → daily voice AHT
+    series from ``aggregate_agent_voice_sparklines``), each row's Voice AHT
+    cell gets a small inline-SVG trend line next to the headline value.
+    Distinguishes *"330s and trending down (improving)"* from *"330s but
+    actually worsening"* — the v0.6 workforce table couldn't show that.
+    """
+    sparklines = sparklines or {}
     body = []
     for r in rows:
         bg = ""
@@ -640,6 +948,13 @@ def render_workforce_table(rows: list[dict]) -> str:
 
         sessions_known = r["break_sessions"] > 0
         v_aht_cell = _aht_with_target(r["voice_aht_s"], r.get("voice_aht_vs_target_pct"))
+        # v0.9: inline sparkline next to voice AHT when daily data is available.
+        spark_data = sparklines.get(r.get("user_id"))
+        if spark_data and len(spark_data) >= 2:
+            v_aht_cell = (
+                v_aht_cell
+                + render_voice_aht_sparkline(spark_data, target_s=VOICE_AHT_TARGET_S)
+            )
         m_aht_cell = _aht_with_target(r["msg_aht_s"], r.get("msg_aht_vs_target_pct"))
         acw_cell = _acw_with_target(r.get("avg_acw_s"), r.get("acw_vs_target_pct"))
         br_cell = _count_and_min_cell(r["overruns"], r["overrun_min"], sessions_known)
@@ -951,7 +1266,9 @@ def render_html(period: str, interval: str, brand_rows: list[dict], per_queue: l
                 workforce: list[dict], themes: dict, cfg: TenantConfig,
                 daily_sl: list[dict] | None = None,
                 leverage: dict | None = None, staffing: dict | None = None,
-                narrative: dict[str, str] | None = None) -> str:
+                narrative: dict[str, str] | None = None,
+                hourly_heatmap: dict | None = None,
+                voice_aht_sparklines: dict[str, list[dict]] | None = None) -> str:
     # KPIs
     total_voice_off = sum(r["offered"] for r in brand_rows if r["media"] == "voice")
     total_voice_ans = sum(r["answered"] for r in brand_rows if r["media"] == "voice")
@@ -1037,6 +1354,7 @@ def render_html(period: str, interval: str, brand_rows: list[dict], per_queue: l
 <h3>Message queues by volume</h3>
 {render_queue_table(per_queue, "message", 10)}
 {('<h3>Voice service-level — daily trend</h3><p style="color:var(--muted);font-size:13px;">Org-wide voice SL by day. Target line at 80%. Hover a bar to see the date and counts.</p>' + render_daily_sl_chart(daily_sl or [])) if daily_sl else ''}
+{('<h3>Voice service-level — hour-of-day × day-of-week heatmap</h3><p style="color:var(--muted);font-size:13px;">Reveals intra-day staffing-shape patterns invisible in the daily trend. Use to spot consistent weak-coverage windows (e.g. Tuesday 10am) that the daily line chart averages away.</p>' + render_hourly_heatmap(hourly_heatmap)) if hourly_heatmap else ''}
 </section>
 
 <section id="themes">
@@ -1063,7 +1381,7 @@ def render_html(period: str, interval: str, brand_rows: list[dict], per_queue: l
 <h2>5. Workforce — productivity &amp; adherence</h2>
 <p style="color:var(--muted); font-size:13px;"><strong>Email is excluded</strong> from this table (email handle times can span days, which inflates AHT and total handle hours unhelpfully). The figures below are voice + message + callback only. <strong>Voice AHT / Msg AHT</strong> in seconds — split out so neither inflates the other. <strong>Br over</strong> = break/meal overruns. <strong>Away n / min</strong> = count + total minutes on AWAY (raw negative). <strong>Pre-br over n / min</strong> = pre-break sessions running &gt;{cfg.targets.pre_break_min} min.</p>
 
-{render_workforce_table(workforce)}
+{render_workforce_table(workforce, sparklines=voice_aht_sparklines)}
 
 {f'<div class="callout"><strong>Top performer:</strong> {top_performer["name"]} — {fmt_int(top_performer["answered"])} answered ({fmt_int(top_performer["voice_ans"])} voice + {fmt_int(top_performer["msg_ans"])} messages), {top_performer["overruns"]} break overruns.</div>' if top_performer and top_performer["answered"] > 0 else ''}
 
@@ -1136,12 +1454,33 @@ def main() -> int:
     wfm_path = data_dir / "wfm_schedule.json"
     wfm_raw = json.loads(wfm_path.read_text()) if wfm_path.exists() else None
 
+    # v0.9: hourly granularity powers the hour-of-day heatmap.
+    hourly_path = data_dir / "queue_performance_hourly.json"
+    qp_hourly = json.loads(hourly_path.read_text()) if hourly_path.exists() else None
+    # v0.9: daily agent perf powers the per-agent voice-AHT sparklines.
+    ap_daily_path = data_dir / "agent_performance_daily.json"
+    ap_daily = json.loads(ap_daily_path.read_text()) if ap_daily_path.exists() else None
+
     qp_agg = aggregate_queue_performance(qp, qmap)
     workforce = aggregate_agents(ap, brk, user_roles, specialist_only=True)
     themes = extract_themes(deep)
     daily_sl = aggregate_daily_voice_sl(qp_daily, qmap) if qp_daily else None
     leverage = compute_performance_leverage(workforce, deep, qp_agg["brand_rows"])
     staffing = aggregate_staffing(wfm_raw)
+    # Derive tz_offset_hours from cfg.tenant.timezone for proper local bucketing.
+    # Falls back to 0 (UTC) if zoneinfo can't resolve the name — caller can
+    # still get a useful heatmap, just bucketed in UTC.
+    tz_offset = 0
+    if qp_hourly:
+        try:
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            now = datetime.now(ZoneInfo(cfg.tenant.timezone))
+            tz_offset = int(now.utcoffset().total_seconds() // 3600)
+        except Exception:
+            tz_offset = 0
+    hourly_heatmap = aggregate_hourly_heatmap(qp_hourly, qmap, tz_offset_hours=tz_offset) if qp_hourly else None
+    voice_aht_sparklines = aggregate_agent_voice_sparklines(ap_daily) if ap_daily else None
 
     narrative = (
         parse_narrative_md(Path(args.with_narrative).expanduser())
@@ -1149,7 +1488,9 @@ def main() -> int:
     )
     html = render_html(args.period, args.interval, qp_agg["brand_rows"], qp_agg["per_queue"],
                        workforce, themes, cfg=cfg, daily_sl=daily_sl,
-                       leverage=leverage, staffing=staffing, narrative=narrative)
+                       leverage=leverage, staffing=staffing, narrative=narrative,
+                       hourly_heatmap=hourly_heatmap,
+                       voice_aht_sparklines=voice_aht_sparklines)
     out_path.write_text(html)
 
     print(f"OK report written to {out_path}")

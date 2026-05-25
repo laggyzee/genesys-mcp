@@ -24,7 +24,7 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from genesys_mcp.client import get_api, to_dict, with_retry
-from genesys_mcp.tools.reports import _parse_iso, _seg_dur_s
+from genesys_mcp.tools.reports import _parse_iso, _run_conv_details_job, _seg_dur_s
 
 logger = logging.getLogger(__name__)
 
@@ -360,5 +360,243 @@ def register(mcp: FastMCP) -> None:
                 "failures, less reliable for old investigations.",
                 "Per-agent offer/decline log isn't reconstructable from this "
                 "view in v0.5; transfer count is surfaced as a proxy.",
+            ],
+        }
+
+    # ── Aggregate mode (v0.9) — closes the v0.5 backlog ──
+
+    @mcp.tool()
+    def routing_diagnostic_aggregate(
+        queue_id: str = Field(
+            description=(
+                "Queue id to analyse. Use list_queues to resolve names → ids."
+            ),
+        ),
+        interval: str = Field(
+            description=(
+                "ISO-8601 interval 'startISO/endISO' (UTC). Typically a recent "
+                "week or day; longer windows make the per-bucket breakdown noisy."
+            ),
+        ),
+        outcome_filter: str = Field(
+            default="abandoned",
+            description=(
+                "Which failure mode to investigate. One of: 'abandoned' "
+                "(customer hung up before answer), 'long_wait' (answered but "
+                "wait > 30s), 'transferred' (call was transferred). Defaults "
+                "to 'abandoned' — usually the highest-priority failure mode."
+            ),
+        ),
+        bucket_size: str = Field(
+            default="15min",
+            description=(
+                "Interval bucket size for the worst-windows breakdown. One of "
+                "'15min', '30min', '1h'. Default 15min — matches Genesys's own "
+                "intra-day reporting granularity."
+            ),
+        ),
+    ) -> dict:
+        """Aggregate routing failure-mode analysis for a queue over an interval.
+
+        Pulls all conversations matching the queue + outcome filter, classifies
+        each one's failure mode, and rolls them up to answer questions like:
+
+        - *"Of last week's 500 abandons, how many were because every eligible
+          agent was on another interaction?"*
+        - *"Which 15-minute windows in the period had the highest abandon
+          concentration?"*
+        - *"Did the abandoned calls all need the same skill? Was that skill
+          under-staffed in those windows?"*
+
+        Closes the v0.5 promise of an aggregate mode for routing_diagnostic.
+        Pairs with the v0.7 cc-daily-brief 'worst routes' section — daily
+        brief surfaces *which* queues failed; this tool surfaces *why*.
+
+        Returns:
+
+        - **counts_by_failure_mode**: e.g. {"no_eligible_agents": 47,
+          "all_eligible_busy": 312, "abandoned_in_ivr": 18, "outside_hours": 5}
+        - **worst_buckets**: top 5 time windows by failure count
+        - **affected_skills**: skill ids most often requested by failing calls
+        - **sample_conversations**: top 10 conversation_ids (caller can drill
+          down via routing_diagnostic per-call mode)
+
+        Limitations: failure-mode classification is heuristic — uses the
+        session-level eligibleAgentCounts + flaggedReason to bucket. A "0
+        eligible" count at the moment of arrival could be either "nobody
+        scheduled" or "every scheduled agent on a call". The v0.9
+        classification doesn't distinguish those without WFM joins; v0.10
+        could refine via cross-ref against wfm_schedule data.
+        """
+        if outcome_filter not in ("abandoned", "long_wait", "transferred"):
+            return {
+                "error": f"outcome_filter must be 'abandoned', 'long_wait', or "
+                         f"'transferred'; got {outcome_filter!r}",
+            }
+        if bucket_size not in ("15min", "30min", "1h"):
+            return {
+                "error": f"bucket_size must be '15min', '30min', or '1h'; got "
+                         f"{bucket_size!r}",
+            }
+        bucket_seconds = {"15min": 900, "30min": 1800, "1h": 3600}[bucket_size]
+
+        # Pull every conversation that touched this queue in the interval.
+        # `flaggedReason` is a session-level attribute, not a segment dimension —
+        # the conv-details filter API doesn't accept it directly. So we filter
+        # by queueId here and classify the outcome post-hoc in Python.
+        body = {
+            "interval": interval,
+            "order": "desc",
+            "orderBy": "conversationStart",
+            "segmentFilters": [{
+                "type": "and",
+                "predicates": [
+                    {"type": "dimension", "dimension": "queueId",
+                     "operator": "matches", "value": queue_id},
+                ],
+            }],
+        }
+        convs = _run_conv_details_job(body, max_pages=20)
+
+        # Pre-filter to the requested outcome class so the failure-mode
+        # rollup is scoped to the right population. We detect abandons by
+        # the absence of an agent-purpose interact segment rather than
+        # session.flaggedReason — that field is empty in many tenants and
+        # the segment-presence heuristic reconciles cleanly against the
+        # nOffered - nAnswered counts from queue_performance.
+        def _matches_outcome(conv: dict) -> bool:
+            had_acd_interact_on_queue = False
+            had_agent_interact = False
+            transfer_count = 0
+            queue_wait_s = 0.0
+            for p in conv.get("participants") or []:
+                purpose = p.get("purpose")
+                for s in p.get("sessions") or []:
+                    for seg in s.get("segments") or []:
+                        st = seg.get("segmentType")
+                        if st == "interact":
+                            if purpose == "acd" and seg.get("queueId") == queue_id:
+                                had_acd_interact_on_queue = True
+                                queue_wait_s += _seg_dur_s(seg)
+                            elif purpose == "agent":
+                                had_agent_interact = True
+                        elif st in ("transfer", "ininternaltransfer"):
+                            transfer_count += 1
+            if not had_acd_interact_on_queue:
+                # Conversation matched the queue filter via a non-interact
+                # segment (e.g. a quick re-queue) but never sat on this queue.
+                return False
+            if outcome_filter == "abandoned":
+                return not had_agent_interact
+            if outcome_filter == "transferred":
+                return transfer_count > 0
+            if outcome_filter == "long_wait":
+                return had_agent_interact and queue_wait_s > 30
+            return False
+
+        convs = [c for c in convs if _matches_outcome(c)]
+
+        # Classify each conv into a failure mode based on eligibleAgentCounts
+        # at arrival + flaggedReason + IVR-only marker.
+        from collections import Counter
+        failure_counts: Counter = Counter()
+        bucket_counts: dict[str, int] = {}
+        skill_counts: Counter = Counter()
+        sample_convs: list[dict] = []
+
+        for c in convs:
+            conv_id = c.get("conversationId")
+            conv_start = c.get("conversationStart") or ""
+
+            # Find the queue session matching the queue_id
+            queue_session = None
+            for p in c.get("participants") or []:
+                if p.get("purpose") != "acd":
+                    continue
+                for s in p.get("sessions") or []:
+                    for seg in s.get("segments") or []:
+                        if seg.get("queueId") == queue_id and seg.get("segmentType") == "interact":
+                            queue_session = s
+                            break
+                    if queue_session:
+                        break
+                if queue_session:
+                    break
+
+            # Classify
+            failure_mode = "unknown"
+            if queue_session is None:
+                # Customer never reached the queue — IVR-only path
+                failure_mode = "abandoned_in_ivr"
+            else:
+                eligible_counts = queue_session.get("eligibleAgentCounts") or []
+                requested_skills = queue_session.get("activeSkillIds") or []
+                # Was anyone eligible at all?
+                max_eligible = max(eligible_counts) if eligible_counts else 0
+                if max_eligible == 0:
+                    failure_mode = "no_eligible_agents"
+                else:
+                    # Eligible agents existed; presumably all were busy on
+                    # other interactions (the conv-details API doesn't give us
+                    # a direct "agent was offered and didn't pick up" signal).
+                    failure_mode = "all_eligible_busy"
+                for sk in requested_skills:
+                    skill_counts[sk] += 1
+
+            failure_counts[failure_mode] += 1
+
+            # Bucket the conv start time
+            if conv_start:
+                from datetime import datetime, timezone as _tz
+                try:
+                    dt = datetime.fromisoformat(conv_start.replace("Z", "+00:00"))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=_tz.utc)
+                    epoch = int(dt.timestamp())
+                    floored = epoch - (epoch % bucket_seconds)
+                    bucket_key = datetime.fromtimestamp(
+                        floored, tz=_tz.utc
+                    ).isoformat().replace("+00:00", "Z")
+                    bucket_counts[bucket_key] = bucket_counts.get(bucket_key, 0) + 1
+                except Exception:
+                    pass
+
+            if len(sample_convs) < 10:
+                sample_convs.append({
+                    "conversation_id": conv_id,
+                    "started_at": conv_start,
+                    "failure_mode": failure_mode,
+                })
+
+        # Top failing buckets
+        worst_buckets = sorted(
+            bucket_counts.items(), key=lambda kv: -kv[1]
+        )[:5]
+
+        return {
+            "queue_id": queue_id,
+            "interval": interval,
+            "outcome_filter": outcome_filter,
+            "bucket_size": bucket_size,
+            "total_matching": len(convs),
+            "counts_by_failure_mode": dict(failure_counts),
+            "worst_buckets": [
+                {"interval_start": bk, "count": cnt} for bk, cnt in worst_buckets
+            ],
+            "affected_skills": [
+                {"skill_id": sk, "count": cnt}
+                for sk, cnt in skill_counts.most_common(10)
+            ],
+            "sample_conversations": sample_convs,
+            "diagnostic_notes": [
+                "Failure-mode classification is heuristic. "
+                "'no_eligible_agents' = no agents with the required skill set "
+                "were on-queue at any moment of the wait; "
+                "'all_eligible_busy' = at least one was on-queue but all were "
+                "busy (the most common bucket for high-volume failures); "
+                "'abandoned_in_ivr' = customer hung up before reaching the queue.",
+                "The classifier doesn't yet cross-ref against wfm_schedule, so "
+                "'no_eligible_agents' might mean 'nobody scheduled' OR 'everyone "
+                "scheduled was logged out'. v0.10 candidate.",
             ],
         }

@@ -144,7 +144,8 @@ Or by hand: copy [`skills/cc-monthly-report/tenant.example.yaml`](skills/cc-mont
 ### Routing diagnostics
 | Tool | Purpose |
 |---|---|
-| `routing_diagnostic` | Explains why a specific conversation routed (or didn't) as expected: IVR → queue → outcome path with durations, queue routing rules, eligible-agent counts (session-level from Genesys, current-state for the queue), abandon / answer / transfer classification. v0.5 ships conversation_id mode; aggregate "show me all this week's abandons" mode planned for v0.5.x. |
+| `routing_diagnostic` | Explains why a specific conversation routed (or didn't) as expected: IVR → queue → outcome path with durations, queue routing rules, eligible-agent counts (session-level from Genesys, current-state for the queue), abandon / answer / transfer classification. |
+| `routing_diagnostic_aggregate` | (v0.9) Aggregate failure-mode analysis for a queue over an interval. *"Show me all this week's abandons on Acme - General — how many were because nobody was eligible vs. all-busy? Which 15-minute windows were worst?"* Closes the v0.5 promise. Heuristic classification: `no_eligible_agents` / `all_eligible_busy` / `abandoned_in_ivr`. Pairs with the v0.7 cc-daily-brief 'worst routes' section — daily-brief surfaces *which* queues failed; this surfaces *why*. |
 
 ### Health check (v0.6+)
 | Tool | Purpose |
