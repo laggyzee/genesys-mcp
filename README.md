@@ -4,7 +4,7 @@ A local stdio MCP server that gives Claude Code (or any MCP-compatible client) r
 
 Built so contact-centre operations and analytics work — queue performance, agent reviews, conversation deep-dives, repeat-caller root-cause analysis, presence/break/away analysis, demand-vs-capacity vs WFM, monthly contact-centre reports — can be done by talking to Claude in plain English instead of clicking through Genesys Admin or Performance dashboards.
 
-> **v0.2.0 — May 2026:** numbers from `agent_performance` and `queue_performance` now match the Genesys "Performance" UI exactly (the v0.1 figures were materially off). New tools include `repeat_caller_deep_dive` (AI-themed root cause), `wfm_schedule` (scheduled vs forecast-required hours), AWAY + PRE_BREAK tracking. Companion skill `cc-monthly-report` produces a fully-stitched HTML report from one prompt. See [RELEASE-NOTES.md](RELEASE-NOTES.md).
+> **v0.9 — May 2026:** the visual upgrade release. Monthly report grows an **hour-of-day × day-of-week heatmap** (intra-day staffing patterns in a 3-second read) and **per-agent voice-AHT sparklines** (direction of travel next to each headline number) — both pure inline SVG, no JS. **`routing_diagnostic_aggregate`** lands at last (failure-mode classification across all abandons in an interval — closes a promise made in v0.5). LLM narrative synthesis (v0.7, monthly-only) is extended to `cc-daily-brief` and `cc-coaching-prep` so every report ships with grounded commentary on top of the data. See [RELEASE-NOTES.md](RELEASE-NOTES.md) for the full history.
 
 ## What it does
 
@@ -14,7 +14,7 @@ Curated tools for ops/analytics work — queues, agents, conversations, recordin
 
 ## Setup
 
-Requires Python 3.12+ (developed against 3.14).
+Requires Python 3.11+ (developed against 3.14).
 
 ### Quickstart (v0.6+) — one-command install
 
@@ -145,7 +145,7 @@ Or by hand: copy [`skills/cc-monthly-report/tenant.example.yaml`](skills/cc-mont
 | Tool | Purpose |
 |---|---|
 | `routing_diagnostic` | Explains why a specific conversation routed (or didn't) as expected: IVR → queue → outcome path with durations, queue routing rules, eligible-agent counts (session-level from Genesys, current-state for the queue), abandon / answer / transfer classification. |
-| `routing_diagnostic_aggregate` | (v0.9) Aggregate failure-mode analysis for a queue over an interval. *"Show me all this week's abandons on Acme - General — how many were because nobody was eligible vs. all-busy? Which 15-minute windows were worst?"* Closes the v0.5 promise. Heuristic classification: `no_eligible_agents` / `all_eligible_busy` / `abandoned_in_ivr`. Pairs with the v0.7 cc-daily-brief 'worst routes' section — daily-brief surfaces *which* queues failed; this surfaces *why*. |
+| `routing_diagnostic_aggregate` | (v0.9) Aggregate failure-mode analysis for a queue over an interval. *"Show me all this week's abandons on our general inbound queue — how many were because nobody was eligible vs. all-busy? Which 15-minute windows were worst?"* Closes the v0.5 promise. Heuristic classification: `no_eligible_agents` / `all_eligible_busy` / `abandoned_in_ivr`. Pairs with the v0.7 cc-daily-brief 'worst routes' section — daily-brief surfaces *which* queues failed; this surfaces *why*. |
 
 ### Health check (v0.6+)
 | Tool | Purpose |
@@ -201,12 +201,13 @@ Produces a self-contained HTML contact-centre report from one prompt — *"do th
 
 What the report contains:
 
-1. Executive summary (KPI cards + headline findings)
-2. Volume & funnel (brand × channel totals, per-queue tables, daily voice service-level chart)
-3. Themes (top dispositions, AI outcome distribution, top expected-fix tags)
-4. Repeat callers — actionable priority list of unresolved repeaters with summaries
-5. Workforce — per-agent productivity (specialists only), AHT vs targets (voice / message / ACW), break / AWAY / pre-break behaviour
-6. Performance leverage — quantifies "phantom capacity" (handle hours that would be freed if every agent hit AHT target) + "FCR drag" (handle hours wasted on repeat calls), then compares against the WFM-derived peak-demand shortfall to give a single synthesised verdict: *"more staff or better staff?"*
+1. **LLM narrative synthesis** (v0.7) — four sections written by Claude on top of the data: *Coverage & caveats*, *What worked*, *What went wrong*, *Recommended actions*. Opt-in via `--with-narrative <md-file>`; omit the flag for a data-only build.
+2. Executive summary (KPI cards + headline findings)
+3. Volume & funnel (brand × channel totals, per-queue tables, daily voice service-level chart, plus the v0.9 **hour-of-day × day-of-week heatmap** that surfaces intra-day staffing patterns the daily chart averages away)
+4. Themes (top dispositions, AI outcome distribution, top expected-fix tags)
+5. Repeat callers — actionable priority list of unresolved repeaters with summaries
+6. Workforce — per-agent productivity (specialists only), AHT vs targets (voice / message / ACW), break / AWAY / pre-break behaviour. v0.9 adds inline-SVG **voice-AHT sparklines** next to each headline AHT so direction of travel is visible at a glance.
+7. Performance leverage — quantifies "phantom capacity" (handle hours that would be freed if every agent hit AHT target) + "FCR drag" (handle hours wasted on repeat calls), then compares against the WFM-derived peak-demand shortfall to give a single synthesised verdict: *"more staff or better staff?"*
 
 Tenant-agnostic by design: every brand name, queue naming pattern, AHT target, WFM unit ID and presence ID is read from the tenant config. No tenant-specific values are hard-coded in the skill or build script.
 
@@ -214,7 +215,7 @@ Living at [`skills/cc-monthly-report/`](skills/cc-monthly-report/) (symlinked un
 
 ### `cc-coaching-prep`
 
-One-prompt 1:1 prep brief for a single agent — *"prep coaching for Anthony for the last 4 weeks"* — drops a self-contained HTML at `<output_dir>/coaching-<agent-slug>-<period>.html`.
+One-prompt 1:1 prep brief for a single agent — *"prep coaching for [agent name] for the last 4 weeks"* — drops a self-contained HTML at `<output_dir>/coaching-<agent-slug>-<period>.html`.
 
 What the brief contains:
 
@@ -224,6 +225,8 @@ What the brief contains:
 4. Wrap-up & handling (note rate, top dispositions)
 5. Top flagged calls (heuristic: sentiment drop, hold ratio, AHT excess, no wrap-up notes — colour-coded reason pills with transcript links)
 6. Recommended coaching focus (heuristic top-3 with concrete evidence)
+
+v0.9 adds optional LLM narrative synthesis in three sections — *Strengths to acknowledge*, *Areas to coach*, *Suggested talking points* — embedded in the HTML so the TL can re-read them right before walking into the 1:1 instead of scrolling chat history.
 
 Tenant-aware: AHT targets, peer-grouping strategy (`role` / `queue` / `mu`), and flagged-call thresholds (sentiment drop, silent seconds, AHT-excess %) all read from `coaching.*` in tenant.yaml. Soft-degrades cleanly: no quality scope → QA section empty; no STA scope → sentiment section empty; the rest still populates.
 
@@ -240,6 +243,8 @@ What the brief contains:
 3. Flagged agents — top agents by voice AHT excess
 4. Repeat-caller callback list — unresolved repeaters from yesterday
 5. Adherence flags — agents over the combined break/pre-break/meal overrun threshold
+
+v0.9 adds optional LLM narrative synthesis in two sections — *Headline* (≤80-word paragraph framing the day vs the rolling median) + *Today's priorities* (top 3 actions for the supervisor's morning standup). Daily briefs are meant to be glanced at; the 4-section monthly shape would be overkill.
 
 Tenant-aware: flag thresholds (sentiment dip, AHT excess %, SL drop pp) and the comparison window all read from `daily_brief.*` in tenant.yaml. Designed to fit a laptop screen or Slack share without scrolling — narrower than the monthly report.
 
@@ -334,10 +339,11 @@ Pair with the [`platform-api`](https://github.com/MakingChatbots/genesys-cloud-s
 
 PRs welcome. Things on the roadmap that someone might want to take a swing at:
 - Web messaging transcript wrapper (the `/api/v2/conversations/messages/{id}/messages/bulk` flow, which currently needs the `call_genesys_api` escape hatch)
-- Half-hourly intra-day staffing in `wfm_schedule` (currently rolls up to daily)
-- Forecast-vs-actual analysis (compare WFM forecast to historical conversation volumes)
-- Outbound campaign progress (`outbound:readonly`)
+- Half-hourly intra-day staffing in `wfm_schedule` (currently rolls up to daily; the v0.9 hour-of-day heatmap covers the *demand* side, but scheduled-capacity bucketing is still daily)
 - Skill-based routing analysis (which agents have which skills × queue requirements)
+- GitHub Pages site with anonymised sample reports — distribution/discoverability is the v0.10 candidate, not another feature release
+
+Explicitly removed from the backlog: **outbound campaign coverage** (deferred across v0.5–v0.8, dropped in v0.9 — re-add if an outbound-shop user opens an issue). **Forecast-vs-actual analysis** shipped in v0.7 as `volume_vs_forecast`.
 
 ## Licence
 
