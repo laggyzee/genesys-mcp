@@ -1,5 +1,47 @@
 # Release Notes
 
+## v0.9.2 — 26 May 2026
+
+Four bug fixes in `cc-daily-brief` — every Section 3 / 4 / 5 row was silently filtering out signal that was sitting in the raw data. Found while running the brief for a real day on a live tenant and noticing the "no flagged agents / no callbacks / no adherence issues" callouts couldn't possibly be right.
+
+### Section 3 (Flagged agents) — same `derived`-block bug as v0.9.1
+
+[`skills/cc-daily-brief/build_report.py`](skills/cc-daily-brief/build_report.py) — `flagged_agents` read `data[0].derived.{answered, avg_handle_s}`, but `agent_performance` results don't carry a `derived` block (only `queue_performance` does — and v0.9.1 fixed the equivalent bug in `mcp-reconcile` and `coaching.py`). This file was missed. Result: 5 voice specialists each running 19–60 calls at +66% to +330% over AHT target were all dropped to "no agents flagged."
+
+Fix reads raw `tAnswered.count` + `tHandle.sum/count` and computes AHT directly.
+
+### Section 4 (Repeat-caller callbacks) — wrong dict key
+
+`repeat_caller_hotlist` read `deep.get("unresolved_repeaters")` but `repeat_caller_deep_dive` returns rows under `repeaters`. Always returned `[]`. Fix reads `repeaters` (with `unresolved_repeaters` legacy fallback) and now filters to high-unresolved or explicit-action rows so 23-call repeat patterns don't disappear from the brief.
+
+### Section 5 (Adherence flags) — gated on break/meal, ignored pre-break
+
+`adherence_flags` only checked `total_overrun_min` (break + meal) and never read `pre_break_overrun_total_min`. Agents with a 40-minute parking session on PRE_BREAK but no break/meal overrun (a common real-tenant pattern) slipped through. Fix combines both before applying the 30-min threshold.
+
+### New: org-level adherence summary line
+
+Even with the thresholds working, the 30-min per-agent filter is a "surface the worst offenders" cut. On a real day we saw 215 min of total overrun spread across 18 sessions / 15 agents — most of it under the 30-min per-agent line. The brief now always prints a summary line above Section 5:
+
+> **Total overrun yesterday: 216 min** across 18 sessions / 15 agents (break+meal 23 min, pre-break 193 min). Per-agent threshold for the table below: ≥30 min combined.
+
+So even when no individual agent crosses the threshold the supervisor still sees the accumulated org-level drain.
+
+### Tests
+
+- 154 → 165 (+11 regression tests in [`tests/test_daily_brief.py`](tests/test_daily_brief.py)).
+- Coverage: raw-metric reads vs derived-block payloads, pre-break-only agents over threshold, hotlist key fallback, summary-line totals across mixed-overrun shapes.
+
+### Upgrade
+
+```bash
+cd ~/code/genesys-mcp && git pull && uv sync
+make test                  # 165 tests should pass
+```
+
+Pure build-script changes — no SKILL.md or report-shape changes. Re-running `cc-daily-brief` after upgrade produces correct numbers without re-pulling data.
+
+---
+
 ## v0.9.1 — 26 May 2026
 
 Two bug fixes caught while running a full report stack against a live tenant over a 24-day window.

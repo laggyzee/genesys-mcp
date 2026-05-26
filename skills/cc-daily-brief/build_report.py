@@ -208,9 +208,14 @@ def flagged_agents(agent_perf: dict, voice_aht_target_s: int,
         media = grp.get("mediaType")
         if not uid or media != "voice":
             continue
-        derived = (r.get("data") or [{}])[0].get("derived") or {}
-        answered = derived.get("answered") or 0
-        aht_s = derived.get("avg_handle_s")
+        # agent_performance results don't carry a `derived` block (only
+        # queue_performance does); read raw metric stats and compute AHT.
+        bucket = (r.get("data") or [{}])[0]
+        metrics = {m["metric"]: (m.get("stats") or {}) for m in (bucket.get("metrics") or [])}
+        answered = int(metrics.get("tAnswered", {}).get("count", 0) or 0)
+        handle_count = int(metrics.get("tHandle", {}).get("count", 0) or 0)
+        handle_sum_ms = float(metrics.get("tHandle", {}).get("sum", 0) or 0)
+        aht_s = (handle_sum_ms / 1000.0 / handle_count) if handle_count else None
         if not answered or not aht_s or answered < 5:
             continue
         excess_pct = (aht_s - voice_aht_target_s) / voice_aht_target_s * 100.0
@@ -228,51 +233,102 @@ def flagged_agents(agent_perf: dict, voice_aht_target_s: int,
     return rows[:top_n]
 
 
-def repeat_caller_hotlist(deep: dict, top_n: int = 8) -> list[dict]:
-    """Filter the deep-dive's unresolved_repeaters to a top-N callback list."""
-    rows = deep.get("unresolved_repeaters") or []
+def repeat_caller_hotlist(deep: dict, top_n: int = 8,
+                          unresolved_share_threshold: float = 0.5) -> list[dict]:
+    """Filter the deep-dive's repeaters to a top-N callback list.
+
+    repeat_caller_deep_dive returns rows under the ``repeaters`` key. We keep
+    rows where either (a) the heuristic ``recommended_action`` is one of the
+    explicit follow-up signals (``callback_recommended`` / ``escalate_to_retention``)
+    or (b) ``unresolved_share`` is above the threshold (default 50% — the
+    caller is still cycling back). Plain ``route_review`` / ``monitor`` rows
+    aren't actionable from the daily-brief and don't make the cut.
+    """
+    rows = deep.get("repeaters") or deep.get("unresolved_repeaters") or []
+    actionable_keep = {"callback_recommended", "escalate_to_retention"}
     out = []
-    for r in rows[:top_n]:
+    for r in rows:
+        action = r.get("recommended_action")
+        unresolved = r.get("unresolved_share") or 0
+        if action not in actionable_keep and unresolved < unresolved_share_threshold:
+            continue
+        # Last-call summary lives inside topics or sentiment_trajectory in
+        # the deep-dive output; fall back to the topics list for context.
+        topics = r.get("topics") or []
+        topic_str = ", ".join(t.get("topic", "") for t in topics[:2])
         out.append({
-            "ani_masked": r.get("ani_masked") or r.get("ani"),
+            "ani_masked": r.get("ani_masked") or r.get("ani") or "—",
             "answered_count": r.get("answered_count"),
-            "unresolved_share": r.get("unresolved_share"),
-            "last_summary": (r.get("last_summary") or "")[:160],
-            "recommended_action": r.get("recommended_action"),
+            "unresolved_share": unresolved,
+            "last_summary": topic_str[:160] or (r.get("last_summary") or "")[:160],
+            "recommended_action": action,
         })
-    return out
+    out.sort(key=lambda r: -(r.get("unresolved_share") or 0))
+    return out[:top_n]
 
 
 def adherence_flags(brk: dict, user_names: dict[str, str] | None = None,
                     overrun_min_threshold: int = 30,
                     top_n: int = 5) -> list[dict]:
-    """Agents whose total break/meal/away/pre-break overrun > threshold.
+    """Agents whose combined break+meal+pre-break overrun > threshold.
 
-    Reads break_overrun_report's shape: ``users[*] = {user_id, total_overrun_min,
-    pre_break_overrun_total_min, away_total_min, ...}``.
+    Reads break_overrun_report's shape. ``total_overrun_min`` rolls up break
+    + meal overruns only — pre-break is tracked separately under
+    ``pre_break_overrun_total_min``. The threshold gates on the *combined*
+    minute count so a 40-minute pre-break parking session surfaces even when
+    break/meal are clean.
     """
     user_names = user_names or {}
     rows: list[dict] = []
     for r in brk.get("users") or []:
-        # Per-source overruns
         pb_min = r.get("pre_break_overrun_total_min") or 0
         # break/meal overruns roll up into total_overrun_min (the report's
         # primary number). We split where possible; otherwise total carries it.
-        total_min = r.get("total_overrun_min") or 0
-        if total_min < overrun_min_threshold:
+        bm_min = r.get("total_overrun_min") or 0
+        combined_min = bm_min + pb_min
+        if combined_min < overrun_min_threshold:
             continue
         uid = r.get("user_id")
         rows.append({
             "name": user_names.get(uid) or uid[:8],
             "user_id": uid,
             "pre_break_overrun_min": pb_min,
-            "break_overrun_min": max(0, total_min - pb_min),  # remainder
+            "break_overrun_min": bm_min,
             "meal_overrun_min": 0,  # not split in the source
             "away_total_min": r.get("away_total_min") or 0,
-            "total_min": round(total_min, 1),
+            "total_min": round(combined_min, 1),
         })
     rows.sort(key=lambda r: -r["total_min"])
     return rows[:top_n]
+
+
+def adherence_summary(brk: dict) -> dict:
+    """Org-level overrun totals, computed independently of the per-agent threshold.
+
+    The threshold in :func:`adherence_flags` is a "surface the worst offenders"
+    filter — agents with small overruns drop off the table even when there's
+    real org-level drain. This summary always shows the total so the brief
+    can't silently swallow 200 min of accumulated overrun.
+    """
+    break_meal_min = 0.0
+    pre_break_min = 0.0
+    agents_with_any = 0
+    sessions = 0
+    for r in brk.get("users") or []:
+        bm = r.get("total_overrun_min") or 0
+        pb = r.get("pre_break_overrun_total_min") or 0
+        if bm or pb:
+            agents_with_any += 1
+            sessions += (r.get("overrun_count") or 0) + (r.get("pre_break_overrun_count") or 0)
+        break_meal_min += bm
+        pre_break_min += pb
+    return {
+        "break_meal_min": round(break_meal_min, 1),
+        "pre_break_min": round(pre_break_min, 1),
+        "total_min": round(break_meal_min + pre_break_min, 1),
+        "agents_with_any": agents_with_any,
+        "overrun_sessions": sessions,
+    }
 
 
 # ── Narrative synthesis (v0.9) ──
@@ -451,6 +507,7 @@ def render_html(cfg: TenantConfig, target_date: str, day_interval: str,
                 window_interval: str, headline: dict, worst: list[dict],
                 flagged: list[dict], hotlist: list[dict],
                 adherence: list[dict],
+                adherence_summary_data: dict | None = None,
                 narrative: dict[str, str] | None = None) -> str:
     voice_sl_today = headline["voice_sl_today"]
     voice_sl_base = headline["voice_sl_baseline"]
@@ -546,10 +603,29 @@ def render_html(cfg: TenantConfig, target_date: str, day_interval: str,
         )
 
     # Adherence
+    # Org-level summary line — always shown, regardless of whether the per-agent
+    # 30-min threshold caught anyone. Stops the brief from silently swallowing
+    # accumulated overrun (e.g. 4 small break overruns + 14 small pre-breaks).
+    summary = adherence_summary_data or {
+        "break_meal_min": 0, "pre_break_min": 0, "total_min": 0,
+        "agents_with_any": 0, "overrun_sessions": 0,
+    }
+    if summary["total_min"] > 0:
+        summary_html = (
+            '<div class="callout" style="margin-bottom:8px">'
+            f'<strong>Total overrun yesterday: {summary["total_min"]:.0f} min</strong> '
+            f'across {summary["overrun_sessions"]} sessions / {summary["agents_with_any"]} agents '
+            f'(break+meal {summary["break_meal_min"]:.0f} min, pre-break {summary["pre_break_min"]:.0f} min). '
+            f'Per-agent threshold for the table below: ≥30 min combined.</div>'
+        )
+    else:
+        summary_html = ""
+
     if not adherence:
-        adherence_html = (
-            '<div class="callout"><strong>No adherence flags</strong> '
-            "(no agents over 30 min combined break + pre-break + meal overrun).</div>"
+        adherence_html = summary_html + (
+            '<div class="callout"><strong>No agents over the 30-min combined threshold.</strong>'
+            + (f' Smaller overruns are rolled into the summary above.' if summary["total_min"] > 0 else "")
+            + '</div>'
         )
     else:
         rows = "".join(
@@ -560,7 +636,7 @@ def render_html(cfg: TenantConfig, target_date: str, day_interval: str,
             f'<td class="num"><strong>{r["total_min"]:.0f}</strong></td></tr>'
             for r in adherence
         )
-        adherence_html = (
+        adherence_html = summary_html + (
             '<table><thead><tr><th>Agent</th>'
             '<th class="num">Pre-break</th><th class="num">Break</th>'
             '<th class="num">Meal</th><th class="num">Total min</th></tr></thead>'
@@ -635,6 +711,7 @@ def main() -> int:
                              user_names=user_names)
     hotlist = repeat_caller_hotlist(deep)
     adherence = adherence_flags(brk, user_names=user_names)
+    adherence_summary_data = adherence_summary(brk)
 
     narrative = (
         parse_narrative_md(Path(args.with_narrative).expanduser())
@@ -642,7 +719,9 @@ def main() -> int:
     )
     html = render_html(cfg, args.target_date, args.day_interval,
                        args.window_interval, headline, worst, flagged,
-                       hotlist, adherence, narrative=narrative)
+                       hotlist, adherence,
+                       adherence_summary_data=adherence_summary_data,
+                       narrative=narrative)
 
     out_path = (Path(args.output).expanduser() if args.output
                 else cfg.daily_brief_output_path(args.target_date))
