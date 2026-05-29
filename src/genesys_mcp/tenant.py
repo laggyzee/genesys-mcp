@@ -159,7 +159,7 @@ class _Presence(BaseModel):
 class _OperatingModel(BaseModel):
     """High-level toggles for tenant operating-model assumptions.
 
-    The skills' default reporting shape assumes a Prvidr-style operating
+    The skills' default reporting shape assumes a familiar CC operating
     model: brand-structured queues, pre-break-presence-as-drain, multi-channel
     voice + message. Other Genesys deployers fit different shapes — this
     block lets the skills cleanly degrade rather than silently produce
@@ -441,7 +441,7 @@ class TenantConfig(BaseModel):
         default_factory=_OperatingModel,
         description=(
             "Toggles for tenant operating-model assumptions. Defaults assume "
-            "the Prvidr-style shape (multi-brand, pre-break presence, voice "
+            "the built-in shape (multi-brand, pre-break presence, voice "
             "+ message). Other tenants override per their shape."
         ),
     )

@@ -2,8 +2,8 @@
 
 Pre-v1.0 the skills assumed every queue name matched
 ``cfg.queues.name_pattern`` (default ``"{brand} - {channel} - {function}"``).
-Queues that didn't match were silently dropped — fine for Prvidr (most
-queues match) but disastrous for tenants whose naming is different.
+Queues that didn't match were silently dropped — fine when most queues
+match the pattern but disastrous for tenants whose naming is different.
 
 v1.0 introduces two tenant-config knobs:
 

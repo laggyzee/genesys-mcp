@@ -6,7 +6,7 @@ Built so contact-centre operations and analytics work — queue performance, age
 
 > **v1.0 — May 2026:** the **tenant-agnostic + correctness floor** release. Two themes:
 > - **Hardening** (v0.10 floor): 286 tests; response-shape validators wired into every skill build script; numeric snapshot tests pin the four core aggregator outputs; a shared accumulator de-duplicates the v0.9.1 P7D-bucket fix; coverage parity across all four skills.
-> - **Tenant-agnostic** (v1.0): every Prvidr-shaped assumption moved out of code. Pre-break UUID, coaching heuristic thresholds (hold ratio, QA pass mark, peer multiplier, etc.), and specialist roles now live in [`tenant.yaml`](docs/tenant-config-schema.md). A new `operating_model` block lets single-brand, message-only, and no-pre-break tenants get clean degraded reports instead of misleading zeros. Queue-name pattern is optional and the loader hard-fails on schema-version drift.
+> - **Tenant-agnostic** (v1.0): every tenant-specific assumption that used to be baked into Python now lives in [`tenant.yaml`](docs/tenant-config-schema.md). Pre-break UUID, coaching heuristic thresholds (hold ratio, QA pass mark, peer multiplier, etc.), and specialist roles are all config-driven. A new `operating_model` block lets single-brand, message-only, and no-pre-break tenants get clean degraded reports instead of misleading zeros. Queue-name pattern is optional and the loader hard-fails on schema-version drift.
 >
 > See [RELEASE-NOTES.md](RELEASE-NOTES.md) for the full history.
 
@@ -18,7 +18,7 @@ Curated tools for ops/analytics work — queues, agents, conversations, recordin
 
 ## Will this work on my tenant?
 
-v1.0 was the explicit shift from "works on Prvidr's specific Genesys setup" to "works on any Genesys Cloud tenant — and tells you up-front where your shape differs." Three categories of assumption you can toggle via [`tenant.yaml`](docs/tenant-config-schema.md):
+v1.0 was the explicit shift from "works on one specific Genesys setup" to "works on any Genesys Cloud tenant — and tells you up-front where your shape differs." Three categories of assumption you can toggle via [`tenant.yaml`](docs/tenant-config-schema.md):
 
 | Assumption | Default | Toggle off if |
 |---|---|---|
