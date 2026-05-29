@@ -135,6 +135,15 @@ def main(argv: list[str] | None = None) -> int:
                         help="Emit JSON instead of a human-readable report.")
     parser.add_argument("--no-colour", action="store_true",
                         help="Disable ANSI colour escapes in the human report.")
+    parser.add_argument(
+        "--strict", action="store_true",
+        help=(
+            "Exit non-zero on any warning, not just blockers. Use for CI / "
+            "scripted pre-release validation — under --strict, an "
+            "actionable misconfiguration (low queue-pattern match rate, "
+            "specialist_roles don't resolve, etc.) fails the build."
+        ),
+    )
     args = parser.parse_args(argv)
 
     _load_env_files()
@@ -160,7 +169,11 @@ def main(argv: list[str] | None = None) -> int:
 
     report = run_health_check()
     _print_report(report, as_json=args.json, no_colour=args.no_colour)
-    return 0 if report["verdict"] != "blocked" else 1
+    if report["verdict"] == "blocked":
+        return 1
+    if args.strict and report["verdict"] == "ready_with_warnings":
+        return 2
+    return 0
 
 
 if __name__ == "__main__":

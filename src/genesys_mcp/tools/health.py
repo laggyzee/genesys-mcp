@@ -28,7 +28,7 @@ import PureCloudPlatformClientV2 as gc
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
-from genesys_mcp.client import get_api, with_retry
+from genesys_mcp.client import get_api, to_dict, with_retry
 from genesys_mcp.tenant import (
     TenantConfigError,
     default_config_path,
@@ -239,7 +239,7 @@ def _check_scope(probe: _ScopeProbe) -> dict:
         }
 
 
-def _check_tenant_config() -> dict:
+def _check_tenant_config(api: gc.ApiClient | None = None) -> dict:
     cfg_path = default_config_path()
     out: dict[str, Any] = {
         "path": str(cfg_path),
@@ -263,6 +263,12 @@ def _check_tenant_config() -> dict:
         out["short_name"] = cfg.tenant.short_name
         out["brand_count"] = len(cfg.brands.names)
         out["mu_count"] = len(cfg.management_units.ids)
+        out["schema_version"] = cfg.schema_version
+        out["operating_model"] = {
+            "has_pre_break_presence": cfg.operating_model.has_pre_break_presence,
+            "has_brand_structure": cfg.operating_model.has_brand_structure,
+            "expected_channels": cfg.operating_model.expected_channels,
+        }
         # Lightweight warning checks
         risky_skips = [
             s for s in cfg.queues.skip_substrings
@@ -274,15 +280,87 @@ def _check_tenant_config() -> dict:
                 f"hide real customer-facing queues whose names happen to "
                 f"include these substrings."
             )
-        if not cfg.presence.pre_break_organisation_presence_id:
-            out["warnings"].append(
-                "presence.pre_break_organisation_presence_id is empty — "
-                "PRE_BREAK overrun reporting will be skipped in "
-                "break_overrun_report."
-            )
+
+        # v1.0: sample queue match-rate against the configured name pattern.
+        # A tenant whose queues mostly don't match the pattern probably has
+        # the wrong pattern configured — surface this concretely.
+        if api is not None:
+            _check_queue_pattern_match_rate(api, cfg, out)
+            _check_specialist_roles_resolve(api, cfg, out)
+
     except TenantConfigError as exc:
         out["errors"].append(str(exc))
     return out
+
+
+def _check_queue_pattern_match_rate(
+    api: gc.ApiClient, cfg: Any, out: dict,
+) -> None:
+    """Sample the first page of queues and warn if < 80% match the pattern."""
+    from genesys_mcp.queue_parser import compute_pattern_match_rate
+
+    try:
+        routing_api = gc.RoutingApi(api)
+        page = to_dict(routing_api.get_routing_queues(page_size=100, page_number=1))
+        queue_names = [q.get("name") for q in (page.get("entities") or []) if q.get("name")]
+    except Exception as exc:
+        out["warnings"].append(
+            f"could not sample-test queue name pattern (list_queues failed: {exc})"
+        )
+        return
+
+    if not queue_names:
+        return  # nothing to test against
+
+    # Strip out substrings the tenant explicitly skips
+    filtered = [
+        n for n in queue_names
+        if not any(s in n for s in cfg.queues.skip_substrings)
+    ]
+    if not filtered:
+        return
+
+    rate = compute_pattern_match_rate(filtered, cfg.queues.name_pattern)
+    out["queue_pattern_match_rate"] = round(rate, 3)
+    out["queues_sampled"] = len(filtered)
+    if cfg.queues.name_pattern is None:
+        return  # null pattern → no expectations
+    if rate < 0.8:
+        out["warnings"].append(
+            f"queues.name_pattern {cfg.queues.name_pattern!r} matches only "
+            f"{int(rate * 100)}% of {len(filtered)} sampled queues. Either "
+            f"set queues.name_pattern_match_required: false (allows fallback "
+            f"to function-only naming for non-matching queues), or update the "
+            f"pattern to one that fits this tenant's queue names."
+        )
+
+
+def _check_specialist_roles_resolve(
+    api: gc.ApiClient, cfg: Any, out: dict,
+) -> None:
+    """Verify the configured specialist roles resolve to at least one user."""
+    try:
+        users_api = gc.UsersApi(api)
+        page = to_dict(users_api.get_users(page_size=100, page_number=1, state="active"))
+        users = page.get("entities") or []
+    except Exception as exc:
+        out["warnings"].append(
+            f"could not verify specialist_roles against active users "
+            f"(list_users failed: {exc})"
+        )
+        return
+
+    titles_seen = {u.get("title") for u in users if u.get("title")}
+    matches = [t for t in cfg.specialist_roles if t in titles_seen]
+    out["specialist_roles_matched"] = matches
+    if not matches:
+        sample = sorted(titles_seen)[:5] if titles_seen else []
+        out["warnings"].append(
+            f"specialist_roles {cfg.specialist_roles!r} match no active "
+            f"user titles. Sample titles in the first page of active users: "
+            f"{sample!r}. Update specialist_roles in tenant.yaml or rerun "
+            f"genesys-tenant-setup to re-discover."
+        )
 
 
 def _check_skills_linked() -> list[dict]:
@@ -354,7 +432,10 @@ def run_health_check() -> dict:
     produce identical findings.
     """
     scopes = [_check_scope(p) for p in _SCOPES]
-    config = _check_tenant_config()
+    # Pass the shared API client to the config check so the v1.0 sample
+    # checks (queue-pattern match rate, specialist-role resolution) can
+    # hit /routing/queues + /users without re-initialising.
+    config = _check_tenant_config(api=get_api())
     skills = _check_skills_linked()
     verdict, blockers = _verdict(scopes, config, skills)
     return {

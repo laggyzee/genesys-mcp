@@ -178,6 +178,8 @@ queues:
   functions: ["Sales", "Support"]
   skip_substrings: ["Holding"]
 specialist_roles: ["Specialist"]
+operating_model:
+  has_pre_break_presence: false
 """
     )
     monkeypatch.setenv("GENESYS_MCP_CONFIG", str(cfg_path))

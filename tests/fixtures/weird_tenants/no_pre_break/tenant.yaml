@@ -1,0 +1,17 @@
+schema_version: "1.0"
+tenant:
+  name: "NoPreBreakCo"
+  short_name: "npb"
+  timezone: "UTC"
+brands:
+  names: ["BrandA", "BrandB"]
+queues:
+  name_pattern: "{brand} - {function}"
+  channels: ["Voice", "Chat"]
+  functions: ["Sales", "Support"]
+  skip_substrings: []
+specialist_roles: ["Specialist"]
+operating_model:
+  has_pre_break_presence: false
+  has_brand_structure: true
+  expected_channels: ["voice", "message"]

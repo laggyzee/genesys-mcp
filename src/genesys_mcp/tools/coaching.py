@@ -49,12 +49,6 @@ from genesys_mcp.tools.reports import (
 logger = logging.getLogger(__name__)
 
 
-# ── tenant defaults (used when no tenant.yaml present) ──
-_VOICE_AHT_S_FALLBACK = 285
-_MSG_AHT_S_FALLBACK = 660
-_ACW_S_FALLBACK = 15
-_FTE_HOURS_PER_MONTH_FALLBACK = 160
-
 # Bounded concurrency for per-conversation enrichment fetches (STA + wrap-up).
 # Genesys's documented rate limit is 300 req/min per OAuth client; 8 workers
 # walking 200 conversations × 2 endpoints = 400 calls in ~5s, well under the
@@ -63,13 +57,21 @@ _ENRICHMENT_WORKERS = 8
 
 
 def _resolve_targets(cfg: TenantConfig | None) -> dict[str, int]:
+    """Pull targets from tenant.yaml.
+
+    Pre-v1.0 this had hardcoded fallbacks (voice 285s / message 660s / ACW 15s)
+    that were Prvidr-shaped and quietly applied when tenant.yaml was absent.
+    v1.0 makes tenant.yaml a hard requirement — the fallbacks were a footgun
+    for any other deployer.
+    """
     if cfg is None:
-        return {
-            "voice_aht_s": _VOICE_AHT_S_FALLBACK,
-            "msg_aht_s": _MSG_AHT_S_FALLBACK,
-            "acw_s": _ACW_S_FALLBACK,
-            "fte_hours_per_month": _FTE_HOURS_PER_MONTH_FALLBACK,
-        }
+        raise TenantConfigError(
+            "agent_coaching_pack requires a tenant config — no in-code "
+            "fallbacks since v1.0. Run the genesys-tenant-setup skill (it "
+            "auto-discovers most values) to generate ~/.config/genesys-mcp/"
+            "tenant.yaml, or set $GENESYS_MCP_CONFIG to point at an existing "
+            "config."
+        )
     return {
         "voice_aht_s": cfg.targets.voice_aht_s,
         "msg_aht_s": cfg.targets.message_aht_s,
@@ -445,12 +447,26 @@ def _recommend_focus(
     wrap_stats: dict[str, Any],
     qa_summary: dict[str, Any] | None,
     targets: dict[str, int],
+    heuristics: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
-    """Heuristic top-3 coaching focus areas with concrete evidence."""
+    """Heuristic top-3 coaching focus areas with concrete evidence.
+
+    Numeric cutoffs come from ``cfg.coaching.heuristics``. Pre-v1.0 they
+    were hardcoded inline — fine for inbound-heavy CCs but wrong for
+    transfer-heavy retention teams (higher hold ratios are normal there).
+    """
+    h = heuristics or {}
+    voice_excess_thr = h.get("voice_excess_hours_threshold", 2.0)
+    msg_excess_thr = h.get("message_excess_hours_threshold", 2.0)
+    note_rate_thr = h.get("wrap_up_note_rate_threshold", 0.7)
+    qa_pass = h.get("qa_pass_mark", 80)
+    hold_thr = h.get("hold_ratio_threshold", 0.15)
+    peer_mult = h.get("peer_aht_multiplier", 1.15)
+
     candidates: list[dict[str, Any]] = []
 
     v_excess = target_kpis.get("voice_excess_handle_hours") or 0.0
-    if v_excess >= 2.0:
+    if v_excess >= voice_excess_thr:
         candidates.append({
             "rank": None,
             "area": "Voice AHT",
@@ -464,7 +480,7 @@ def _recommend_focus(
         })
 
     m_excess = target_kpis.get("message_excess_handle_hours") or 0.0
-    if m_excess >= 2.0:
+    if m_excess >= msg_excess_thr:
         candidates.append({
             "area": "Message AHT",
             "headline": (
@@ -477,7 +493,7 @@ def _recommend_focus(
         })
 
     note_rate = wrap_stats.get("wrapup_note_rate")
-    if note_rate is not None and note_rate < 0.7:
+    if note_rate is not None and note_rate < note_rate_thr:
         candidates.append({
             "area": "Wrap-up discipline",
             "headline": (
@@ -489,22 +505,24 @@ def _recommend_focus(
         })
 
     if qa_summary and qa_summary.get("avg_score") is not None:
-        if qa_summary["avg_score"] < 80:
+        if qa_summary["avg_score"] < qa_pass:
             candidates.append({
                 "area": "QA score",
                 "headline": (
                     f"QA avg {qa_summary['avg_score']}% across "
-                    f"{qa_summary['n_evaluations']} evaluations — below the 80% pass mark"
+                    f"{qa_summary['n_evaluations']} evaluations — "
+                    f"below the {qa_pass}% pass mark"
                 ),
-                "score": (80 - qa_summary["avg_score"]) / 5.0,
+                "score": (qa_pass - qa_summary["avg_score"]) / 5.0,
             })
 
     hold = target_kpis.get("voice_hold_ratio")
-    if hold is not None and hold > 0.15:
+    if hold is not None and hold > hold_thr:
         candidates.append({
             "area": "Hold time",
             "headline": (
-                f"Voice hold ratio {hold:.0%} — above typical 15% threshold"
+                f"Voice hold ratio {hold:.0%} — "
+                f"above the {int(hold_thr * 100)}% threshold"
             ),
             "score": hold * 10.0,
         })
@@ -512,7 +530,7 @@ def _recommend_focus(
     peer_voice = peer_medians.get("voice_aht_s")
     if (
         peer_voice and target_kpis.get("voice_aht_s")
-        and target_kpis["voice_aht_s"] > peer_voice * 1.15
+        and target_kpis["voice_aht_s"] > peer_voice * peer_mult
     ):
         candidates.append({
             "area": "vs Peers — voice handle",
@@ -570,19 +588,15 @@ def register(mcp: FastMCP) -> None:
         OAuth client lacks ``quality:readonly``; sentiment soft-fails on
         per-call STA 404s; the rest of the pack always populates.
         """
-        # 1. Tenant config (graceful degrade)
-        try:
-            cfg = load_config()
-        except TenantConfigError as exc:
-            logger.info("tenant config not loaded: %s — using fallback targets", exc)
-            cfg = None
+        # 1. Tenant config — required since v1.0 (pre-v1.0 silently fell
+        # back to Prvidr-flavoured defaults). Errors propagate with a clear
+        # "run genesys-tenant-setup" remediation message.
+        cfg = load_config()
         targets = _resolve_targets(cfg)
-        thresholds = (
-            cfg.coaching.flagged_call_thresholds if cfg is not None else None
-        )
-        sentiment_drop_t = thresholds.sentiment_drop if thresholds else 0.5
-        silent_s_t = thresholds.silent_seconds if thresholds else 30
-        aht_excess_pct_t = thresholds.aht_excess_pct if thresholds else 20.0
+        thresholds = cfg.coaching.flagged_call_thresholds
+        sentiment_drop_t = thresholds.sentiment_drop
+        silent_s_t = thresholds.silent_seconds
+        aht_excess_pct_t = thresholds.aht_excess_pct
 
         # 2. Interval
         interval = interval or _default_interval(28)
@@ -633,9 +647,13 @@ def register(mcp: FastMCP) -> None:
             else:
                 raise
 
-        # 6. Heuristic coaching focus
+        # 6. Heuristic coaching focus — cutoffs from tenant.yaml's
+        # coaching.heuristics block (v1.0). Tenants tune these (e.g. higher
+        # hold_ratio_threshold for transfer-heavy retention teams) so the
+        # recommended-focus list reflects the team's operating model.
         focus = _recommend_focus(
             target_kpis, peer_medians, call_signals, qa_summary, targets,
+            heuristics=cfg.coaching.heuristics.model_dump(),
         )
 
         # 7. User context (name, role, manager) — best-effort. expand=manager
@@ -666,7 +684,7 @@ def register(mcp: FastMCP) -> None:
             },
             "interval": interval,
             "targets": targets,
-            "tenant_config_loaded": cfg is not None,
+            "tenant_config_loaded": True,  # v1.0: tenant.yaml required — always True
             "performance": {
                 "target": target_kpis,
                 "peer_count": len(per_peer_kpis),
