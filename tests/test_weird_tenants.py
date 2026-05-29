@@ -1,7 +1,7 @@
 """End-to-end smoke tests for the v1.0 weird-tenant fixtures.
 
 Each fixture in ``tests/fixtures/weird_tenants/<shape>/`` exercises a
-non-Prvidr-shaped tenant config. The tests:
+non-default-shaped tenant config. The tests:
 
 1. Confirm ``load_config()`` accepts each config — pinning the
    model-validator invariants don't false-positive on legitimate variation.

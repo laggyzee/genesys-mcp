@@ -60,7 +60,7 @@ def _resolve_targets(cfg: TenantConfig | None) -> dict[str, int]:
     """Pull targets from tenant.yaml.
 
     Pre-v1.0 this had hardcoded fallbacks (voice 285s / message 660s / ACW 15s)
-    that were Prvidr-shaped and quietly applied when tenant.yaml was absent.
+    that were tenant-specific and quietly applied when tenant.yaml was absent.
     v1.0 makes tenant.yaml a hard requirement — the fallbacks were a footgun
     for any other deployer.
     """
@@ -589,7 +589,7 @@ def register(mcp: FastMCP) -> None:
         per-call STA 404s; the rest of the pack always populates.
         """
         # 1. Tenant config — required since v1.0 (pre-v1.0 silently fell
-        # back to Prvidr-flavoured defaults). Errors propagate with a clear
+        # back to tenant-specific defaults). Errors propagate with a clear
         # "run genesys-tenant-setup" remediation message.
         cfg = load_config()
         targets = _resolve_targets(cfg)

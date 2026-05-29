@@ -6,7 +6,7 @@ Tenants whose queue names don't fit silently dropped queues from reports.
 
 v1.0 introduces two tenant.yaml knobs (``name_pattern: null`` and
 ``name_pattern_match_required: false``). These tests pin the resulting
-behaviour for the three main shapes: strict (Prvidr-style), permissive
+behaviour for the three main shapes: strict (default), permissive
 (legacy-mixed tenants), and unstructured (no brand/channel at all).
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from genesys_mcp.queue_parser import (
 )
 
 
-class TestParseWithDefaultPrvidrPattern:
+class TestParseWithDefaultBrandChannelFunctionPattern:
     PATTERN = "{brand} - {channel} - {function}"
 
     def test_matching_queue_returns_all_three_parts(self):

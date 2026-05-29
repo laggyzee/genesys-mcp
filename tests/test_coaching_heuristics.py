@@ -200,7 +200,7 @@ class TestTenantConfigSchema:
 
 
 class TestResolveTargetsRequiresTenantConfig:
-    """v1.0 hard-fail contract: no tenant.yaml = no Prvidr-shaped fallbacks."""
+    """v1.0 hard-fail contract: no tenant.yaml = no in-code fallbacks."""
 
     def test_missing_cfg_raises_with_remediation_message(self, coaching_mod):
         from genesys_mcp.tenant import TenantConfigError

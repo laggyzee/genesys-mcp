@@ -19,7 +19,7 @@ Two options:
 
 ## Schema
 
-v1.0 of the schema (current) introduces three concepts to make the file safe to deploy on tenants whose operating model differs from the original Prvidr-style assumptions:
+v1.0 of the schema (current) introduces three concepts to make the file safe to deploy on tenants whose operating model differs from the original built-in assumptions:
 
 - **`schema_version`** — string. Optional; defaults to the installed version. Loader fails loud if the file's version is newer than the code.
 - **`operating_model`** — toggles for the three biggest assumptions the skills make (pre-break presence, multi-brand structure, channel coverage).
@@ -81,7 +81,7 @@ specialist_roles:
                                # by genesys-tenant-setup from the active user list.
 
 # v1.0: explicit toggles for tenant operating-model assumptions. Defaults match the
-# original Prvidr-style assumptions; other tenants override.
+# original built-in assumptions; other tenants override.
 operating_model:
   has_pre_break_presence: bool # Default true. When true, presence.pre_break_organisation_presence_id
                                # must be set. When false, all pre-break sections in
@@ -196,9 +196,9 @@ Things deliberately kept hardcoded in scripts because they're either tenant-agno
 
 The v0.x → v1.0 transition formalised the tenant-agnostic posture. If you have an existing v0.x config:
 
-- **No action required for Prvidr-style tenants** — every v1.0 default matches the pre-v1.0 hardcoded behaviour. Configs without `schema_version`, `operating_model`, or `coaching.heuristics` load with sensible defaults and log a deprecation warning.
+- **No action required for existing v0.x tenants** — every v1.0 default matches the pre-v1.0 hardcoded behaviour. Configs without `schema_version`, `operating_model`, or `coaching.heuristics` load with sensible defaults and log a deprecation warning.
 - **`specialist_roles` is now required** — pre-v1.0 it defaulted to `["Specialist", "Customer Service Specialist"]`. If your config relies on that default, add it explicitly.
-- **Pre-break presence UUID** — the hardcoded fallback (Prvidr's UUID) is gone. If `operating_model.has_pre_break_presence: true` (the default), `presence.pre_break_organisation_presence_id` must be set or load fails.
+- **Pre-break presence UUID** — the hardcoded fallback (a tenant-specific UUID) is gone. If `operating_model.has_pre_break_presence: true` (the default), `presence.pre_break_organisation_presence_id` must be set or load fails.
 - **AHT / break / meal targets** — no in-code fallbacks; `targets` block now mandatory (it always had sensible defaults at the field level).
 
 Run `python -m genesys_mcp.health_check --strict` to surface any remaining gaps in your v1.0 config.

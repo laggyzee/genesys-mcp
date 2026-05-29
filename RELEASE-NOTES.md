@@ -2,14 +2,14 @@
 
 ## v1.0.0 — 29 May 2026
 
-**The tenant-agnostic release.** Everything Prvidr-shaped that pre-v1.0 was baked into Python now lives in tenant.yaml, and the skills cleanly degrade when a tenant's operating model differs from the defaults. Combined with the v0.10 correctness floor (shape validators, snapshot tests, untested-skill coverage), v1.0 is the first version a fresh deployer can confidently point at a non-Prvidr Genesys Cloud tenant without forking the code.
+**The tenant-agnostic release.** Every tenant-specific assumption that pre-v1.0 was baked into Python now lives in tenant.yaml, and the skills cleanly degrade when a tenant's operating model differs from the defaults. Combined with the v0.10 correctness floor (shape validators, snapshot tests, untested-skill coverage), v1.0 is the first version a fresh deployer can confidently point at any Genesys Cloud tenant without forking the code.
 
 ### Hardcoded values moved to `tenant.yaml`
 
 - **Pre-break presence UUID** removed from `break_overrun_report` default. Pass `pre_break_organization_presence_id` explicitly, or set `cfg.presence.pre_break_organisation_presence_id` in tenant.yaml. When the id is unset and `operating_model.has_pre_break_presence: false`, the tool returns `pre_break_tracking_available: false` and skills render a "tracking disabled" callout instead of zero rows.
-- **Coaching heuristic thresholds** — hold ratio (0.15), peer-AHT multiplier (1.15), per-call sentiment / hold / wrap-up cutoffs, QA pass mark (80), excess-hours thresholds (2.0h) — all move to the new `coaching.heuristics` block. Defaults match the pre-v1.0 hardcoded values so Prvidr-style configs work unchanged; transfer-heavy retention teams can now raise the hold-ratio threshold without forking the code.
+- **Coaching heuristic thresholds** — hold ratio (0.15), peer-AHT multiplier (1.15), per-call sentiment / hold / wrap-up cutoffs, QA pass mark (80), excess-hours thresholds (2.0h) — all move to the new `coaching.heuristics` block. Defaults match the pre-v1.0 hardcoded values so existing configs work unchanged; transfer-heavy retention teams can now raise the hold-ratio threshold without forking the code.
 - **`specialist_roles`** is now a required tenant.yaml field. Pre-v1.0 it defaulted to `["Specialist", "Customer Service Specialist"]`, which silently filtered out tenants whose role titles differ. The `genesys-tenant-setup` wizard already discovers these from the active user list.
-- **AHT / break / meal targets in `coaching.py`** — pre-v1.0 in-code Prvidr-flavoured fallbacks dropped. Absent tenant.yaml is a hard fail with a clear "run genesys-tenant-setup" remediation.
+- **AHT / break / meal targets in `coaching.py`** — pre-v1.0 in-code tenant-specific fallbacks dropped. Absent tenant.yaml is a hard fail with a clear "run genesys-tenant-setup" remediation.
 
 ### New `operating_model` block
 
@@ -24,7 +24,7 @@ Model-level validator catches inconsistent configs at load time — `has_pre_bre
 
 ### Queue naming pattern fallback
 
-The default `{brand} - {channel} - {function}` pattern fits Prvidr-style tenants but not every CC. v1.0 adds two knobs to `queues`:
+The default `{brand} - {channel} - {function}` pattern fits the pre-v1.0 shape but not every CC. v1.0 adds two knobs to `queues`:
 
 - `name_pattern: null` — no structured naming; every queue is a flat function.
 - `name_pattern_match_required: false` — non-matching queues fall back to using the full name as function (instead of being silently dropped from reports).
@@ -70,7 +70,7 @@ Each has a corresponding end-to-end test in [`tests/test_weird_tenants.py`](test
 - 231 → **286 tests** (+55 in v1.0 alone, 165 → 286 overall since v0.9.2 — a +73% growth across the v0.10 + v1.0 work).
 - New test files: `test_coaching_heuristics.py` (14), `test_operating_model.py` (11), `test_queue_parser.py` (12), `test_schema_versioning.py` (5), `test_health_check_upgrades.py` (7), `test_weird_tenants.py` (6).
 
-### Upgrade — Prvidr-style tenants
+### Upgrade — existing v0.x tenants
 
 No tenant.yaml changes required. v1.0 defaults match the pre-v1.0 hardcoded values, so:
 
@@ -80,7 +80,7 @@ make test                  # 286 tests should pass
 python -m genesys_mcp.health_check --strict   # green if your config is clean
 ```
 
-### Upgrade — non-Prvidr tenants
+### Upgrade — fresh tenants with a different shape
 
 Run `genesys-tenant-setup` to auto-discover what changed. If your tenant.yaml is hand-written, add `schema_version: "1.0"` and the `operating_model` block per your shape; the rest is backward-compatible. The schema doc has a dedicated v1.0 migration section.
 
@@ -144,13 +144,13 @@ Pure defensive work — no SKILL.md changes, no aggregator behaviour changes (a 
 
 ### What's next — v1.0 (tenant-agnostic + ship polish)
 
-v0.10 closes the correctness floor. **v1.0** pulls every Prvidr-shaped assumption out of code:
+v0.10 closes the correctness floor. **v1.0** pulls every tenant-specific assumption out of code:
 - Pre-break presence UUID + coaching heuristic thresholds → `tenant.yaml`
 - `operating_model` config block — pre-break-optional, brand-optional, channel-list-aware
 - Queue naming pattern fallback for tenants that don't follow `{brand} - {channel} - {function}`
 - `tenant.yaml` schema versioning + auto-migration
 - `mcp_health_check` upgrades that surface tenant-config gaps with actionable remediation
-- Synthetic "weird tenant" fixtures so future refactors can't silently break non-Prvidr deployers
+- Synthetic "weird tenant" fixtures so future refactors can't silently break deployers with different shapes
 
 See the plan at [`~/.claude/plans/i-need-to-build-immutable-pebble.md`](~/.claude/plans/i-need-to-build-immutable-pebble.md) for the full v1.0 spec.
 

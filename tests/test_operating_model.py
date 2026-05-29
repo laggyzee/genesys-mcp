@@ -20,7 +20,7 @@ import pytest
 # ── Schema-level: operating_model block exists with sensible defaults ──
 
 class TestOperatingModelSchema:
-    def test_defaults_assume_prvidr_shape(self, temp_tenant_config):
+    def test_defaults_assume_built_in_shape(self, temp_tenant_config):
         from genesys_mcp.tenant import load_config
         cfg = load_config()
         om = cfg.operating_model
