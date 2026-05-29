@@ -1,0 +1,58 @@
+[
+  {
+    "ans_pct": 80.4196,
+    "answered": 230,
+    "date": "2026-05-17",
+    "offered": 286,
+    "over_sla": 90,
+    "sl_pct": 48.951
+  },
+  {
+    "ans_pct": 82.8897,
+    "answered": 218,
+    "date": "2026-05-18",
+    "offered": 263,
+    "over_sla": 97,
+    "sl_pct": 46.0076
+  },
+  {
+    "ans_pct": 84.585,
+    "answered": 214,
+    "date": "2026-05-19",
+    "offered": 253,
+    "over_sla": 70,
+    "sl_pct": 56.917
+  },
+  {
+    "ans_pct": 76.7068,
+    "answered": 191,
+    "date": "2026-05-20",
+    "offered": 249,
+    "over_sla": 78,
+    "sl_pct": 45.3815
+  },
+  {
+    "ans_pct": 92.2018,
+    "answered": 201,
+    "date": "2026-05-21",
+    "offered": 218,
+    "over_sla": 28,
+    "sl_pct": 79.3578
+  },
+  {
+    "ans_pct": 47.9263,
+    "answered": 104,
+    "date": "2026-05-22",
+    "offered": 217,
+    "over_sla": 86,
+    "sl_pct": 8.2949
+  },
+  {
+    "ans_pct": 81.9549,
+    "answered": 109,
+    "date": "2026-05-23",
+    "offered": 133,
+    "over_sla": 47,
+    "sl_pct": 46.6165
+  }
+]

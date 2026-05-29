@@ -35,6 +35,11 @@ from typing import Any
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
+from genesys_mcp.shapes import (  # noqa: E402
+    assert_aggregates_envelope,
+    assert_break_overrun_report,
+    assert_repeat_caller_deep_dive,
+)
 from genesys_mcp.tenant import TenantConfig, load_config  # noqa: E402
 
 
@@ -692,6 +697,16 @@ def main() -> int:
     ap_day = json.loads((data_dir / "agent_perf_day.json").read_text())
     deep = json.loads((data_dir / "repeat_callers.json").read_text())
     brk = json.loads((data_dir / "break_overrun.json").read_text())
+
+    # Fail loud if any input has the wrong shape — catches the silent-empty
+    # bug class the v0.9.x patches addressed (e.g. agent_perf accidentally
+    # written into queue_perf_day.json, or the deep-dive output written
+    # under the wrong filename). Validators are cheap envelope checks.
+    assert_aggregates_envelope(qp_day, source="queue_perf_day", expect_derived=True)
+    assert_aggregates_envelope(qp_window, source="queue_perf_window", expect_derived=True)
+    assert_aggregates_envelope(ap_day, source="agent_perf_day", expect_derived=False)
+    assert_repeat_caller_deep_dive(deep, source="repeat_callers")
+    assert_break_overrun_report(brk, source="break_overrun")
 
     # Optional lookup maps for prettier output (queue/user names). The skill
     # workflow can save these alongside the data; if missing we fall back to

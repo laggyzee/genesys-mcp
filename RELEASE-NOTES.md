@@ -1,5 +1,75 @@
 # Release Notes
 
+## v0.10.0 — 26 May 2026
+
+**Correctness floor**, first half of the road to v1.0. No new features. The goal: make the silent-filter bug class — the same shape the four v0.9.1/v0.9.2 fixes all addressed — structurally hard to reintroduce. After v0.10 a future regression that flips a number trips a test loudly, instead of shipping silently-wrong output to a real day's report.
+
+### One remaining silent-filter site fixed; pattern factored to a shared helper
+
+The audit found one more instance of the v0.9.1 P7D-bucket-overwrite bug, in [`src/genesys_mcp/tools/reports.py`](src/genesys_mcp/tools/reports.py) (`agent_quality_snapshot`'s peer-aggregation loop). Same shape — `agg[uid][media] = stats` instead of accumulating across the ~4 weekly buckets a multi-week interval produces. Peer-comparison columns in the snapshot were truncated to the last week.
+
+Fix consolidates the accumulator into a new shared module [`src/genesys_mcp/_aggregates.py`](src/genesys_mcp/_aggregates.py) — `accumulate_metric_stats()`. Both `coaching.py` (v0.9.1) and `reports.py` (v0.10) now route through it. If a third site ever needs the same pattern, it imports rather than re-implements.
+
+### Genesys response-shape validators
+
+New module [`src/genesys_mcp/shapes.py`](src/genesys_mcp/shapes.py) — five lightweight envelope validators for the response shapes the skills depend on:
+
+- `assert_aggregates_envelope` (with `expect_derived=True/False` to distinguish `queue_performance` from `agent_performance` — the exact distinction the three v0.9.1/v0.9.2 `derived`-block bugs all blew through silently)
+- `assert_conversation_detail_list`
+- `assert_repeat_caller_deep_dive` — pins the `repeaters` key (the v0.9.2 mis-key bug class)
+- `assert_break_overrun_report` — pins all four overrun fields present per user (the v0.9.2 `pre_break_overrun_total_min` ignored-field bug class)
+
+Validators are O(1) envelope checks called once at the top of each consumer (build scripts + aggregator entrypoints). They raise `ShapeError` with a path-style message naming the missing field — no more silently-empty sections.
+
+Wired into all four skills' build scripts: `cc-monthly-report`, `cc-daily-brief`, `mcp-reconcile`. (`cc-coaching-prep` consumes a coaching-pack output, a different shape — gets its own validator in v1.0.)
+
+### Test coverage parity across skills
+
+Previously untested skills now have regression test files:
+
+- [`tests/test_coaching_prep.py`](tests/test_coaching_prep.py) — 26 tests covering formatters, vs-target/vs-peers pill class boundaries, soft-degrade paths (no peers, QA scope unavailable, no sentiment data), narrative-markdown parsing, and end-to-end render.
+- [`tests/test_mcp_reconcile.py`](tests/test_mcp_reconcile.py) — 13 tests for each of the four row generators, including the v0.9.1 derived-block bug regression case.
+- [`tests/test_shapes.py`](tests/test_shapes.py) — 18 tests pinning every validator behaviour.
+- [`tests/test_aggregate_helpers.py`](tests/test_aggregate_helpers.py) — 5 tests pinning `accumulate_metric_stats` directly so both sites are guarded by the same contract.
+
+### Snapshot tests for the four core aggregators
+
+[`tests/test_snapshots.py`](tests/test_snapshots.py) + [`tests/fixtures/_snapshots/`](tests/fixtures/_snapshots/) — golden-JSON pins on the numeric output of `aggregate_queue_performance`, `aggregate_agents`, `aggregate_daily_voice_sl`, and `extract_themes`.
+
+Any one-character change in reduce logic that flips a number now fails the snapshot diff. Intentional updates: re-run [`tests/_generate_snapshots.py`](tests/_generate_snapshots.py), inspect the git diff line-by-line, commit the new snapshots alongside the behaviour change. No `--snapshot-update` flag — drift must be visible in PR review.
+
+### README truthfulness pass
+
+The `queue_performance` / `agent_performance` tool descriptions previously claimed they "match the Genesys UI exactly." Calibrated to: raw metrics (`tAnswered.count`, `tHandle.sum`) match the UI exactly; aggregations (across buckets, per-media split, brand grouping) are MCP logic and should be cross-checked with `mcp-reconcile` before any release.
+
+### Tests
+
+- 165 → **231 tests** (+66). Roughly +40% coverage growth in one release.
+- Every test file added or extended cites the bug it pins, so future readers know *why* the assertion exists.
+
+### Upgrade
+
+```bash
+cd ~/code/genesys-mcp && git pull && uv sync
+make test                  # 231 tests should pass
+```
+
+Pure defensive work — no SKILL.md changes, no aggregator behaviour changes (a snapshot regression on upgrade would be a bug, not a deliberate update). If `mcp-reconcile` against your tenant now succeeds where the v0.9.x build silently emitted empty rows, that's the validators catching what the build script previously swallowed.
+
+### What's next — v1.0 (tenant-agnostic + ship polish)
+
+v0.10 closes the correctness floor. **v1.0** pulls every Prvidr-shaped assumption out of code:
+- Pre-break presence UUID + coaching heuristic thresholds → `tenant.yaml`
+- `operating_model` config block — pre-break-optional, brand-optional, channel-list-aware
+- Queue naming pattern fallback for tenants that don't follow `{brand} - {channel} - {function}`
+- `tenant.yaml` schema versioning + auto-migration
+- `mcp_health_check` upgrades that surface tenant-config gaps with actionable remediation
+- Synthetic "weird tenant" fixtures so future refactors can't silently break non-Prvidr deployers
+
+See the plan at [`~/.claude/plans/i-need-to-build-immutable-pebble.md`](~/.claude/plans/i-need-to-build-immutable-pebble.md) for the full v1.0 spec.
+
+---
+
 ## v0.9.2 — 26 May 2026
 
 Four bug fixes in `cc-daily-brief` — every Section 3 / 4 / 5 row was silently filtering out signal that was sitting in the raw data. Found while running the brief for a real day on a live tenant and noticing the "no flagged agents / no callbacks / no adherence issues" callouts couldn't possibly be right.
