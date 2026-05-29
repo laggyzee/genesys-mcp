@@ -4,13 +4,31 @@ A local stdio MCP server that gives Claude Code (or any MCP-compatible client) r
 
 Built so contact-centre operations and analytics work — queue performance, agent reviews, conversation deep-dives, repeat-caller root-cause analysis, presence/break/away analysis, demand-vs-capacity vs WFM, monthly contact-centre reports — can be done by talking to Claude in plain English instead of clicking through Genesys Admin or Performance dashboards.
 
-> **v0.9 — May 2026:** the visual upgrade release. Monthly report grows an **hour-of-day × day-of-week heatmap** (intra-day staffing patterns in a 3-second read) and **per-agent voice-AHT sparklines** (direction of travel next to each headline number) — both pure inline SVG, no JS. **`routing_diagnostic_aggregate`** lands at last (failure-mode classification across all abandons in an interval — closes a promise made in v0.5). LLM narrative synthesis (v0.7, monthly-only) is extended to `cc-daily-brief` and `cc-coaching-prep` so every report ships with grounded commentary on top of the data. See [RELEASE-NOTES.md](RELEASE-NOTES.md) for the full history.
+> **v1.0 — May 2026:** the **tenant-agnostic + correctness floor** release. Two themes:
+> - **Hardening** (v0.10 floor): 286 tests; response-shape validators wired into every skill build script; numeric snapshot tests pin the four core aggregator outputs; a shared accumulator de-duplicates the v0.9.1 P7D-bucket fix; coverage parity across all four skills.
+> - **Tenant-agnostic** (v1.0): every Prvidr-shaped assumption moved out of code. Pre-break UUID, coaching heuristic thresholds (hold ratio, QA pass mark, peer multiplier, etc.), and specialist roles now live in [`tenant.yaml`](docs/tenant-config-schema.md). A new `operating_model` block lets single-brand, message-only, and no-pre-break tenants get clean degraded reports instead of misleading zeros. Queue-name pattern is optional and the loader hard-fails on schema-version drift.
+>
+> See [RELEASE-NOTES.md](RELEASE-NOTES.md) for the full history.
 
 ## What it does
 
 Curated tools for ops/analytics work — queues, agents, conversations, recordings, speech analytics, external contacts, workforce management — plus a generic `call_genesys_api` escape hatch for anything not yet wrapped.
 
 **Read-only by design.** The server expects a Client Credentials OAuth client whose role only has `*:readonly` scopes. Even if Claude tried to POST/PUT/DELETE through the escape hatch, Genesys refuses server-side. There are no write tools.
+
+## Will this work on my tenant?
+
+v1.0 was the explicit shift from "works on Prvidr's specific Genesys setup" to "works on any Genesys Cloud tenant — and tells you up-front where your shape differs." Three categories of assumption you can toggle via [`tenant.yaml`](docs/tenant-config-schema.md):
+
+| Assumption | Default | Toggle off if |
+|---|---|---|
+| **Pre-break presence as drain state** — agents go BUSY/"Pre Break" before scheduled breaks to drain interactions | enabled | your CC doesn't use a pre-break presence; reports render a "tracking disabled" callout instead of zero rows |
+| **Multi-brand structure** — multiple brand display names share the same CC | enabled | single-brand tenant; reports collapse brand × channel rollup to channel-only |
+| **Voice + message channels** | both | message-only / voice-only tenant; headline KPI cards skip the irrelevant channel |
+| **Queue naming pattern** — `{brand} - {channel} - {function}` | matches > 80% | your queues use a different convention; set `name_pattern_match_required: false` to fall back per-queue, or `name_pattern: null` for no structured parsing |
+| **Specialist role title** | `["Specialist", "Customer Service Specialist"]` (no in-code default in v1.0 — discovered by the setup wizard) | your active users' titles differ; the wizard discovers what's actually in use |
+
+Run `python -m genesys_mcp.health_check --strict` after setup. It samples a page of queues to compute the pattern-match rate, cross-checks `specialist_roles` against active user titles, and validates every other tenant.yaml field against the live data. Exit code 0 (ready), 2 (warnings — `--strict`), or 1 (blocked). Use the warnings to decide which `operating_model` toggles to flip.
 
 ## Setup
 

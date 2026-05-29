@@ -1,0 +1,19 @@
+schema_version: "1.0"
+tenant:
+  name: "SingleBrandCo"
+  short_name: "sbco"
+  timezone: "UTC"
+brands:
+  names: ["SingleBrandCo"]
+queues:
+  name_pattern: "{brand} {function}"
+  channels: ["Voice"]
+  functions: ["Sales", "Support"]
+  skip_substrings: []
+specialist_roles: ["Specialist"]
+presence:
+  pre_break_organisation_presence_id: "fake-presence-id-for-tests"
+operating_model:
+  has_pre_break_presence: true
+  has_brand_structure: false
+  expected_channels: ["voice"]

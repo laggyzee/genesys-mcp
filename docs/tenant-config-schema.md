@@ -19,7 +19,19 @@ Two options:
 
 ## Schema
 
+v1.0 of the schema (current) introduces three concepts to make the file safe to deploy on tenants whose operating model differs from the original Prvidr-style assumptions:
+
+- **`schema_version`** — string. Optional; defaults to the installed version. Loader fails loud if the file's version is newer than the code.
+- **`operating_model`** — toggles for the three biggest assumptions the skills make (pre-break presence, multi-brand structure, channel coverage).
+- **`queues.name_pattern_match_required`** — toggle for tenants whose queue names mostly (not entirely) follow a pattern.
+
+See *v1.0 migration notes* at the bottom of this doc for what changed and how to upgrade a 0.x config.
+
 ```yaml
+schema_version: "1.0"          # Optional. Loader uses CURRENT_SCHEMA_VERSION when absent
+                               # and logs a deprecation warning. Higher-than-current →
+                               # hard fail with an "upgrade genesys-mcp" message.
+
 tenant:
   name: string                 # Display name shown in report headlines (e.g. "Acme Contact Centre")
   short_name: string           # Used in filenames; lowercase + hyphens (e.g. "acme")
@@ -29,11 +41,19 @@ brands:
                                # appears in queue names per queues.name_pattern below)
 
 queues:
-  name_pattern: string         # Pattern that customer-facing queue names follow.
+  name_pattern: string | null  # Pattern that customer-facing queue names follow.
                                # Supported placeholders: {brand}, {channel}, {function}.
                                # The skill parses each queue name against this pattern
                                # to extract the brand it belongs to.
                                # Example: "{brand} - {channel} - {function}"
+                               # Set to `null` for tenants without structured naming —
+                               # every queue is then treated as a flat 'function' with
+                               # empty brand/channel.
+  name_pattern_match_required: bool  # v1.0. Default true (strict — non-matching queues
+                               # are skipped silently). Set to false for tenants whose
+                               # queues mostly follow the pattern but have legacy
+                               # exceptions — non-matching queues fall back to using
+                               # the full name as 'function'.
   channels: list[string]       # Channel labels to recognise (e.g. ["Voice", "Chat"]).
                                # Queues whose channel doesn't match are excluded.
   functions: list[string]      # Function labels to recognise. Anything else is grouped as "Other".
@@ -55,8 +75,26 @@ presence:
 
 specialist_roles:
   list[string]                 # User role names that identify customer-facing
-                               # specialists. The workforce table filters to these
-                               # roles by default. Auto-discoverable from the role list.
+                               # specialists. **Required as of v1.0** (no in-code
+                               # fallback — too tenant-specific). The workforce table
+                               # filters to these roles by default. Auto-discoverable
+                               # by genesys-tenant-setup from the active user list.
+
+# v1.0: explicit toggles for tenant operating-model assumptions. Defaults match the
+# original Prvidr-style assumptions; other tenants override.
+operating_model:
+  has_pre_break_presence: bool # Default true. When true, presence.pre_break_organisation_presence_id
+                               # must be set. When false, all pre-break sections in
+                               # reports render a "tracking disabled" callout.
+  has_brand_structure: bool    # Default true. When false, brands.names must contain
+                               # ≤1 entry. Reports collapse brand × channel grouping
+                               # to channel-only (cleaner output for single-brand
+                               # tenants).
+  expected_channels: list[string]
+                               # Default ["voice", "message"]. Headline KPI cards
+                               # respect this — a message-only tenant doesn't see
+                               # a misleading "voice SL 0%" headline. Allowed
+                               # values: "voice", "message", "callback", "email", "chat".
 
 targets:
   voice_aht_s: int             # Voice Average Handle Time target (total tHandle in
@@ -103,6 +141,20 @@ coaching:
     sentiment_drop: float      # Negative-sentiment trend magnitude that flags a call. Default 0.5.
     silent_seconds: int        # Transcript silence (s) that flags a call. Default 30.
     aht_excess_pct: float      # Voice-AHT excess (% over target) that flags a call. Default 20.0.
+  # v1.0 — cutoffs for the recommended-focus heuristics. Defaults match the pre-v1.0
+  # hardcoded values. Tune per tenant operating model (e.g. transfer-heavy retention
+  # teams probably want hold_ratio_threshold higher than 0.15).
+  heuristics:
+    hold_ratio_threshold: float          # Voice hold ratio that flags "Hold time". Default 0.15.
+    peer_aht_multiplier: float           # AHT > peer_median × this flags "vs Peers". Default 1.15.
+    negative_sentiment_call_threshold: float
+                                          # Per-call sentiment that flags negative. Default -0.4.
+    hold_ratio_call_threshold: float     # Per-call hold ratio that flags hold. Default 0.3.
+    wrap_up_note_rate_threshold: float   # Wrap-up note rate that flags discipline. Default 0.7.
+    qa_pass_mark: int                    # QA score below this flags QA. Default 80.
+    voice_excess_hours_threshold: float  # Voice excess hours that flags voice AHT. Default 2.0.
+    message_excess_hours_threshold: float
+                                          # Message excess hours that flags msg AHT. Default 2.0.
   coaching_filename_pattern: string
                                # Coaching-brief filename. Required placeholders:
                                #   {agent_slug} → e.g. "anthony-kha"
@@ -139,3 +191,14 @@ Things deliberately kept hardcoded in scripts because they're either tenant-agno
 - Genesys region (`GENESYS_REGION` env var)
 - The provisioning script's write-only OAuth client (`GENESYS_WRITE_CLIENT_ID/SECRET`)
 - The list of write permissions a custom OAuth role needs (documented in [`scripts/README.md`](../scripts/README.md))
+
+## v1.0 migration notes
+
+The v0.x → v1.0 transition formalised the tenant-agnostic posture. If you have an existing v0.x config:
+
+- **No action required for Prvidr-style tenants** — every v1.0 default matches the pre-v1.0 hardcoded behaviour. Configs without `schema_version`, `operating_model`, or `coaching.heuristics` load with sensible defaults and log a deprecation warning.
+- **`specialist_roles` is now required** — pre-v1.0 it defaulted to `["Specialist", "Customer Service Specialist"]`. If your config relies on that default, add it explicitly.
+- **Pre-break presence UUID** — the hardcoded fallback (Prvidr's UUID) is gone. If `operating_model.has_pre_break_presence: true` (the default), `presence.pre_break_organisation_presence_id` must be set or load fails.
+- **AHT / break / meal targets** — no in-code fallbacks; `targets` block now mandatory (it always had sensible defaults at the field level).
+
+Run `python -m genesys_mcp.health_check --strict` to surface any remaining gaps in your v1.0 config.

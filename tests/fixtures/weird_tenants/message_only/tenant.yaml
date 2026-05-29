@@ -1,0 +1,17 @@
+schema_version: "1.0"
+tenant:
+  name: "MessageOnlyCo"
+  short_name: "moc"
+  timezone: "UTC"
+brands:
+  names: ["MessageOnlyCo"]
+queues:
+  name_pattern: "{brand} - {function}"
+  channels: ["Chat"]
+  functions: ["Support", "Sales"]
+  skip_substrings: []
+specialist_roles: ["Chat Specialist"]
+operating_model:
+  has_pre_break_presence: false
+  has_brand_structure: false
+  expected_channels: ["message"]

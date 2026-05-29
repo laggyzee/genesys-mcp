@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import List
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 
 class TenantConfigError(RuntimeError):
@@ -89,9 +89,24 @@ class _Brands(BaseModel):
 
 
 class _Queues(BaseModel):
-    name_pattern: str = Field(
+    name_pattern: str | None = Field(
         default="{brand} - {channel} - {function}",
-        description="Pattern customer-facing queue names follow. Supports {brand}, {channel}, {function}.",
+        description=(
+            "Pattern customer-facing queue names follow. Supports {brand}, "
+            "{channel}, {function}. Set to ``null`` for tenants with no "
+            "structured naming — the skills then render flat per-queue lists "
+            "with no brand/channel parsing."
+        ),
+    )
+    name_pattern_match_required: bool = Field(
+        default=True,
+        description=(
+            "When True (default), queues not matching ``name_pattern`` are "
+            "skipped silently. When False, non-matching queues fall back to "
+            "using the full queue name as ``function`` (with empty brand/"
+            "channel). Useful for tenants that mostly follow the pattern "
+            "but have some legacy queues that don't."
+        ),
     )
     channels: List[str] = Field(default_factory=lambda: ["Voice", "Chat"])
     functions: List[str] = Field(
@@ -107,9 +122,16 @@ class _Queues(BaseModel):
 
     @field_validator("name_pattern")
     @classmethod
-    def _validate_name_pattern(cls, v: str) -> str:
+    def _validate_name_pattern(cls, v: str | None) -> str | None:
+        # ``null`` (None) is legal — tenants with no structured naming skip
+        # brand/channel parsing entirely. Otherwise {brand} is required.
+        if v is None:
+            return v
         if "{brand}" not in v:
-            raise ValueError("queues.name_pattern must contain at least the {brand} placeholder")
+            raise ValueError(
+                "queues.name_pattern must contain at least the {brand} "
+                "placeholder, or be set to null to disable pattern parsing"
+            )
         return v
 
 
@@ -132,6 +154,68 @@ class _Presence(BaseModel):
         default=None,
         description="Org-level 'Pre Break' presence UUID. Optional; tools that need it warn if absent.",
     )
+
+
+class _OperatingModel(BaseModel):
+    """High-level toggles for tenant operating-model assumptions.
+
+    The skills' default reporting shape assumes a Prvidr-style operating
+    model: brand-structured queues, pre-break-presence-as-drain, multi-channel
+    voice + message. Other Genesys deployers fit different shapes — this
+    block lets the skills cleanly degrade rather than silently produce
+    misleading sections.
+    """
+
+    has_pre_break_presence: bool = Field(
+        default=True,
+        description=(
+            "Whether the tenant uses an org-level 'Pre Break' presence as "
+            "a drain state before scheduled breaks. When False, reports "
+            "omit the pre-break overrun sections (rendering 'Pre-break "
+            "tracking disabled for this tenant' instead of zero-valued "
+            "rows). When True, ``presence.pre_break_organisation_presence_id`` "
+            "must be set."
+        ),
+    )
+    has_brand_structure: bool = Field(
+        default=True,
+        description=(
+            "Whether the tenant has multiple brands sharing the same CC "
+            "infrastructure. When False, the monthly report's brand × channel "
+            "funnel collapses to channel-only — 'All queues' instead of "
+            "per-brand rows. Single-brand tenants get a cleaner report."
+        ),
+    )
+    expected_channels: List[str] = Field(
+        default_factory=lambda: ["voice", "message"],
+        description=(
+            "Channels the tenant actually operates. Tools that compute "
+            "headline KPIs respect this list — a message-only tenant won't "
+            "see a 'voice SL 0%' headline. Values are lowercase Genesys "
+            "media-type strings: 'voice', 'message', 'callback', 'email'."
+        ),
+    )
+
+    @field_validator("expected_channels")
+    @classmethod
+    def _normalise_channels(cls, v: List[str]) -> List[str]:
+        # Genesys uses lowercase media types ('voice', 'message', ...);
+        # accept the common variants but normalise to canonical form.
+        valid = {"voice", "message", "callback", "email", "chat"}
+        out = []
+        for ch in v:
+            normalised = ch.strip().lower()
+            if normalised not in valid:
+                raise ValueError(
+                    f"operating_model.expected_channels: unknown channel "
+                    f"{ch!r}. Must be one of {sorted(valid)}."
+                )
+            out.append(normalised)
+        if not out:
+            raise ValueError(
+                "operating_model.expected_channels must contain at least one channel"
+            )
+        return out
 
 
 class _Targets(BaseModel):
@@ -221,6 +305,49 @@ class _DailyBrief(BaseModel):
         return v
 
 
+class _CoachingHeuristics(BaseModel):
+    """Numeric cutoffs for the recommended-focus + per-call flagging heuristics.
+
+    These were hardcoded in ``coaching.py`` pre-v1.0. Moving them to
+    tenant.yaml lets sales-heavy or message-only deployments tune the
+    flags without forking the code — e.g. a transfer-heavy retention
+    team probably wants `hold_ratio_threshold` higher than 0.15.
+    """
+
+    hold_ratio_threshold: float = Field(
+        default=0.15, ge=0.0, le=1.0,
+        description="Voice hold ratio above this flags 'Hold time' as a coaching focus.",
+    )
+    peer_aht_multiplier: float = Field(
+        default=1.15, ge=1.0,
+        description="Agent voice AHT > peer_median × this multiplier flags 'vs Peers — voice handle'.",
+    )
+    negative_sentiment_call_threshold: float = Field(
+        default=-0.4, le=0.0,
+        description="Per-call sentiment at or below this flags the call as negative.",
+    )
+    hold_ratio_call_threshold: float = Field(
+        default=0.3, ge=0.0, le=1.0,
+        description="Per-call hold ratio above this flags the call for review.",
+    )
+    wrap_up_note_rate_threshold: float = Field(
+        default=0.7, ge=0.0, le=1.0,
+        description="Agent wrap-up note rate below this flags 'Wrap-up discipline'.",
+    )
+    qa_pass_mark: int = Field(
+        default=80, ge=0, le=100,
+        description="QA avg score below this flags 'QA score' as a coaching focus.",
+    )
+    voice_excess_hours_threshold: float = Field(
+        default=2.0, ge=0.0,
+        description="Voice AHT excess hours per period above this flags 'Voice AHT' as coachable.",
+    )
+    message_excess_hours_threshold: float = Field(
+        default=2.0, ge=0.0,
+        description="Message AHT excess hours per period above this flags 'Message AHT' as coachable.",
+    )
+
+
 class _Coaching(BaseModel):
     """Knobs for ``cc-coaching-prep`` and ``agent_coaching_pack``.
 
@@ -237,6 +364,14 @@ class _Coaching(BaseModel):
     )
     flagged_call_thresholds: _CoachingThresholds = Field(
         default_factory=_CoachingThresholds,
+    )
+    heuristics: _CoachingHeuristics = Field(
+        default_factory=_CoachingHeuristics,
+        description=(
+            "Numeric cutoffs for the recommended-focus + per-call flagging "
+            "heuristics. Defaults are sane for inbound-heavy CCs; sales/"
+            "retention teams may want higher hold_ratio / lower QA pass mark."
+        ),
     )
     coaching_filename_pattern: str = Field(
         default="coaching-{agent_slug}-{period}.html",
@@ -262,9 +397,26 @@ class _Coaching(BaseModel):
         return v
 
 
+# Current tenant.yaml schema version. Bumped on breaking changes.
+# 0.x: pre-versioning era (legacy fields like in-code specialist_roles defaults).
+# 1.0: v1.0 release — operating_model block, required specialist_roles,
+#      coaching.heuristics block, no in-code AHT/role fallbacks.
+CURRENT_SCHEMA_VERSION = "1.0"
+
+
 class TenantConfig(BaseModel):
     """Validated tenant config — the single source of truth for skills."""
 
+    schema_version: str = Field(
+        default=CURRENT_SCHEMA_VERSION,
+        description=(
+            "Tenant config schema version. Optional in tenant.yaml — when "
+            "absent, the loader assumes the file pre-dates versioning (0.x) "
+            "and logs a deprecation warning. When set to a version newer "
+            "than the installed code supports, the loader hard-fails with "
+            "an 'upgrade genesys-mcp' message rather than silently misreading."
+        ),
+    )
     tenant: _Tenant
     brands: _Brands
     queues: _Queues = Field(default_factory=_Queues)
@@ -272,13 +424,49 @@ class TenantConfig(BaseModel):
     business_unit: _BusinessUnit = Field(default_factory=_BusinessUnit)
     presence: _Presence = Field(default_factory=_Presence)
     specialist_roles: List[str] = Field(
-        default_factory=lambda: ["Specialist", "Customer Service Specialist"],
-        description="Role names identifying customer-facing specialists.",
+        ..., min_length=1,
+        description=(
+            "Role names identifying customer-facing specialists. Required — "
+            "tenants vary widely on title conventions ('Specialist', "
+            "'Customer Service Specialist', 'Agent Level 1', 'CSR', etc.). "
+            "The genesys-tenant-setup skill auto-discovers these from your "
+            "active user list."
+        ),
     )
     targets: _Targets = Field(default_factory=_Targets)
     reports: _Reports = Field(default_factory=_Reports)
     coaching: _Coaching = Field(default_factory=_Coaching)
     daily_brief: _DailyBrief = Field(default_factory=_DailyBrief)
+    operating_model: _OperatingModel = Field(
+        default_factory=_OperatingModel,
+        description=(
+            "Toggles for tenant operating-model assumptions. Defaults assume "
+            "the Prvidr-style shape (multi-brand, pre-break presence, voice "
+            "+ message). Other tenants override per their shape."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_operating_model_consistency(self) -> "TenantConfig":
+        """Pre-break-enabled tenants must supply the presence UUID."""
+        if (
+            self.operating_model.has_pre_break_presence
+            and not self.presence.pre_break_organisation_presence_id
+        ):
+            raise ValueError(
+                "operating_model.has_pre_break_presence is True but "
+                "presence.pre_break_organisation_presence_id is unset. "
+                "Either set the presence id (run genesys-tenant-setup, which "
+                "auto-discovers it) or set has_pre_break_presence: false."
+            )
+        if not self.operating_model.has_brand_structure and len(self.brands.names) > 1:
+            raise ValueError(
+                "operating_model.has_brand_structure is False but "
+                f"brands.names lists {len(self.brands.names)} brands "
+                f"({self.brands.names}). Either set has_brand_structure: true "
+                "or trim brands.names to a single entry."
+            )
+        return self
 
     # Convenience accessors used by skills.
     def report_output_path(self, period_slug: str) -> Path:
@@ -326,6 +514,50 @@ def default_config_path() -> Path:
     return Path(config_home).expanduser() / "genesys-mcp" / "tenant.yaml"
 
 
+def _parse_version_tuple(v: str) -> tuple[int, ...]:
+    """Parse a 'major.minor[.patch]' string to a comparable tuple."""
+    try:
+        return tuple(int(x) for x in v.split("."))
+    except (ValueError, AttributeError):
+        raise TenantConfigError(
+            f"schema_version {v!r} is not a valid 'major.minor' string"
+        )
+
+
+def _check_schema_version(raw: dict, path: Path) -> None:
+    """Validate the schema_version field against the installed code.
+
+    Three outcomes:
+
+    - Missing version (pre-1.0 config) → log a deprecation warning, accept.
+    - Higher version (config written by newer genesys-mcp) → hard fail.
+    - Lower version → accept (the loader applies defaults for new fields).
+    """
+    import logging
+
+    log = logging.getLogger(__name__)
+    raw_version = raw.get("schema_version")
+    if raw_version is None:
+        log.warning(
+            "Tenant config at %s has no schema_version. Assuming pre-1.0 "
+            "(0.x). The config will load with v1.0 defaults applied for any "
+            "fields it omits — but consider running genesys-tenant-setup "
+            "to migrate it cleanly to the v1.0 shape.",
+            path,
+        )
+        return
+
+    config_v = _parse_version_tuple(str(raw_version))
+    current_v = _parse_version_tuple(CURRENT_SCHEMA_VERSION)
+    if config_v > current_v:
+        raise TenantConfigError(
+            f"Tenant config at {path} uses schema {raw_version}, but the "
+            f"installed genesys-mcp only supports up to {CURRENT_SCHEMA_VERSION}. "
+            f"Upgrade with `cd ~/code/genesys-mcp && git pull && uv sync`, "
+            f"or pin tenant.yaml to a supported schema version."
+        )
+
+
 def load_config(path: Path | str | None = None) -> TenantConfig:
     """Load + validate the tenant config. Raises ``TenantConfigError`` on failure.
 
@@ -354,6 +586,8 @@ def load_config(path: Path | str | None = None) -> TenantConfig:
             f"Tenant config at {path} must be a YAML mapping at the top level, "
             f"got {type(raw).__name__}"
         )
+
+    _check_schema_version(raw, path)
 
     try:
         return TenantConfig(**raw)

@@ -514,32 +514,46 @@ def render_html(cfg: TenantConfig, target_date: str, day_interval: str,
                 adherence: list[dict],
                 adherence_summary_data: dict | None = None,
                 narrative: dict[str, str] | None = None) -> str:
-    voice_sl_today = headline["voice_sl_today"]
-    voice_sl_base = headline["voice_sl_baseline"]
-    sl_cls = ("good" if voice_sl_today and voice_sl_today >= 80
-              else "warn" if voice_sl_today and voice_sl_today >= 65
-              else "bad")
-    msg_sl_today = headline["message_sl_today"]
-    msg_sl_base = headline["message_sl_baseline"]
-    msg_cls = ("good" if msg_sl_today and msg_sl_today >= 80
-               else "warn" if msg_sl_today and msg_sl_today >= 65
-               else "bad")
+    # v1.0: respect operating_model.expected_channels. Tenants without
+    # voice or without message skip the corresponding KPI card rather than
+    # rendering a misleading "0%" or "—".
+    channels = cfg.operating_model.expected_channels
+    show_voice = "voice" in channels
+    show_message = "message" in channels
 
-    headline_html = (
-        '<div class="kpi-grid">'
-        f'<div class="kpi {sl_cls}"><div class="label">Voice SL</div>'
-        f'<div class="value">{fmt_pct(voice_sl_today)}</div>'
-        f'<div class="sub">vs rolling median {fmt_pct(voice_sl_base)} '
-        f'{_vs_pill(voice_sl_today, voice_sl_base, units="pp")}</div></div>'
-        f'<div class="kpi {msg_cls}"><div class="label">Message SL</div>'
-        f'<div class="value">{fmt_pct(msg_sl_today)}</div>'
-        f'<div class="sub">vs rolling median {fmt_pct(msg_sl_base)} '
-        f'{_vs_pill(msg_sl_today, msg_sl_base, units="pp")}</div></div>'
+    cards = ['<div class="kpi-grid">']
+    if show_voice:
+        voice_sl_today = headline["voice_sl_today"]
+        voice_sl_base = headline["voice_sl_baseline"]
+        sl_cls = ("good" if voice_sl_today and voice_sl_today >= 80
+                  else "warn" if voice_sl_today and voice_sl_today >= 65
+                  else "bad")
+        cards.append(
+            f'<div class="kpi {sl_cls}"><div class="label">Voice SL</div>'
+            f'<div class="value">{fmt_pct(voice_sl_today)}</div>'
+            f'<div class="sub">vs rolling median {fmt_pct(voice_sl_base)} '
+            f'{_vs_pill(voice_sl_today, voice_sl_base, units="pp")}</div></div>'
+        )
+    if show_message:
+        msg_sl_today = headline["message_sl_today"]
+        msg_sl_base = headline["message_sl_baseline"]
+        msg_cls = ("good" if msg_sl_today and msg_sl_today >= 80
+                   else "warn" if msg_sl_today and msg_sl_today >= 65
+                   else "bad")
+        cards.append(
+            f'<div class="kpi {msg_cls}"><div class="label">Message SL</div>'
+            f'<div class="value">{fmt_pct(msg_sl_today)}</div>'
+            f'<div class="sub">vs rolling median {fmt_pct(msg_sl_base)} '
+            f'{_vs_pill(msg_sl_today, msg_sl_base, units="pp")}</div></div>'
+        )
+    channel_label = " + ".join(c for c in ("voice", "message") if c in channels)
+    cards.append(
         f'<div class="kpi"><div class="label">Total interactions</div>'
         f'<div class="value">{fmt_int(headline["total_offered_today"])}</div>'
-        f'<div class="sub">voice + message offered</div></div>'
-        '</div>'
+        f'<div class="sub">{channel_label} offered</div></div>'
     )
+    cards.append('</div>')
+    headline_html = "".join(cards)
 
     # Worst routes
     if not worst:
@@ -615,13 +629,28 @@ def render_html(cfg: TenantConfig, target_date: str, day_interval: str,
         "break_meal_min": 0, "pre_break_min": 0, "total_min": 0,
         "agents_with_any": 0, "overrun_sessions": 0,
     }
+    # v1.0: respect operating_model.has_pre_break_presence — tenants without
+    # a pre-break drain state get the section but with explicit "tracking
+    # disabled" framing rather than misleading zeros.
+    has_pre_break = cfg.operating_model.has_pre_break_presence
+    pre_break_label = (
+        f', pre-break {summary["pre_break_min"]:.0f} min'
+        if has_pre_break else ''
+    )
     if summary["total_min"] > 0:
         summary_html = (
             '<div class="callout" style="margin-bottom:8px">'
             f'<strong>Total overrun yesterday: {summary["total_min"]:.0f} min</strong> '
             f'across {summary["overrun_sessions"]} sessions / {summary["agents_with_any"]} agents '
-            f'(break+meal {summary["break_meal_min"]:.0f} min, pre-break {summary["pre_break_min"]:.0f} min). '
+            f'(break+meal {summary["break_meal_min"]:.0f} min{pre_break_label}). '
             f'Per-agent threshold for the table below: ≥30 min combined.</div>'
+        )
+    elif not has_pre_break:
+        summary_html = (
+            '<div class="callout" style="margin-bottom:8px">'
+            '<strong>Pre-break tracking disabled for this tenant</strong> '
+            '(set <code>operating_model.has_pre_break_presence: true</code> '
+            'in tenant.yaml to enable). Break + meal overrun summary: clean today.</div>'
         )
     else:
         summary_html = ""

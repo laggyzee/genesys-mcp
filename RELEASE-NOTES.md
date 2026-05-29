@@ -1,5 +1,91 @@
 # Release Notes
 
+## v1.0.0 — 26 May 2026
+
+**The tenant-agnostic release.** Everything Prvidr-shaped that pre-v1.0 was baked into Python now lives in tenant.yaml, and the skills cleanly degrade when a tenant's operating model differs from the defaults. Combined with the v0.10 correctness floor (shape validators, snapshot tests, untested-skill coverage), v1.0 is the first version a fresh deployer can confidently point at a non-Prvidr Genesys Cloud tenant without forking the code.
+
+### Hardcoded values moved to `tenant.yaml`
+
+- **Pre-break presence UUID** removed from `break_overrun_report` default. Pass `pre_break_organization_presence_id` explicitly, or set `cfg.presence.pre_break_organisation_presence_id` in tenant.yaml. When the id is unset and `operating_model.has_pre_break_presence: false`, the tool returns `pre_break_tracking_available: false` and skills render a "tracking disabled" callout instead of zero rows.
+- **Coaching heuristic thresholds** — hold ratio (0.15), peer-AHT multiplier (1.15), per-call sentiment / hold / wrap-up cutoffs, QA pass mark (80), excess-hours thresholds (2.0h) — all move to the new `coaching.heuristics` block. Defaults match the pre-v1.0 hardcoded values so Prvidr-style configs work unchanged; transfer-heavy retention teams can now raise the hold-ratio threshold without forking the code.
+- **`specialist_roles`** is now a required tenant.yaml field. Pre-v1.0 it defaulted to `["Specialist", "Customer Service Specialist"]`, which silently filtered out tenants whose role titles differ. The `genesys-tenant-setup` wizard already discovers these from the active user list.
+- **AHT / break / meal targets in `coaching.py`** — pre-v1.0 in-code Prvidr-flavoured fallbacks dropped. Absent tenant.yaml is a hard fail with a clear "run genesys-tenant-setup" remediation.
+
+### New `operating_model` block
+
+```yaml
+operating_model:
+  has_pre_break_presence: true        # false → skip pre-break sections
+  has_brand_structure: true           # false → collapse brand × channel to channel-only
+  expected_channels: [voice, message] # message-only / voice-only tenants get cleaner KPIs
+```
+
+Model-level validator catches inconsistent configs at load time — `has_pre_break_presence: true` without the presence id fails loud; `has_brand_structure: false` with > 1 brand fails loud.
+
+### Queue naming pattern fallback
+
+The default `{brand} - {channel} - {function}` pattern fits Prvidr-style tenants but not every CC. v1.0 adds two knobs to `queues`:
+
+- `name_pattern: null` — no structured naming; every queue is a flat function.
+- `name_pattern_match_required: false` — non-matching queues fall back to using the full name as function (instead of being silently dropped from reports).
+
+New module [`src/genesys_mcp/queue_parser.py`](src/genesys_mcp/queue_parser.py) consolidates the parsing + a `compute_pattern_match_rate` helper. The `mcp_health_check` tool samples a page of `/routing/queues` and warns if the configured pattern matches < 80% of real queue names.
+
+### tenant.yaml schema versioning
+
+New top-level `schema_version: "1.0"` field. `load_config()` validates it:
+
+- Missing → loader assumes pre-1.0, applies v1.0 defaults for new fields, logs a deprecation warning.
+- Newer than installed code → hard fail with `"upgrade with git pull && uv sync"`.
+- Same/older → loads cleanly.
+
+So a tenant.yaml written by a future v1.5 genesys-mcp can't silently misload on a v1.0 install.
+
+### `mcp_health_check` upgrades
+
+Three new v1.0 checks; one new CLI flag:
+
+- **Queue pattern match rate** — samples `/routing/queues` against `queues.name_pattern`. Surfaces a remediation when match rate < 80%.
+- **Specialist role resolution** — cross-checks `specialist_roles` against `/users?state=active` titles. Lists a sample of actual titles when no match found.
+- **Schema version** — visible in the report under `tenant_config.schema_version`.
+- **`--strict`** CLI flag — exits 2 (not 0) on any warning. Use for CI / scripted release-gate validation: `python -m genesys_mcp.health_check --strict`.
+
+### Synthetic "weird tenant" fixtures
+
+[`tests/fixtures/weird_tenants/`](tests/fixtures/weird_tenants/) ships three reference configs:
+
+- `single_brand/` — `has_brand_structure: false`, one brand
+- `no_pre_break/` — `has_pre_break_presence: false`
+- `message_only/` — `expected_channels: [message]`
+
+Each has a corresponding end-to-end test in [`tests/test_weird_tenants.py`](tests/test_weird_tenants.py) driving the daily-brief renderer to confirm the right "tracking disabled" / "voice-card-omitted" hooks fire. Locks in the tenant-agnostic contract.
+
+### Documentation
+
+- [`docs/tenant-config-schema.md`](docs/tenant-config-schema.md) — schema doc updated for v1.0 (schema_version, operating_model, queue-pattern fallback, coaching.heuristics) + a "v1.0 migration notes" section for pre-1.0 configs.
+- README — new **"Will this work on my tenant?"** section near Setup with a per-assumption table and explicit pointers to `mcp_health_check --strict` as the validation gate.
+
+### Tests
+
+- 231 → **286 tests** (+55 in v1.0 alone, 165 → 286 overall since v0.9.2 — a +73% growth across the v0.10 + v1.0 work).
+- New test files: `test_coaching_heuristics.py` (14), `test_operating_model.py` (11), `test_queue_parser.py` (12), `test_schema_versioning.py` (5), `test_health_check_upgrades.py` (7), `test_weird_tenants.py` (6).
+
+### Upgrade — Prvidr-style tenants
+
+No tenant.yaml changes required. v1.0 defaults match the pre-v1.0 hardcoded values, so:
+
+```bash
+cd ~/code/genesys-mcp && git pull && uv sync
+make test                  # 286 tests should pass
+python -m genesys_mcp.health_check --strict   # green if your config is clean
+```
+
+### Upgrade — non-Prvidr tenants
+
+Run `genesys-tenant-setup` to auto-discover what changed. If your tenant.yaml is hand-written, add `schema_version: "1.0"` and the `operating_model` block per your shape; the rest is backward-compatible. The schema doc has a dedicated v1.0 migration section.
+
+---
+
 ## v0.10.0 — 26 May 2026
 
 **Correctness floor**, first half of the road to v1.0. No new features. The goal: make the silent-filter bug class — the same shape the four v0.9.1/v0.9.2 fixes all addressed — structurally hard to reintroduce. After v0.10 a future regression that flips a number trips a test loudly, instead of shipping silently-wrong output to a real day's report.

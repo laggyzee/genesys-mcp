@@ -842,11 +842,15 @@ def register(mcp: FastMCP) -> None:
                 "interactions; staying on it longer than this target is an inefficiency signal."
             ),
         ),
-        pre_break_organization_presence_id: str = Field(
-            default="e3bedde6-f747-4dbb-bb76-45684b9180b6",
+        pre_break_organization_presence_id: str | None = Field(
+            default=None,
             description=(
-                "Organization presence id for 'Pre Break' (this tenant: "
-                "e3bedde6-f747-4dbb-bb76-45684b9180b6). Override if reused on another tenant."
+                "Organization presence id for 'Pre Break'. Pass explicitly, "
+                "or read from `cfg.presence.pre_break_organisation_presence_id` "
+                "in your tenant.yaml. When None, pre-break tracking is "
+                "disabled — the response sets `pre_break_tracking_available: "
+                "false` and pre-break counts are zero rather than misleadingly "
+                "computed against an unrelated presence id."
             ),
         ),
     ) -> dict:
@@ -1026,6 +1030,12 @@ def register(mcp: FastMCP) -> None:
             "meal_target_min": meal_target_min,
             "pre_break_target_min": pre_break_target_min,
             "tolerance_min": tolerance_min,
+            # v1.0: explicit flag for downstream skills. When the caller
+            # didn't supply a pre-break presence id, the PRE_BREAK column
+            # is computed but the report should *display* it as "not
+            # configured" rather than as zero overruns. Skills check this
+            # flag before rendering pre-break sections.
+            "pre_break_tracking_available": pre_break_organization_presence_id is not None,
             "users": ranked,
         }
 
