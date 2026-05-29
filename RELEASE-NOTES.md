@@ -1,6 +1,6 @@
 # Release Notes
 
-## v1.0.0 — 26 May 2026
+## v1.0.0 — 29 May 2026
 
 **The tenant-agnostic release.** Everything Prvidr-shaped that pre-v1.0 was baked into Python now lives in tenant.yaml, and the skills cleanly degrade when a tenant's operating model differs from the defaults. Combined with the v0.10 correctness floor (shape validators, snapshot tests, untested-skill coverage), v1.0 is the first version a fresh deployer can confidently point at a non-Prvidr Genesys Cloud tenant without forking the code.
 
@@ -86,7 +86,7 @@ Run `genesys-tenant-setup` to auto-discover what changed. If your tenant.yaml is
 
 ---
 
-## v0.10.0 — 26 May 2026
+## v0.10.0 — 29 May 2026
 
 **Correctness floor**, first half of the road to v1.0. No new features. The goal: make the silent-filter bug class — the same shape the four v0.9.1/v0.9.2 fixes all addressed — structurally hard to reintroduce. After v0.10 a future regression that flips a number trips a test loudly, instead of shipping silently-wrong output to a real day's report.
 
