@@ -69,6 +69,14 @@ def build_report_daily() -> ModuleType:
     )
 
 
+@pytest.fixture(scope="session")
+def build_checklist_reconcile() -> ModuleType:
+    """The mcp-reconcile build_checklist.py module."""
+    return _load_module_by_path(
+        "br_reconcile", _REPO_ROOT / "skills/mcp-reconcile/build_checklist.py",
+    )
+
+
 # ── Live-tenant fixture loaders ──
 
 def _load_fixture(name: str) -> dict:

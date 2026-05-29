@@ -114,8 +114,8 @@ Or by hand: copy [`skills/cc-monthly-report/tenant.example.yaml`](skills/cc-mont
 |---|---|
 | `queue_observation` | Live snapshot — waiting / interacting / on-queue agents |
 | `queue_estimated_wait_time` | Genesys' own AI-adjusted EWT model |
-| `queue_performance` | Per-queue × media aggregates that **match the Genesys "Performance > Queues" UI exactly**. Derived fields: `answered` (`tAnswered.count`), `abandoned`, `service_level_pct`, `avg_wait_s`, `avg_answer_s`, `avg_handle_s`. Filter shape mirrors the UI's canonical `and+or+or` form. |
-| `agent_performance` | Per-agent productivity that **matches the Genesys "Performance > Agents" UI exactly**, split per media (voice / message / email / callback). Headline fields: `answered` (`tAnswered.count`), `handled`, `avg_handle_s`, `avg_talk_s`, `avg_acw_s`, `transfer_rate_pct`, plus a `by_media` breakdown. *(Was materially wrong in v0.1 — see release notes.)* |
+| `queue_performance` | Per-queue × media aggregates. **Raw metrics match the Genesys "Performance > Queues" UI exactly** (`tAnswered.count` = UI "Answer" column, etc.). Derived fields computed by the MCP — verify via [`mcp-reconcile`](#mcp-reconcile) before any release: `answered`, `abandoned`, `service_level_pct`, `avg_wait_s`, `avg_answer_s`, `avg_handle_s`. Filter shape mirrors the UI's canonical `and+or+or` form. |
+| `agent_performance` | Per-agent productivity, split per media (voice / message / email / callback). **Raw metrics match "Performance > Agents" UI exactly** (`tAnswered.count`, `tHandle.sum/count`). Headline fields: `answered`, `handled`, `avg_handle_s`, `avg_talk_s`, `avg_acw_s`, `transfer_rate_pct`, plus a `by_media` breakdown. *(Was materially wrong in v0.1 — see release notes.)* Aggregation across buckets / per-media split is MCP logic; cross-check with `mcp-reconcile`. |
 | `presence_sessions` | Per-user break/meal/away sessions over an interval — wraps the analytics/users/details async-jobs flow into a single call |
 
 ### Conversations & recordings

@@ -43,6 +43,11 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
+from genesys_mcp.shapes import (  # noqa: E402
+    assert_aggregates_envelope,
+    assert_break_overrun_report,
+    assert_repeat_caller_deep_dive,
+)
 from genesys_mcp.tenant import TenantConfig, load_config  # noqa: E402
 
 
@@ -1460,6 +1465,20 @@ def main() -> int:
     # v0.9: daily agent perf powers the per-agent voice-AHT sparklines.
     ap_daily_path = data_dir / "agent_performance_daily.json"
     ap_daily = json.loads(ap_daily_path.read_text()) if ap_daily_path.exists() else None
+
+    # Fail loud on shape mismatches (the silent-empty bug class the v0.9.x
+    # patches addressed). queue_performance carries a derived block; agent
+    # performance never does — assert each accordingly.
+    assert_aggregates_envelope(qp, source="queue_performance", expect_derived=True)
+    assert_aggregates_envelope(ap, source="agent_performance", expect_derived=False)
+    assert_break_overrun_report(brk, source="break_overrun_report")
+    assert_repeat_caller_deep_dive(deep, source="repeat_caller_deep_dive")
+    if qp_daily is not None:
+        assert_aggregates_envelope(qp_daily, source="queue_performance_daily", expect_derived=True)
+    if qp_hourly is not None:
+        assert_aggregates_envelope(qp_hourly, source="queue_performance_hourly", expect_derived=True)
+    if ap_daily is not None:
+        assert_aggregates_envelope(ap_daily, source="agent_performance_daily", expect_derived=False)
 
     qp_agg = aggregate_queue_performance(qp, qmap)
     workforce = aggregate_agents(ap, brk, user_roles, specialist_only=True)

@@ -25,6 +25,10 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
+from genesys_mcp.shapes import (  # noqa: E402
+    assert_aggregates_envelope,
+    assert_break_overrun_report,
+)
 from genesys_mcp.tenant import load_config  # noqa: E402
 
 
@@ -296,6 +300,13 @@ def main() -> int:
     brk = json.loads((data_dir / "break_overrun_report.json").read_text())
     qa_path = data_dir / "qa_evaluations.json"
     qa = json.loads(qa_path.read_text()) if qa_path.exists() else {"scope_available": False}
+
+    # Fail loud on shape mismatches before reconcile tries to render an
+    # empty checklist — the whole point of mcp-reconcile is correctness,
+    # so a silently-empty queue or agent row would defeat its purpose.
+    assert_aggregates_envelope(qp, source="queue_performance", expect_derived=True)
+    assert_aggregates_envelope(ap, source="agent_performance", expect_derived=False)
+    assert_break_overrun_report(brk, source="break_overrun_report")
 
     q_rows = _queue_rows(qp, qmap)
     agent_rows = _agent_voice_rows(ap, user_roles)

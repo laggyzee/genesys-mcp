@@ -21,6 +21,7 @@ import PureCloudPlatformClientV2 as gc
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from genesys_mcp._aggregates import accumulate_metric_stats
 from genesys_mcp.client import get_api, to_dict, with_retry
 from genesys_mcp.naming import resolver
 
@@ -1080,9 +1081,11 @@ def register(mcp: FastMCP) -> None:
         for r in aggr_resp.get("results") or []:
             uid = r["group"].get("userId")
             media = r["group"].get("mediaType", "?")
-            for bucket in r["data"]:
-                stats_by_metric = {m["metric"]: m.get("stats", {}) for m in bucket["metrics"]}
-                agg_by_user_media[uid][media] = stats_by_metric
+            # P7D over a multi-week interval yields multiple buckets per
+            # (uid, media). The shared accumulator sums count/sum across all
+            # buckets — overwriting silently truncates to the last bucket
+            # (same bug class as the v0.9.1 coaching.py P7D fix).
+            agg_by_user_media[uid][media] = accumulate_metric_stats(r.get("data") or [])
 
         # 2. Conversation details for the target user only (peers don't need the deep-dive)
         conv_body = {
