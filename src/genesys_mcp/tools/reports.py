@@ -176,6 +176,76 @@ def _trend_label(scores: list[float], single_call_trend_class: str | None = None
 _RETENTION_KEYWORDS = ("billing", "bill", "charge", "refund", "credit", "port", "complaint", "cancel", "dispute", "escalat")
 
 
+def _slim_deep_dive_response(resp: dict) -> dict:
+    """Return a v1.1 summary-mode copy of a repeat_caller_deep_dive response.
+
+    Drops debug scaffolding from ``scope``, trims per-repeater dispositions /
+    queues_offered / expected_fixes / topics to top 3, and collapses the
+    per-call ``sentiment_trajectory`` array to ``{initial, final, trend,
+    samples}``. Conversation IDs (``evidence_conversation_ids``) stay — they
+    are the essential drill-down primitives for follow-up actions like
+    pulling a recording or transcript.
+    """
+    def _top_n_dict(d: dict, n: int) -> dict:
+        if not isinstance(d, dict):
+            return {}
+        return dict(sorted(d.items(), key=lambda kv: -kv[1])[:n])
+
+    def _summarise_trajectory(traj: list) -> dict:
+        if not isinstance(traj, list) or not traj:
+            return {"initial": None, "final": None, "trend": None, "samples": 0}
+        # Each entry is typically a number or {score, ...}
+        def _val(x):
+            return x.get("score") if isinstance(x, dict) else x
+        first = _val(traj[0])
+        last = _val(traj[-1])
+        trend = None
+        if isinstance(first, (int, float)) and isinstance(last, (int, float)):
+            trend = round(last - first, 3)
+        return {"initial": first, "final": last, "trend": trend, "samples": len(traj)}
+
+    scope = resp.get("scope") or {}
+    slim_scope = {
+        k: scope[k] for k in ("max_anis", "ranked_by", "shortlisted",
+                              "include_summaries", "include_sentiment")
+        if k in scope
+    }
+
+    slim_repeaters: list[dict] = []
+    for r in resp.get("repeaters") or []:
+        slim = {
+            "ani": r.get("ani"),
+            "call_count": r.get("call_count"),
+            "acd_offered_count": r.get("acd_offered_count"),
+            "answered_count": r.get("answered_count"),
+            "abandoned_in_queue_count": r.get("abandoned_in_queue_count"),
+            "ivr_only_count": r.get("ivr_only_count"),
+            "answer_rate_of_offered_pct": r.get("answer_rate_of_offered_pct"),
+            "answered_with_outcome": r.get("answered_with_outcome"),
+            "unresolved_share": r.get("unresolved_share"),
+            "queues_offered": _top_n_dict(r.get("queues_offered") or {}, 3),
+            "dispositions": _top_n_dict(r.get("dispositions") or {}, 3),
+            "ai_outcomes": r.get("ai_outcomes") or {},
+            "expected_fixes": _top_n_dict(r.get("expected_fixes") or {}, 3),
+            # topics is already capped at ~5 in the builder — keep top 3
+            "topics": (r.get("topics") or [])[:3],
+            "sentiment_trajectory": _summarise_trajectory(r.get("sentiment_trajectory")),
+            "sentiment_trend": r.get("sentiment_trend"),
+            "last_call": r.get("last_call"),
+            "evidence_conversation_ids": r.get("evidence_conversation_ids") or [],
+            "recommended_action": r.get("recommended_action"),
+        }
+        slim_repeaters.append(slim)
+
+    return {
+        "interval": resp.get("interval"),
+        "media_type": resp.get("media_type"),
+        "scope": slim_scope,
+        "org_rollup": resp.get("org_rollup") or {},
+        "repeaters": slim_repeaters,
+    }
+
+
 def _recommend_action(row: dict) -> str:
     """Documented heuristic. Order matters — first match wins."""
     abandoned = row["abandoned_in_queue_count"]
@@ -464,6 +534,19 @@ def register(mcp: FastMCP) -> None:
         include_sentiment: bool = Field(
             default=True,
             description="Pull sentiment for answered calls. Disable for cheaper runs.",
+        ),
+        mode: str = Field(
+            default="summary",
+            description=(
+                "Response shape. 'summary' (default, v1.1+) trims debug "
+                "scaffolding from `scope`, caps per-repeater "
+                "queues_offered / dispositions / expected_fixes / topics to "
+                "top 3, and collapses per-call sentiment_trajectory arrays to "
+                "{initial, final, trend, samples}. 'full' returns the v1.0 "
+                "shape with everything. Conversation IDs "
+                "(`evidence_conversation_ids`) stay in both modes — they are "
+                "the drill-down primitives for fetching recordings / transcripts."
+            ),
         ),
     ) -> dict:
         """Repeat-caller funnel + WHY: topics, sentiment trajectory, last-call status, recommended action.
@@ -778,7 +861,7 @@ def register(mcp: FastMCP) -> None:
                 })
         unresolved_repeaters.sort(key=lambda x: (-x["unresolved_share"], -x["answered_with_outcome"]))
 
-        return {
+        full_response = {
             "interval": interval,
             "media_type": media_type,
             "scope": {
@@ -808,6 +891,13 @@ def register(mcp: FastMCP) -> None:
             },
             "repeaters": rows,
         }
+        if mode == "summary":
+            return _slim_deep_dive_response(full_response)
+        if mode == "full":
+            return full_response
+        raise ValueError(
+            f"repeat_caller_deep_dive.mode must be 'summary' or 'full', got {mode!r}"
+        )
 
     @mcp.tool()
     def break_overrun_report(
@@ -851,6 +941,19 @@ def register(mcp: FastMCP) -> None:
                 "disabled — the response sets `pre_break_tracking_available: "
                 "false` and pre-break counts are zero rather than misleadingly "
                 "computed against an unrelated presence id."
+            ),
+        ),
+        mode: str = Field(
+            default="summary",
+            description=(
+                "Response shape. 'summary' (default, v1.1+) returns only the "
+                "per-user aggregate counters — break/meal/pre-break/away "
+                "counts + totals + averages. 'full' adds the per-session "
+                "detail arrays (overrun_sessions, pre_break_overrun_sessions, "
+                "away_sessions with start_utc + duration_s per session). "
+                "Use 'full' only when drilling into specific sessions; the "
+                "presence_sessions tool returns the same per-session detail "
+                "with more context."
             ),
         ),
     ) -> dict:
@@ -1024,6 +1127,21 @@ def register(mcp: FastMCP) -> None:
             })
         ranked.sort(key=lambda r: (-r["overrun_count"], -r["total_overrun_min"]))
 
+        if mode == "summary":
+            # Slim each user row: drop the three per-session arrays.
+            slim_users = []
+            for u in ranked:
+                row = {k: v for k, v in u.items() if k not in (
+                    "overrun_sessions", "pre_break_overrun_sessions", "away_sessions",
+                )}
+                slim_users.append(row)
+            users_out = slim_users
+        elif mode == "full":
+            users_out = ranked
+        else:
+            raise ValueError(
+                f"break_overrun_report.mode must be 'summary' or 'full', got {mode!r}"
+            )
         return {
             "interval": interval,
             "break_target_min": break_target_min,
@@ -1036,7 +1154,7 @@ def register(mcp: FastMCP) -> None:
             # configured" rather than as zero overruns. Skills check this
             # flag before rendering pre-break sections.
             "pre_break_tracking_available": pre_break_organization_presence_id is not None,
-            "users": ranked,
+            "users": users_out,
         }
 
     @mcp.tool()
