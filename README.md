@@ -4,9 +4,9 @@ A local stdio MCP server that gives Claude Code (or any MCP-compatible client) r
 
 Built so contact-centre operations and analytics work — queue performance, agent reviews, conversation deep-dives, repeat-caller root-cause analysis, presence/break/away analysis, demand-vs-capacity vs WFM, monthly contact-centre reports — can be done by talking to Claude in plain English instead of clicking through Genesys Admin or Performance dashboards.
 
-> **v1.0 — May 2026:** the **tenant-agnostic + correctness floor** release. Two themes:
-> - **Hardening** (v0.10 floor): 286 tests; response-shape validators wired into every skill build script; numeric snapshot tests pin the four core aggregator outputs; a shared accumulator de-duplicates the v0.9.1 P7D-bucket fix; coverage parity across all four skills.
-> - **Tenant-agnostic** (v1.0): every tenant-specific assumption that used to be baked into Python now lives in [`tenant.yaml`](docs/tenant-config-schema.md). Pre-break UUID, coaching heuristic thresholds (hold ratio, QA pass mark, peer multiplier, etc.), and specialist roles are all config-driven. A new `operating_model` block lets single-brand, message-only, and no-pre-break tenants get clean degraded reports instead of misleading zeros. Queue-name pattern is optional and the loader hard-fails on schema-version drift.
+> **v1.1 — May 2026:** the **token-budget release.** The four heavy analytics tools (`queue_performance`, `agent_performance`, `repeat_caller_deep_dive`, `break_overrun_report`) gain a `mode: "summary" | "full"` parameter, defaulting to summary. Routine interactive queries use roughly 25–40% of the v1.0 token count with zero loss of signal for any current skill. 302 tests including 16 new token-budget regression tests.
+>
+> **v1.0 — May 2026:** the tenant-agnostic + correctness floor release. Every tenant-specific assumption that used to be baked into Python now lives in [`tenant.yaml`](docs/tenant-config-schema.md). A new `operating_model` block lets single-brand, message-only, and no-pre-break tenants get clean degraded reports instead of misleading zeros. Queue-name pattern is optional and the loader hard-fails on schema-version drift.
 >
 > See [RELEASE-NOTES.md](RELEASE-NOTES.md) for the full history.
 

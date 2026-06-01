@@ -22,6 +22,80 @@ def _default_interval(days: int = 7) -> str:
     return f"{start.strftime('%Y-%m-%dT%H:%M:%S.000Z')}/{end.strftime('%Y-%m-%dT%H:%M:%S.000Z')}"
 
 
+# Fields we keep in `mode: "summary"` for queue_performance. Everything else
+# (histograms, percentiles, min/max/current, plus the unused metrics) gets
+# stripped per v1.1's token-budget pass.
+_QUEUE_SUMMARY_METRICS: dict[str, list[str]] = {
+    "tAnswered":  ["count", "sum"],
+    "tHandle":    ["count", "sum"],
+    "tWait":      ["count", "sum"],
+    "tAbandon":   ["count", "sum"],
+    "nOffered":   ["count"],
+    "nOverSla":   ["count"],
+    "nConnected": ["count"],   # daily-brief's offered fallback when nOffered is empty
+}
+
+
+# Same shape as _QUEUE_SUMMARY_METRICS but for agent_performance. Drops the
+# rarely-consumed transfer-type metrics (nOutbound, nBlindTransferred,
+# nConsultTransferred) and the per-metric histograms / percentiles.
+_AGENT_SUMMARY_METRICS: dict[str, list[str]] = {
+    "tAnswered":     ["count", "sum"],
+    "tHandle":       ["count", "sum"],
+    "tTalkComplete": ["count", "sum"],
+    "tAcw":          ["count", "sum"],
+    "tHeldComplete": ["count", "sum"],
+    "nTransferred":  ["count"],
+}
+
+
+def _slim_agent_results(resp: dict) -> None:
+    """Trim a raw agent_performance ``results`` block in-place to summary mode.
+
+    Drops the metrics nothing consumes plus all histogram / percentile fields.
+    Keeps tAnswered + tHandle (count + sum) per bucket so the cc-monthly-report
+    daily-sparkline aggregator continues to work without needing mode='full'.
+    """
+    for result in resp.get("results") or []:
+        for bucket in result.get("data") or []:
+            slim_metrics: list[dict] = []
+            for m in bucket.get("metrics") or []:
+                metric_name = m.get("metric")
+                keep_stats = _AGENT_SUMMARY_METRICS.get(metric_name)
+                if keep_stats is None:
+                    continue
+                stats = m.get("stats") or {}
+                slim_metrics.append({
+                    "metric": metric_name,
+                    "stats": {k: stats[k] for k in keep_stats if k in stats},
+                })
+            bucket["metrics"] = slim_metrics
+
+
+def _slim_queue_response(resp: dict) -> None:
+    """Trim a queue_performance response in-place to the summary contract.
+
+    Rewrites each bucket's ``metrics`` list to include only the metrics in
+    ``_QUEUE_SUMMARY_METRICS`` and only the stat fields each metric uses.
+    Cuts ~75% of payload bytes on typical responses while preserving every
+    field any current skill or derived-block computation consumes.
+    """
+    for result in resp.get("results") or []:
+        for bucket in result.get("data") or []:
+            slim_metrics: list[dict] = []
+            for m in bucket.get("metrics") or []:
+                metric_name = m.get("metric")
+                keep_stats = _QUEUE_SUMMARY_METRICS.get(metric_name)
+                if keep_stats is None:
+                    continue
+                stats = m.get("stats") or {}
+                slim_metrics.append({
+                    "metric": metric_name,
+                    "stats": {k: stats[k] for k in keep_stats if k in stats},
+                })
+            bucket["metrics"] = slim_metrics
+
+
 def _attach_derived_metrics(resp: dict) -> None:
     """Walk a conversation-aggregates response and attach a 'derived' dict to each bucket.
 
@@ -107,6 +181,20 @@ def register(mcp: FastMCP) -> None:
             default=True,
             description="If true, also group by mediaType so voice/callback/message/email are split.",
         ),
+        mode: str = Field(
+            default="summary",
+            description=(
+                "Response shape. 'summary' (default, v1.1+) returns the derived "
+                "block plus a slim set of raw metrics (count + sum on tAnswered, "
+                "tHandle, tWait, tAbandon; count-only on nOffered, nOverSla, "
+                "nConnected). 'full' returns the v1.0 shape with every metric "
+                "and every stat field (histograms, percentiles, min/max). Most "
+                "interactive use should stay on 'summary' — ~75% smaller payload "
+                "and every current skill consumes only the summary fields. "
+                "Switch to 'full' only when you genuinely need percentiles or "
+                "histograms (e.g. 'what's the p95 wait time?')."
+            ),
+        ),
     ) -> dict:
         """Aggregate queue performance per bucket, with derived answered/abandoned/SLA fields.
 
@@ -173,6 +261,12 @@ def register(mcp: FastMCP) -> None:
         resp = with_retry(api.post_analytics_conversations_aggregates_query)(body)
         out = to_dict(resp)
         _attach_derived_metrics(out)
+        if mode == "summary":
+            _slim_queue_response(out)
+        elif mode != "full":
+            raise ValueError(
+                f"queue_performance.mode must be 'summary' or 'full', got {mode!r}"
+            )
         return out
 
     @mcp.tool()
@@ -235,6 +329,18 @@ def register(mcp: FastMCP) -> None:
             default=None, description="ISO-8601 interval 'start/end'. Defaults to last 7 days."
         ),
         granularity: str = Field(default="P1D"),
+        mode: str = Field(
+            default="summary",
+            description=(
+                "Response shape. 'summary' (default, v1.1+) returns only the "
+                "computed per-agent + per-media KPIs (answered, handled, AHT, "
+                "ACW, transfer rate, total handle minutes). 'full' adds the "
+                "raw Genesys aggregates response under 'results' with every "
+                "metric and stat field — needed only for histograms or "
+                "percentiles. The summary already drives every workforce table, "
+                "coaching brief and reconciliation row across the four skills."
+            ),
+        ),
     ) -> dict:
         """Per-agent productivity matching Genesys 'Performance > Agents' UI:
         answered count, handle time, talk time, ACW, transferred — broken down per
@@ -359,9 +465,21 @@ def register(mcp: FastMCP) -> None:
             })
         summary.sort(key=lambda r: -(r["answered"] or 0))
 
+        out_results = raw.get("results") or []
+        if mode == "summary":
+            # Trim each bucket's metrics list to the slim contract (count + sum
+            # on the metrics actually consumed). Keeps `results` for sparkline
+            # and reconciliation aggregators that iterate per-bucket data.
+            slimmed = {"results": out_results}
+            _slim_agent_results(slimmed)
+            out_results = slimmed["results"]
+        elif mode != "full":
+            raise ValueError(
+                f"agent_performance.mode must be 'summary' or 'full', got {mode!r}"
+            )
         return {
             "interval": body["interval"],
             "granularity": granularity,
             "summary": summary,
-            "results": raw.get("results") or [],
+            "results": out_results,
         }

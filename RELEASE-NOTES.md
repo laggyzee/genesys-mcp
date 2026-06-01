@@ -1,5 +1,70 @@
 # Release Notes
 
+## v1.1.0 — 29 May 2026
+
+**The token-budget release.** Four heavy tools (`queue_performance`, `agent_performance`, `repeat_caller_deep_dive`, `break_overrun_report`) gain a `mode: "summary" | "full"` parameter, defaulting to summary. Routine interactive queries now use roughly 25–40% of the tokens they used in v1.0 with zero loss of signal for any current skill — every dropped field was either a histogram bucket, a percentile, debug scaffolding, or a per-session detail array nothing in the codebase actually reads.
+
+### The contract
+
+Every heavy tool now has a `mode` parameter:
+
+- **`mode: "summary"` (new default)** — slim shape. Each tool defines its own contract for what stays vs gets dropped (see below). Optimised for routine interactive use.
+- **`mode: "full"`** — the v1.0 shape with histograms, percentiles, and per-session detail. Use only when you genuinely need them (*"what's the p95 wait time?"*, *"when exactly did Joan go over on Monday?"*).
+
+### Per-tool slim contracts
+
+**`queue_performance`**
+
+- **Keeps** in summary: `tAnswered`, `tHandle`, `tWait`, `tAbandon` with `{count, sum}` each; `nOffered`, `nOverSla`, `nConnected` with `{count}` only; full `derived` block (answered, abandoned, SL, ASA, AHT).
+- **Drops** in summary: `nTransferred`, `tTalkComplete`, `tHeldComplete`, `tAcw`, `tShortAbandon`. Plus min/max/current/p50/p75/p90/p95/p99 and full histogram bucket arrays on every metric.
+
+**`agent_performance`**
+
+- **Keeps** in summary: `tAnswered`, `tHandle`, `tTalkComplete`, `tAcw`, `tHeldComplete` with `{count, sum}` each; `nTransferred` with `{count}`; full `summary` array (per-agent + per-media rollups).
+- **Drops** in summary: `nOutbound`, `nBlindTransferred`, `nConsultTransferred` plus all percentile/histogram stats.
+
+**`repeat_caller_deep_dive`**
+
+- **Keeps** in summary: full `org_rollup` (already aggregated); per-repeater core fields including `evidence_conversation_ids` (essential drill-down primitives — conversation IDs are tiny and let callers fetch recordings/transcripts).
+- **Drops** in summary: debug scaffolding from `scope` (`sta_calls_made`, `wrapup_coverage_pct`, etc.); caps `queues_offered` / `dispositions` / `expected_fixes` / `topics` to top 3 per repeater; collapses per-call `sentiment_trajectory` array to a 4-key summary `{initial, final, trend, samples}`.
+
+**`break_overrun_report`**
+
+- **Keeps** in summary: every per-user aggregate counter — break/meal/pre-break/away counts + totals + averages, plus `pre_break_tracking_available` flag.
+- **Drops** in summary: the three per-session detail arrays (`overrun_sessions`, `pre_break_overrun_sessions`, `away_sessions`). Use `presence_sessions(user_id, interval)` for per-session drill-downs, or pass `mode: "full"`.
+
+### Measured impact
+
+Against the live tenant data the four skills consume:
+
+| Tool | Per-bucket fields before → after | Synthesised payload reduction |
+|---|---|---|
+| `queue_performance` | ~30 per metric × 11 metrics → 1–2 stats × 7 metrics | ~75% smaller with histograms present |
+| `agent_performance` | Same shape | Similar |
+| `repeat_caller_deep_dive` | Full per-call sentiment + dispositions / queues | ~60% smaller on 10-repeater payloads |
+| `break_overrun_report` | Per-session arrays of 5–10 entries per user | ~80% smaller when sessions are present |
+
+The captured test fixtures don't have full histograms baked in (they pre-date v1.1) so the synthesised tests confirm the real-world reduction — see `tests/test_token_budgets.py`.
+
+### Tests
+
+286 → **302 tests** (+16 in [`tests/test_token_budgets.py`](tests/test_token_budgets.py)):
+
+- One test per tool asserting the slim version fits under a tight regression budget (catches a histogram or percentile field creeping back in).
+- One test per tool asserting the dropped fields *actually get dropped* when synthesised inputs include them.
+- Plus shape-preservation tests: `derived` block stays intact on `queue_performance`, `evidence_conversation_ids` always present on deep-dive repeaters, aggregate counters always present on break-overrun user rows.
+
+### Upgrade
+
+```bash
+cd ~/code/genesys-mcp && git pull && uv sync
+make test                  # 302 tests should pass
+```
+
+Pure additive change for the default user — every existing tool call returns smaller data with the same fields any skill actually reads. If you have a custom workflow that depends on histograms or per-session detail, add `mode="full"` to those specific calls.
+
+---
+
 ## v1.0.0 — 29 May 2026
 
 **The tenant-agnostic release.** Every tenant-specific assumption that pre-v1.0 was baked into Python now lives in tenant.yaml, and the skills cleanly degrade when a tenant's operating model differs from the defaults. Combined with the v0.10 correctness floor (shape validators, snapshot tests, untested-skill coverage), v1.0 is the first version a fresh deployer can confidently point at any Genesys Cloud tenant without forking the code.
