@@ -572,6 +572,27 @@ def register(mcp: FastMCP) -> None:
             default=10, ge=1, le=50,
             description="Cap on top flagged calls returned (sorted by composite flag score).",
         ),
+        include_flagged_transcripts: bool = Field(
+            default=True,
+            description=(
+                "When true (default, v1.2+), each flagged call gets an inline "
+                "transcript excerpt attached under `transcript_excerpt` so the "
+                "coaching brief can read what was said without a separate "
+                "round-trip per call. Disable for cheaper runs or when you "
+                "already have the conversation IDs and want to fetch "
+                "transcripts on demand."
+            ),
+        ),
+        transcript_max_utterances_per_call: int = Field(
+            default=40, ge=5, le=200,
+            description=(
+                "Per-call cap on transcript utterances when "
+                "`include_flagged_transcripts` is true. Default 40 captures "
+                "the opening exchange (where most coaching friction surfaces) "
+                "without ballooning chat context. Raise for full-call deep "
+                "dives, lower if you have many flagged calls."
+            ),
+        ),
     ) -> dict:
         """Single-call 1:1 prep brief for one agent.
 
@@ -627,6 +648,54 @@ def register(mcp: FastMCP) -> None:
             voice_aht_target_s=targets["voice_aht_s"],
             flagged_calls_limit=flagged_calls_limit,
         )
+
+        # 4b. v1.2: attach inline transcript excerpts to each flagged call so
+        # the coaching brief can read what was said without a per-call round
+        # trip. Concurrent fetch (1 thread per flagged call) keeps wall time
+        # bounded — N flagged calls × ~1-2s each becomes ~3-5s total.
+        if include_flagged_transcripts and call_signals.get("flagged_calls"):
+            from genesys_mcp.tools.speech_analytics import fetch_conversation_transcript
+
+            def _fetch_for(conv_id: str) -> tuple[str, dict]:
+                try:
+                    return conv_id, fetch_conversation_transcript(
+                        conv_id, mode="summary",
+                        max_utterances=transcript_max_utterances_per_call,
+                    )
+                except Exception as exc:
+                    logger.info(
+                        "transcript excerpt skipped for conv=%s: %s", conv_id, exc,
+                    )
+                    return conv_id, {"status": "error", "message": str(exc)}
+
+            with ThreadPoolExecutor(max_workers=_ENRICHMENT_WORKERS) as pool:
+                futures = [
+                    pool.submit(_fetch_for, fc["conversation_id"])
+                    for fc in call_signals["flagged_calls"]
+                ]
+                excerpts: dict[str, dict] = {}
+                for fut in futures:
+                    cid, excerpt = fut.result()
+                    excerpts[cid] = excerpt
+
+            for fc in call_signals["flagged_calls"]:
+                excerpt = excerpts.get(fc["conversation_id"]) or {}
+                # Strip metadata the coaching brief doesn't need — just keep
+                # the utterances and a couple of context scalars. Keeps the
+                # attached excerpt focused.
+                if excerpt.get("utterances"):
+                    fc["transcript_excerpt"] = {
+                        "media_type": excerpt.get("media_type"),
+                        "duration_s": excerpt.get("duration_s"),
+                        "total_utterances": excerpt.get("total_utterances"),
+                        "truncated_at": excerpt.get("truncated_at"),
+                        "utterances": excerpt.get("utterances"),
+                    }
+                else:
+                    fc["transcript_excerpt"] = {
+                        "status": excerpt.get("status", "unavailable"),
+                        "message": excerpt.get("message"),
+                    }
 
         # 5. QA scores (soft-fail on no scope)
         start, end = _split_interval(interval)

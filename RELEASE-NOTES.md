@@ -1,5 +1,84 @@
 # Release Notes
 
+## v1.2.0 — 2 June 2026
+
+**Inline transcripts.** New `get_conversation_transcript` tool returns a structured, time-aligned list of utterances attributed to customer / agent / IVR / ACD with optional per-utterance sentiment. The coaching pack uses it automatically — every flagged call now ships with an inline transcript excerpt so TLs can read what was said without a per-call round-trip.
+
+### New tool: `get_conversation_transcript`
+
+Resolves a conversation id → recording session ids via `recording:recording:view`, then for each session pulls the STA transcript URL and downloads the JSON. Returns a flat list of speaker-attributed utterances with start times and (in `full` mode) per-utterance sentiment.
+
+Parameters:
+
+- **`conversation_id`** — required.
+- **`mode: "summary" | "full"`** — default `summary` returns `{speaker, start_s, text}` per utterance; `full` adds `{sentiment, sentiment_label}` for sentiment-progression diagnosis.
+- **`max_utterances`** — default 200, range 10–2000. When truncated, the response includes `truncated_at: N` plus `total_utterances_dropped` so callers know what was clipped.
+
+Response shape:
+
+```json
+{
+  "conversation_id": "...",
+  "media_type": "voice",
+  "duration_s": 547.2,
+  "participants": {"customer": "+614...", "agent": "agent-uuid"},
+  "sessions_processed": 1,
+  "sessions_no_transcript": 0,
+  "total_utterances": 87,
+  "truncated_at": null,
+  "total_utterances_dropped": 0,
+  "utterances": [
+    {"speaker": "customer", "start_s": 0.5, "text": "Hi, I'm calling about my bill."},
+    {"speaker": "agent", "start_s": 4.2, "text": "Sure, no problem. Let me pull that up."},
+    ...
+  ]
+}
+```
+
+Speaker labels are normalised from Genesys's `participantPurpose`: `external` → `customer`, `internal`/`user`/`agent` → `agent`, plus `ivr`, `acd`, `voicemail`, `fax` pass through unchanged.
+
+### `agent_coaching_pack` now embeds excerpts
+
+Two new optional params on the coaching pack:
+
+- **`include_flagged_transcripts: bool = True`** — when on, each flagged call gets a `transcript_excerpt` field attached automatically.
+- **`transcript_max_utterances_per_call: int = 40`** — default 40 captures the opening exchange (where most coaching friction surfaces). 40 utterances × 10 flagged calls ≈ 50KB chunk added to a typical coaching pack — chunky but that's the deepest read.
+
+Concurrent fetch under the existing `ThreadPoolExecutor` so wall time stays bounded (~3-5s for 10 flagged calls).
+
+### Why this matters for coaching
+
+Pre-v1.2: a coaching brief showed flagged call IDs + reasons (sentiment dip, hold ratio, AHT excess) but the TL had to leave chat context, fetch the transcript URL separately, parse the JSON, and figure out which speaker was the agent. 30+ round-trips for a typical brief.
+
+Post-v1.2: the brief reads end-to-end — *"Joan's flagged call from 14 May, AHT +349% over target — the customer asked twice about porting; Joan suggested portal reset instead of escalating to the porting queue (utterance at 6:23)."* The transcript is right there. TL spends time on the coaching conversation, not on data wrangling.
+
+### Tests
+
+302 → **326 tests** (+24 in [`tests/test_transcript.py`](tests/test_transcript.py)):
+
+- Speaker normalisation (external→customer, internal→agent, ivr/acd pass-through, unknown→lowercased)
+- Sentiment label translation (-1 → negative, 0 → neutral, +1 → positive)
+- Utterance flattening (prefers `decoratedText` over raw `text`, attaches sentiment by `phraseIndex`, skips empty phrases)
+- Participant summarisation (first-identifier-per-role wins)
+- Mode trimming (`summary` strips sentiment, `full` keeps it)
+- End-to-end pipeline mocked (recordings → transcript URL → HTTP fetch → utterance list) for happy path, no-recordings 404, truncation, invalid mode
+- Token budget: 40-utterance summary excerpt fits under 8KB
+
+### Distribution comparison context
+
+For anyone wondering about the [MakingChatbots/genesys-cloud-mcp-server](https://github.com/MakingChatbots/genesys-cloud-mcp-server) project — their `conversation_transcript` tool was the direct inspiration for this. Their TypeScript implementation handles the same recording-session resolution + URL fetch flow; this Python port adds the v1.1 `mode: "summary" | "full"` pattern, the `max_utterances` truncation contract, and the coaching-pack integration. Both projects are read-only and complementary in scope.
+
+### Upgrade
+
+```bash
+cd ~/code/genesys-mcp && git pull && uv sync
+make test                  # 326 tests should pass
+```
+
+If you don't want transcripts in coaching packs (cheaper runs, less data flowing into chat), pass `include_flagged_transcripts: false` on the `agent_coaching_pack` call.
+
+---
+
 ## v1.1.0 — 29 May 2026
 
 **The token-budget release.** Four heavy tools (`queue_performance`, `agent_performance`, `repeat_caller_deep_dive`, `break_overrun_report`) gain a `mode: "summary" | "full"` parameter, defaulting to summary. Routine interactive queries now use roughly 25–40% of the tokens they used in v1.0 with zero loss of signal for any current skill — every dropped field was either a histogram bucket, a percentile, debug scaffolding, or a per-session detail array nothing in the codebase actually reads.

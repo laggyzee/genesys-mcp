@@ -4,7 +4,9 @@ A local stdio MCP server that gives Claude Code (or any MCP-compatible client) r
 
 Built so contact-centre operations and analytics work — queue performance, agent reviews, conversation deep-dives, repeat-caller root-cause analysis, presence/break/away analysis, demand-vs-capacity vs WFM, monthly contact-centre reports — can be done by talking to Claude in plain English instead of clicking through Genesys Admin or Performance dashboards.
 
-> **v1.1 — May 2026:** the **token-budget release.** The four heavy analytics tools (`queue_performance`, `agent_performance`, `repeat_caller_deep_dive`, `break_overrun_report`) gain a `mode: "summary" | "full"` parameter, defaulting to summary. Routine interactive queries use roughly 25–40% of the v1.0 token count with zero loss of signal for any current skill. 302 tests including 16 new token-budget regression tests.
+> **v1.2 — June 2026:** **inline transcripts.** New `get_conversation_transcript` returns structured, time-aligned utterances with speaker labels (customer/agent/IVR/ACD) and optional per-utterance sentiment. The coaching pack uses it automatically — every flagged call ships with an inline transcript excerpt so TLs can read what was said without per-call round-trips. 326 tests including 24 new transcript-parsing tests.
+>
+> **v1.1 — May 2026:** the token-budget release. Four heavy analytics tools (`queue_performance`, `agent_performance`, `repeat_caller_deep_dive`, `break_overrun_report`) gain a `mode: "summary" | "full"` parameter, defaulting to summary. Routine interactive queries use roughly 25–40% of the v1.0 token count with zero loss of signal for any current skill.
 >
 > **v1.0 — May 2026:** the tenant-agnostic + correctness floor release. Every tenant-specific assumption that used to be baked into Python now lives in [`tenant.yaml`](docs/tenant-config-schema.md). A new `operating_model` block lets single-brand, message-only, and no-pre-break tenants get clean degraded reports instead of misleading zeros. Queue-name pattern is optional and the loader hard-fails on schema-version drift.
 >
@@ -151,7 +153,7 @@ Or by hand: copy [`skills/cc-monthly-report/tenant.example.yaml`](skills/cc-mont
 | `repeat_caller_deep_dive` | The *why* layer on top of `repeat_caller_report`. Enriches the top repeaters with conversation summaries, AI outcomes (`Resolved` / `Mid Flight` / `Unresolved Chat` / `Escalated`), expected-fix tags, sentiment trajectory, and a heuristic `recommended_action` (`callback_recommended` / `escalate_to_retention` / `route_review` / `monitor`). Org rollup includes top dispositions and the `unresolved_repeaters` priority list. |
 | `break_overrun_report` | Per-agent break / meal / **AWAY** / **PRE_BREAK** signals over an interval. AWAY tracked as raw count + total minutes (no target). PRE_BREAK overruns vs configurable target (default 10 min) — handles the auto-applied pre-break presence and quantifies time spent over the drain window. |
 | `agent_quality_snapshot` | One-shot agent review combining handle stats, hold-ratio flags, silent-transcript detection, wrap-up note discipline, and optional peer comparison |
-| `agent_coaching_pack` | One-shot 1:1 prep brief: volume / AHT vs targets, peer-median comparison, sentiment + QA, wrap-up discipline, top flagged calls, and heuristic top-3 recommended coaching focus. Tenant-aware (loads AHT targets and flagged-call thresholds from `tenant.yaml` when present, falls back to in-code defaults). Drives the `cc-coaching-prep` skill. |
+| `agent_coaching_pack` | One-shot 1:1 prep brief: volume / AHT vs targets, peer-median comparison, sentiment + QA, wrap-up discipline, top flagged calls, and heuristic top-3 recommended coaching focus. v1.2: each flagged call ships with an inline `transcript_excerpt` (~40 utterances) so the brief reads end-to-end without per-call round-trips. Tenant-aware (loads AHT targets, flagged-call thresholds, and coaching heuristics from `tenant.yaml`). Drives the `cc-coaching-prep` skill. |
 | `live_wallboard` | Per-queue real-time view combining observation + EWT + agents-on-queue in one call |
 
 ### Quality management *(needs `quality:readonly`)*
@@ -175,7 +177,8 @@ Or by hand: copy [`skills/cc-monthly-report/tenant.example.yaml`](skills/cc-mont
 |---|---|
 | `get_conversation_summary` | AI-generated summary (topics, key issues) |
 | `get_conversation_sentiment` | Per-speaker sentiment timeline |
-| `get_transcript_url` | Signed URL to the full transcript JSON |
+| `get_transcript_url` | Signed URL to the full transcript JSON (raw — use `get_conversation_transcript` for parsed) |
+| `get_conversation_transcript` | (v1.2) Structured, time-aligned utterances with speaker labels (customer/agent/IVR/ACD) and optional per-utterance sentiment. `mode: "summary" | "full"`, `max_utterances` cap with truncation reporting. Powers the coaching pack's inline transcript excerpts on flagged calls. |
 
 ### External contacts (CRM) *(needs `external-contacts:readonly`)*
 | Tool | Purpose |
