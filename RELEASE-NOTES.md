@@ -1,5 +1,102 @@
 # Release Notes
 
+## v1.4.0 — 3 June 2026
+
+**Call quality + batch ergonomics.** Four deliverables: MOS scores for voice-call quality (closes the gap vs the MakingChatbots MCP), presence-label resolution on `get_user_presence_now`, batch mode for `find_user`, and concurrent fan-out for `agent_adherence_review` (5-10× faster on large tenants).
+
+### New tool: `voice_call_quality`
+
+Per-conversation MOS (Mean Opinion Score) for voice-call quality triage. MOS is the *"was it the network or the agent?"* signal — calls with min MOS < 3 are nearly always network-impacted (jitter, packet loss, codec) rather than agent-skill issues, so a coaching brief that includes a poor-MOS call should flag the network angle before suggesting agent coaching.
+
+```python
+voice_call_quality(
+    conversation_ids: list[str],  # up to 100
+    low_mos_threshold: float = 3.5,
+)
+```
+
+Returns per conversation:
+
+```yaml
+- conversation_id: "..."
+  min_mos: 3.2
+  avg_mos: 4.1
+  segments_evaluated: 12
+  segments_with_low_mos: 2
+  quality_label: "fair"   # good ≥4.0, fair 3.0-4.0, poor <3.0
+```
+
+Soft-fails on 404 (deleted / privacy-filtered / retention-expired) using the canonical envelope from v1.3. Non-voice conversations return `{conversation_id, no_voice_segments: true}` so batch loops over mixed-media lists don't break.
+
+Endpoint: `GET /api/v2/analytics/conversations/{id}/details`. Needs `analytics:conversationDetail:view`.
+
+### `get_user_presence_now` resolves presence labels
+
+Pre-v1.4: returned `presence_definition_id: <uuid>` only — every caller followed up with another lookup to learn whether the agent was on "Coaching" vs "Training" vs "Pre Break".
+
+v1.4: each row gains `presence_label: "Pre Break"` resolved from the presence definition UUID. Uses a process-lifetime cache of `/api/v2/presence/definitions` — typically one load per MCP server lifetime since presences change rarely.
+
+```python
+get_user_presence_now(
+    user_ids: list[str],
+    include_label: bool = True,  # set False to skip lookup if missing presence:definition:view
+)
+```
+
+Cache invalidation: never (restart the MCP to refresh). If a tenant adds a presence mid-session and queries it before the cache loads, they'll see `presence_label: None` — accepted trade-off for no-thinking caching.
+
+### `find_user` batch variant
+
+Pre-v1.4: `find_user(query)` resolved one name at a time. TL workflows that need a target + peer set (10-20 names) forced 10-20 serial calls.
+
+v1.4: optional `name_contains_list: list[str]` runs N searches concurrently and groups results per input query.
+
+```yaml
+matches:
+  - name_query: "Jane Smith"
+    candidates: [{id, name, email, title, ...}]
+  - name_query: "Bob Jones"
+    candidates: [...]
+unmatched: ["Typo McGoo"]
+total_queries: 3
+matched_queries: 2
+mode: "batch"
+```
+
+Bounded thread pool (max 8 workers). Single-mode (`query: str`) unchanged. Mutex — pass exactly one of the two parameters.
+
+### `agent_adherence_review` concurrent fan-out
+
+The per-user adherence-explanations query was happening sequentially in a loop. On a 30-agent tenant that meant ~30 sequential round-trips. v1.4 fans them out via `ThreadPoolExecutor` (max 8 workers).
+
+**Expected speedup: 5-10× on a 30-agent tenant** (single ~10s pool batch vs 30 sequential).
+
+Behaviour is unchanged otherwise — per-user failures still surface as empty explanations (logged warning); the response shape is byte-identical to v1.3.
+
+### Tool count: 43 → 44
+
+`voice_call_quality` is the only addition.
+
+### Tests
+
+345 → **361 tests** (+16 in [`tests/test_v14.py`](tests/test_v14.py)):
+
+- **`find_user`** (4): single mode unchanged, batch groups per query, both mutex error cases
+- **`get_user_presence_now`** (4): label resolved inline, `include_label: false` skips the API call entirely, unknown UUID returns `None`, second call hits the cache without re-loading
+- **`voice_call_quality`** (6): good / fair / poor labels at correct boundaries, non-voice convs return `no_voice_segments`, 404 → canonical envelope, custom `low_mos_threshold` shifts the low-segment count
+- **`agent_adherence_review`** (2): each user gets exactly one adherence call regardless of pool concurrency, per-user failures surface as empty explanations rather than breaking the tool
+
+### Upgrade
+
+```bash
+cd ~/code/genesys-mcp && git pull && uv sync
+make test                  # 361 tests should pass
+```
+
+No tenant.yaml changes required; no breaking response-shape changes. Existing callers of `find_user` (single mode), `get_user_presence_now` (just gets the extra label field), `agent_adherence_review` (same shape, faster), and every other tool continue to work unchanged.
+
+---
+
 ## v1.3.0 — 3 June 2026
 
 **Soft-fail consistency + a missing discovery tool.** Came out of a structured review of all 42 MCP tools after v1.2 shipped. Six concrete fixes, one new tool, one shared envelope helper. No breaking changes for callers reading the canonical response shape.

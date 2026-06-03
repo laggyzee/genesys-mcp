@@ -238,19 +238,32 @@ def register(mcp: FastMCP) -> None:
             if not cursor:
                 break
 
-        # 2. WFM adherence explanations per user
+        # 2. WFM adherence explanations per user — v1.4: concurrent fan-out
+        # instead of N sequential calls. On a 30-agent tenant this drops from
+        # ~5 min (30 × ~10s) to ~10s (8 parallel workers, ~4 batches).
+        from concurrent.futures import ThreadPoolExecutor
+
         wfm_api = gc.WorkforceManagementApi(get_api())
-        explanations_by_user: dict[str, list[dict]] = {}
-        for uid in user_ids:
+        start_iso, end_iso = interval.split("/")
+        body = {"startDate": start_iso, "endDate": end_iso}
+
+        def _fetch_expls(uid: str) -> tuple[str, list[dict]]:
             try:
-                resp = with_retry(wfm_api.post_workforcemanagement_agent_adherence_explanations_query)(
-                    agent_id=uid, body={"startDate": interval.split("/")[0], "endDate": interval.split("/")[1]}
-                )
-                expls = to_dict(resp).get("entities") or []
-                explanations_by_user[uid] = expls
+                resp = with_retry(
+                    wfm_api.post_workforcemanagement_agent_adherence_explanations_query
+                )(agent_id=uid, body=body)
+                return uid, (to_dict(resp).get("entities") or [])
             except Exception as exc:
                 logger.warning("WFM adherence query failed for %s: %s", uid, exc)
-                explanations_by_user[uid] = []
+                return uid, []
+
+        explanations_by_user: dict[str, list[dict]] = {}
+        max_workers = min(8, len(user_ids))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(_fetch_expls, uid) for uid in user_ids]
+            for fut in futures:
+                uid, expls = fut.result()
+                explanations_by_user[uid] = expls
 
         # 3. For each overrun session, flag whether any explanation overlaps
         names = resolver.user_names(user_ids)
