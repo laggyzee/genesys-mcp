@@ -1,5 +1,96 @@
 # Release Notes
 
+## v1.3.0 — 3 June 2026
+
+**Soft-fail consistency + a missing discovery tool.** Came out of a structured review of all 42 MCP tools after v1.2 shipped. Six concrete fixes, one new tool, one shared envelope helper. No breaking changes for callers reading the canonical response shape.
+
+### New: canonical soft-fail envelope (`src/genesys_mcp/_envelopes.py`)
+
+Pre-v1.3 every tool that soft-failed invented its own envelope shape:
+
+- `speech_analytics`: `{"status": 404, "conversation_id": cid, "message": ...}`
+- `lookup_external_contact`: `{"status": 404, "value": v, "type": t, "match": None}`
+- `queue_estimated_wait_time`: `{"queue_id": q, "error": str(exc)}` (no `status` key)
+
+v1.3 standardises on `soft_fail_envelope(status, kind, message, **id_fields)`. Every soft-fail across the codebase now produces:
+
+```json
+{"status": 404, "kind": "transcript url", "message": "transcript url not found",
+ "conversation_id": "..."}
+```
+
+Plus a companion `is_soft_fail(result)` predicate composition tools use when iterating per-call enrichment.
+
+### Fixes
+
+**1. `agent_coaching_pack` docstring corrected** — `coaching.py`
+Said *"Falls back to in-code defaults (voice 285s / message 660s / ACW 15s) when the config file is absent"* but v1.0 made tenant.yaml mandatory and the code raises. Doc now matches behaviour with a "run genesys-tenant-setup" remediation note.
+
+**2. `queue_estimated_wait_time` proper error handling** — `analytics.py`
+Was wrapping every exception in `{"error": str(exc)}`, making auth failures look identical to "no agents skilled" 404s. Now:
+- 404 → canonical soft-fail envelope (`status: 404, kind: "estimated wait time", message: "no EWT available (queue inactive or no agents skilled)"`)
+- Anything else → propagates with a warning log so debugging stays possible
+
+**3. `get_conversation` soft-fail** — `conversations.py`
+Was raising on deleted convs, privacy-filtered convs, and retention-expired records, breaking any batch loop that iterates over conversation lists. Now returns `{status: 404, kind: "conversation", ...}` for 404s; other errors propagate as before.
+
+**4. `lookup_external_contact` envelope migration** — `external_contacts.py`
+Was returning bespoke `{status: 404, value, type, match: None}`; now uses the canonical helper while keeping `match: None` as a back-compat id field for existing callers.
+
+### New tool: `list_org_presences`
+
+Closes the v1.0 *"where do I find the pre-break presence id?"* gap. The `genesys-tenant-setup` wizard auto-discovers it; interactive users hitting the MCP fresh needed a way to look it up by label.
+
+```python
+list_org_presences(name_contains="Pre Break")
+# → {"count": 1, "presences": [{
+#       "id": "e3bedde6-...", "system_presence": "BUSY",
+#       "label": "Pre Break", "language_labels": {"en": "Pre Break"},
+#       "deactivated": false
+#   }]}
+```
+
+Two args: optional `name_contains` (case-insensitive substring on label) and `deactivated: bool` (include deactivated, default false). Endpoint: `GET /api/v2/presence/definitions`. Needs `presence:definition:view`.
+
+Use cases:
+- Tenant setup: *"what's the UUID for our 'Pre Break' presence?"*
+- `break_overrun_report` config: pass the returned id as `pre_break_organization_presence_id`
+- General audit: see every custom presence the org has defined (Coaching, Training, Project Work, etc.)
+
+### `presence_sessions` gains `pre_break_organization_presence_id`
+
+Mirrors `break_overrun_report`'s behaviour. When set, BUSY sessions carrying the configured `organizationPresenceId` are re-labelled as `PRE_BREAK` (and included even when BUSY isn't in `presence_filter`). Pass `cfg.presence.pre_break_organisation_presence_id` from tenant.yaml; when `None`, pre-break sessions fall under generic BUSY as before.
+
+Closes a sibling-tool consistency gap — both presence tools now use the same pre-break detection logic.
+
+### Tool count: 42 → 43
+
+`list_org_presences` is the only addition.
+
+### Tests
+
+326 → **345 tests** (+19 in [`tests/test_envelopes_v13.py`](tests/test_envelopes_v13.py)):
+
+- Envelope helper: canonical shape, default 404, custom status, arbitrary id fields, key ordering
+- `is_soft_fail` predicate: positive, non-dict, status < 400, missing status
+- `_soft_404` in speech_analytics adopts the canonical envelope
+- `get_conversation` 404 → envelope, 500 → propagates
+- `lookup_external_contact` 404 → envelope with `match: None` preserved
+- `queue_estimated_wait_time` 404 → per-row envelope, 500 → propagates
+- `list_org_presences`: shape + filter behaviour
+- `presence_sessions`: parameter signature includes `pre_break_organization_presence_id`
+
+### Upgrade
+
+```bash
+cd ~/code/genesys-mcp && git pull && uv sync
+make test                  # 345 tests should pass
+```
+
+Mostly transparent change. The only callers that need to update are any that read tool-specific soft-fail field names — those still work (the canonical envelope preserves them as id fields), but the `kind` + `message` + `status` keys are now consistent. Worth a one-pass review of any code branching on response shape from `lookup_external_contact` or `queue_estimated_wait_time`.
+
+---
+
 ## v1.2.0 — 2 June 2026
 
 **Inline transcripts.** New `get_conversation_transcript` tool returns a structured, time-aligned list of utterances attributed to customer / agent / IVR / ACD with optional per-utterance sentiment. The coaching pack uses it automatically — every flagged call now ships with an inline transcript excerpt so TLs can read what was said without a per-call round-trip.

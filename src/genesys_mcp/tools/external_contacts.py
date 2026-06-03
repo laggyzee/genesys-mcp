@@ -11,6 +11,7 @@ import PureCloudPlatformClientV2 as gc
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from genesys_mcp._envelopes import soft_fail_envelope
 from genesys_mcp.client import get_api, to_dict, with_retry
 
 logger = logging.getLogger(__name__)
@@ -46,5 +47,13 @@ def register(mcp: FastMCP) -> None:
         except Exception as exc:
             status = getattr(exc, "status", None)
             if status == 404:
-                return {"status": 404, "value": value, "type": identifier_type, "match": None}
+                # v1.3+: canonical soft-fail envelope. `match: None` retained
+                # as an id field so existing callers reading it still work.
+                return soft_fail_envelope(
+                    kind="external contact",
+                    message="no contact found for identifier",
+                    value=value,
+                    type=identifier_type,
+                    match=None,
+                )
             raise

@@ -21,16 +21,25 @@ import PureCloudPlatformClientV2 as gc
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from genesys_mcp._envelopes import soft_fail_envelope
 from genesys_mcp.client import get_api, to_dict, with_retry
 
 logger = logging.getLogger(__name__)
 
 
 def _soft_404(exc: Exception, conversation_id: str, kind: str) -> dict | None:
-    """Return a 404 envelope if the exception is HTTP 404, else None (re-raise)."""
+    """Return the canonical 404 envelope if the exception is HTTP 404, else None.
+
+    v1.3+: uses ``soft_fail_envelope`` so the shape matches every other
+    soft-fail across the codebase.
+    """
     status = getattr(exc, "status", None)
     if status == 404:
-        return {"status": 404, "conversation_id": conversation_id, "message": f"{kind} not found"}
+        return soft_fail_envelope(
+            kind=kind,
+            message=f"{kind} not found",
+            conversation_id=conversation_id,
+        )
     return None
 
 
@@ -190,10 +199,11 @@ def fetch_conversation_transcript(
         recordings = recordings.get("entities") or [recordings]
     session_ids = [r.get("sessionId") for r in recordings if r.get("sessionId")]
     if not session_ids:
-        return {
-            "status": 404, "conversation_id": conversation_id,
-            "message": "no recording sessions found for conversation",
-        }
+        return soft_fail_envelope(
+            kind="recordings",
+            message="no recording sessions found for conversation",
+            conversation_id=conversation_id,
+        )
 
     sta_api = gc.SpeechTextAnalyticsApi(get_api())
     all_utterances: list[dict] = []

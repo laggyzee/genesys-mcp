@@ -239,6 +239,72 @@ def register(mcp: FastMCP) -> None:
         }
 
     @mcp.tool()
+    def list_org_presences(
+        name_contains: str | None = Field(
+            default=None,
+            description=(
+                "Case-insensitive substring filter on presence label (e.g. "
+                "'Pre Break', 'Coaching'). Skip the filter to get every "
+                "org-level presence."
+            ),
+        ),
+        deactivated: bool = Field(
+            default=False,
+            description="Include deactivated presences too (default false — active only).",
+        ),
+    ) -> dict:
+        """List org-level presence definitions with their UUIDs + labels.
+
+        v1.3+: closes the v1.0 "where do I find the pre-break presence id?"
+        gap. The wizard auto-discovers it, but interactive users hitting the
+        MCP fresh need a way to look it up by label.
+
+        Useful for:
+
+        - Tenant setup: *"What's the UUID for our 'Pre Break' presence?"*
+        - break_overrun_report config: pass the returned id as
+          ``pre_break_organization_presence_id``.
+        - General audit: see every custom presence the org has defined
+          (Coaching, Training, Project Work, etc.).
+
+        Returns each presence's id, system presence base (e.g. 'BUSY',
+        'AWAY'), and the org-defined label in the tenant's primary language.
+        Endpoint: ``GET /api/v2/presence/definitions``. Needs
+        ``presence:definition:view`` (typically bundled into ``presence:view``).
+        """
+        api = gc.PresenceApi(get_api())
+        page_size = 200
+        page_number = 1
+        out: list[dict] = []
+        while True:
+            resp = with_retry(api.get_presence_definitions)(
+                page_size=page_size,
+                page_number=page_number,
+                deactivated=str(bool(deactivated)).lower(),
+            )
+            entities = getattr(resp, "entities", None) or []
+            for e in entities:
+                # Each definition has languageLabels: {"en": "Pre Break", ...}
+                labels = getattr(e, "language_labels", None) or {}
+                # Prefer the first label; tenant primary language usually wins
+                label = next(iter(labels.values())) if labels else None
+                if name_contains and label and name_contains.lower() not in label.lower():
+                    continue
+                out.append({
+                    "id": getattr(e, "id", None),
+                    "system_presence": getattr(e, "system_presence", None),
+                    "label": label,
+                    "language_labels": labels,
+                    "deactivated": getattr(e, "deactivated", False),
+                })
+            if not entities or len(entities) < page_size:
+                break
+            page_number += 1
+            if page_number > 10:  # safety cap (org would need 2000+ presences)
+                break
+        return {"count": len(out), "presences": out}
+
+    @mcp.tool()
     def get_user_skills(
         user_id: str = Field(description="User id."),
         page_size: int = Field(default=100, ge=1, le=500),

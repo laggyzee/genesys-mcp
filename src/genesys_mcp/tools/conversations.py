@@ -10,6 +10,7 @@ import PureCloudPlatformClientV2 as gc
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from genesys_mcp._envelopes import soft_fail_envelope
 from genesys_mcp.client import get_api, to_dict, with_retry
 
 logger = logging.getLogger(__name__)
@@ -72,9 +73,24 @@ def register(mcp: FastMCP) -> None:
     def get_conversation(
         conversation_id: str = Field(description="Conversation id from search_conversations."),
     ) -> dict:
-        """Full detail on a single conversation: all participants, segments, attributes."""
+        """Full detail on a single conversation: all participants, segments, attributes.
+
+        v1.3+: soft-fails on 404 with the canonical envelope. Callers iterating
+        over conversation lists (deleted convs, privacy-filtered convs, retention-
+        expired records) can ``if r.get('status') == 404: continue`` rather than
+        wrapping each call in a try/except.
+        """
         api = gc.ConversationsApi(get_api())
-        resp = with_retry(api.get_conversation)(conversation_id)
+        try:
+            resp = with_retry(api.get_conversation)(conversation_id)
+        except Exception as exc:
+            if getattr(exc, "status", None) == 404:
+                return soft_fail_envelope(
+                    kind="conversation",
+                    message="conversation not found (deleted, privacy-filtered, or retention-expired)",
+                    conversation_id=conversation_id,
+                )
+            raise
         return to_dict(resp)
 
     @mcp.tool()

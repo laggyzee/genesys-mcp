@@ -10,6 +10,7 @@ import PureCloudPlatformClientV2 as gc
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from genesys_mcp._envelopes import soft_fail_envelope
 from genesys_mcp.client import get_api, to_dict, with_retry
 
 logger = logging.getLogger(__name__)
@@ -314,12 +315,27 @@ def register(mcp: FastMCP) -> None:
                     "formula": formula,
                 })
             except Exception as exc:
-                out.append({
-                    "queue_id": qid,
-                    "media_type": media_type,
-                    "estimated_wait_time_seconds": None,
-                    "error": str(exc),
-                })
+                # v1.3: distinguish soft-fail (no EWT available — typically
+                # 404 because no agents are skilled or the queue is inactive)
+                # from hard-fail (auth, 5xx, network). Soft-fails get null +
+                # a tag; hard-fails propagate so the caller knows.
+                status = getattr(exc, "status", None)
+                if status == 404:
+                    out.append(soft_fail_envelope(
+                        kind="estimated wait time",
+                        message="no EWT available (queue inactive or no agents skilled)",
+                        queue_id=qid,
+                        media_type=media_type,
+                        estimated_wait_time_seconds=None,
+                    ))
+                    continue
+                # Re-raise on hard failures — silent error-string burial
+                # makes debugging auth/network issues painful.
+                logger.warning(
+                    "queue_estimated_wait_time failed for queue=%s media=%s: %s",
+                    qid, media_type, exc,
+                )
+                raise
         return {"results": out}
 
     @mcp.tool()
