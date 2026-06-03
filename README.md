@@ -4,7 +4,9 @@ A local stdio MCP server that gives Claude Code (or any MCP-compatible client) r
 
 Built so contact-centre operations and analytics work — queue performance, agent reviews, conversation deep-dives, repeat-caller root-cause analysis, presence/break/away analysis, demand-vs-capacity vs WFM, monthly contact-centre reports — can be done by talking to Claude in plain English instead of clicking through Genesys Admin or Performance dashboards.
 
-> **v1.2 — June 2026:** **inline transcripts.** New `get_conversation_transcript` returns structured, time-aligned utterances with speaker labels (customer/agent/IVR/ACD) and optional per-utterance sentiment. The coaching pack uses it automatically — every flagged call ships with an inline transcript excerpt so TLs can read what was said without per-call round-trips. 326 tests including 24 new transcript-parsing tests.
+> **v1.3 — June 2026:** **soft-fail consistency + missing discovery tool.** Every tool now uses a canonical soft-fail envelope (`status` / `kind` / `message` / id fields). New `list_org_presences` exposes the discovery path for the pre-break presence UUID that v1.0's tenant setup wizard auto-found. `get_conversation`, `queue_estimated_wait_time`, and `lookup_external_contact` all migrated to the shared envelope. 345 tests; 43 tools.
+>
+> **v1.2 — June 2026:** inline transcripts. New `get_conversation_transcript` returns structured, time-aligned utterances with speaker labels and optional per-utterance sentiment. The coaching pack uses it automatically — every flagged call ships with an inline transcript excerpt so TLs can read what was said without per-call round-trips.
 >
 > **v1.1 — May 2026:** the token-budget release. Four heavy analytics tools (`queue_performance`, `agent_performance`, `repeat_caller_deep_dive`, `break_overrun_report`) gain a `mode: "summary" | "full"` parameter, defaulting to summary. Routine interactive queries use roughly 25–40% of the v1.0 token count with zero loss of signal for any current skill.
 >
@@ -126,6 +128,7 @@ Or by hand: copy [`skills/cc-monthly-report/tenant.example.yaml`](skills/cc-mont
 | `get_queue_members` | Who's a member of a given queue, with routing status |
 | `list_wrapup_codes` | Resolve disposition UUIDs to names |
 | `list_routing_skills` / `get_user_skills` | Skill catalogue and per-user mapping |
+| `list_org_presences` | (v1.3) Org-level presence definitions with UUIDs + labels. Filter by `name_contains`. Closes the *"what's my pre-break presence UUID?"* discovery gap — pair with `break_overrun_report` config. |
 | `get_user_routing_status` / `get_user_presence_now` | Real-time per-user status |
 | `get_user_queues` | Which queues an agent is joined to |
 

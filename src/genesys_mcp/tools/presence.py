@@ -50,6 +50,18 @@ def register(mcp: FastMCP) -> None:
             le=200,
             description="Safety cap on result pagination (each page returns up to 1000 userDetails records).",
         ),
+        pre_break_organization_presence_id: str | None = Field(
+            default=None,
+            description=(
+                "Optional. Org-level 'Pre Break' presence UUID. When set, "
+                "BUSY sessions carrying this organizationPresenceId are "
+                "included (re-labelled as 'PRE_BREAK') even if BUSY isn't "
+                "in `presence_filter`. Mirrors `break_overrun_report`'s "
+                "behaviour. Pass `cfg.presence.pre_break_organisation_presence_id` "
+                "from tenant.yaml. When None, pre-break sessions are not "
+                "specifically surfaced (they fall under generic BUSY)."
+            ),
+        ),
     ) -> dict:
         """Per-user presence sessions (clipped to the interval) for break/meal/away analysis.
 
@@ -134,7 +146,19 @@ def register(mcp: FastMCP) -> None:
                     continue
                 for sess in (ud.get("primaryPresence") or []):
                     sp = (sess.get("systemPresence") or "").upper()
-                    if keep and sp not in keep:
+                    org_pres_id = sess.get("organizationPresenceId")
+                    # v1.3: pre-break detection — BUSY presence with the
+                    # configured org_id gets re-labelled to PRE_BREAK so
+                    # filter logic and downstream consumers can treat it
+                    # as a distinct category.
+                    is_pre_break = (
+                        pre_break_organization_presence_id is not None
+                        and org_pres_id == pre_break_organization_presence_id
+                    )
+                    label = "PRE_BREAK" if is_pre_break else sp
+                    # Standard filter: skip unless either (a) in the keep set
+                    # or (b) it's a configured pre-break session.
+                    if keep and label not in keep and not is_pre_break:
                         continue
                     st_raw = sess.get("startTime")
                     en_raw = sess.get("endTime")
@@ -154,8 +178,8 @@ def register(mcp: FastMCP) -> None:
                     if dur <= 0:
                         continue
                     sessions_by_user[uid].append({
-                        "system_presence": sp,
-                        "organization_presence_id": sess.get("organizationPresenceId"),
+                        "system_presence": label,
+                        "organization_presence_id": org_pres_id,
                         "start_utc": st_clip.isoformat().replace("+00:00", "Z"),
                         "end_utc": en_clip.isoformat().replace("+00:00", "Z"),
                         "duration_s": int(dur),

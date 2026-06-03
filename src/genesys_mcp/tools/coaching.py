@@ -11,10 +11,11 @@ Composition only — orchestrates existing tools and SDK calls:
 - ``qa_evaluations`` (QA scores; gracefully degrades if scope missing)
 - ``_sta_details`` from reports.py (sentiment per call)
 
-Loads tenant.yaml when present for AHT/ACW/ACW targets, FTE conversion, and
-specialist-role hints; falls back to the in-code defaults from
-``genesys_mcp.tenant`` when no config file exists, so the tool works
-standalone via the MCP without a skill wrapper.
+Loads tenant.yaml for AHT/ACW targets, FTE conversion, specialist-role
+hints, and the v1.0 coaching-heuristics block. **tenant.yaml is required**
+(v1.0+) — missing config raises ``TenantConfigError`` with a clear
+"run genesys-tenant-setup" remediation rather than silently applying
+tenant-specific defaults.
 """
 from __future__ import annotations
 
@@ -600,10 +601,16 @@ def register(mcp: FastMCP) -> None:
         QA scores + repeat-caller burden + top flagged calls + heuristic top-3
         recommended coaching focus areas.
 
-        Tenant-aware: reads ``~/.config/genesys-mcp/tenant.yaml`` for AHT/ACW
-        targets and coaching-thresholds when present. Falls back to in-code
-        defaults (voice 285s / message 660s / ACW 15s) when the config file
-        is absent — the tool works standalone without the skill wrapper.
+        Tenant-aware: reads ``~/.config/genesys-mcp/tenant.yaml`` for
+        AHT/ACW targets, coaching thresholds, and the recommended-focus
+        heuristics block.
+
+        **Requires tenant.yaml since v1.0.** Pre-v1.0 the tool soft-fell-back
+        to in-code defaults (voice 285s / message 660s / ACW 15s) which were
+        tenant-specific and a footgun for other deployers. When tenant.yaml
+        is missing, the tool now raises a ``TenantConfigError`` with a
+        "run genesys-tenant-setup" remediation message rather than silently
+        producing wrong numbers.
 
         QA section soft-fails (returns ``scope_available: false``) if the
         OAuth client lacks ``quality:readonly``; sentiment soft-fails on
