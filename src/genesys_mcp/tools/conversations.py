@@ -94,6 +94,117 @@ def register(mcp: FastMCP) -> None:
         return to_dict(resp)
 
     @mcp.tool()
+    def voice_call_quality(
+        conversation_ids: list[str] = Field(
+            description=(
+                "Up to 100 conversation ids to score. Voice-only — non-voice "
+                "convs return ``no_voice_segments: true`` rather than an error."
+            ),
+        ),
+        low_mos_threshold: float = Field(
+            default=3.5, ge=0.0, le=5.0,
+            description=(
+                "MOS value below which a segment is counted as 'poor'. Default "
+                "3.5 matches industry convention (below 3.5 = noticeably bad)."
+            ),
+        ),
+    ) -> dict:
+        """Per-conversation MOS (Mean Opinion Score) for voice-call quality triage.
+
+        v1.4+. Was a gap surfaced by the MakingChatbots-MCP comparison —
+        MOS is the *"was it the network or the agent?"* signal. Calls with
+        a min MOS < 3 are nearly always network-impacted (jitter, packet
+        loss, codec issues) rather than agent-skill issues, so a coaching
+        brief that includes a poor-MOS call should flag the network angle
+        before suggesting agent coaching.
+
+        Reads ``mediaEndpointStats[].min_mos`` from the analytics
+        conversation-detail endpoint. Each session's media stream emits
+        a stat row per polling interval (typically every ~30s during the
+        call); the per-session minimum is the worst window observed.
+
+        Returns per-conversation:
+
+        - ``min_mos`` — worst MOS across all sessions' media stats
+        - ``avg_mos`` — mean of all per-stat minimums
+        - ``segments_with_low_mos`` — count of stat rows below the threshold
+        - ``quality_label`` — ``good`` (≥4.0), ``fair`` (3.0-4.0), ``poor`` (<3.0)
+
+        Soft-fails on 404 (deleted / privacy-filtered / retention-expired
+        conversations) using the canonical envelope. Non-voice conversations
+        return ``{conversation_id, no_voice_segments: true}``.
+
+        Endpoint: ``GET /api/v2/analytics/conversations/{id}/details``.
+        Needs ``analytics:conversationDetail:view``.
+        """
+        if not conversation_ids:
+            raise ValueError("conversation_ids must contain at least one id.")
+        if len(conversation_ids) > 100:
+            raise ValueError(
+                "voice_call_quality accepts up to 100 ids per call; got "
+                f"{len(conversation_ids)}. Split the batch."
+            )
+
+        api = gc.AnalyticsApi(get_api())
+        out: list[dict] = []
+        for cid in conversation_ids:
+            try:
+                resp = with_retry(api.get_analytics_conversation_details)(
+                    conversation_id=cid,
+                )
+            except Exception as exc:
+                if getattr(exc, "status", None) == 404:
+                    out.append(soft_fail_envelope(
+                        kind="conversation",
+                        message="conversation not found (deleted, privacy-filtered, or retention-expired)",
+                        conversation_id=cid,
+                    ))
+                    continue
+                raise
+
+            conv = to_dict(resp) or {}
+            mos_values: list[float] = []
+            low_segments = 0
+            # mediaEndpointStats lives at participants[].sessions[].mediaEndpointStats[]
+            for p in (conv.get("participants") or []):
+                for s in (p.get("sessions") or []):
+                    if (s.get("mediaType") or "").lower() != "voice":
+                        continue
+                    for stat in (s.get("mediaEndpointStats") or []):
+                        mos = stat.get("minMos") or stat.get("min_mos")
+                        if mos is None:
+                            continue
+                        mos_values.append(float(mos))
+                        if mos < low_mos_threshold:
+                            low_segments += 1
+
+            if not mos_values:
+                out.append({
+                    "conversation_id": cid,
+                    "no_voice_segments": True,
+                })
+                continue
+
+            min_mos = min(mos_values)
+            avg_mos = sum(mos_values) / len(mos_values)
+            label = ("good" if min_mos >= 4.0
+                     else "fair" if min_mos >= 3.0
+                     else "poor")
+            out.append({
+                "conversation_id": cid,
+                "min_mos": round(min_mos, 2),
+                "avg_mos": round(avg_mos, 2),
+                "segments_evaluated": len(mos_values),
+                "segments_with_low_mos": low_segments,
+                "quality_label": label,
+            })
+
+        return {
+            "low_mos_threshold": low_mos_threshold,
+            "results": out,
+        }
+
+    @mcp.tool()
     def list_recordings(
         conversation_id: str = Field(description="Conversation id to list recordings for."),
     ) -> dict:

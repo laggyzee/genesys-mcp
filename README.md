@@ -4,7 +4,9 @@ A local stdio MCP server that gives Claude Code (or any MCP-compatible client) r
 
 Built so contact-centre operations and analytics work — queue performance, agent reviews, conversation deep-dives, repeat-caller root-cause analysis, presence/break/away analysis, demand-vs-capacity vs WFM, monthly contact-centre reports — can be done by talking to Claude in plain English instead of clicking through Genesys Admin or Performance dashboards.
 
-> **v1.3 — June 2026:** **soft-fail consistency + missing discovery tool.** Every tool now uses a canonical soft-fail envelope (`status` / `kind` / `message` / id fields). New `list_org_presences` exposes the discovery path for the pre-break presence UUID that v1.0's tenant setup wizard auto-found. `get_conversation`, `queue_estimated_wait_time`, and `lookup_external_contact` all migrated to the shared envelope. 345 tests; 43 tools.
+> **v1.4 — June 2026:** **call quality + batch ergonomics.** New `voice_call_quality` returns MOS scores per conversation — the *"was it the network or the agent?"* signal. `get_user_presence_now` resolves presence UUIDs to friendly labels with a process-lifetime cache. `find_user` gains a batch variant for resolving 10-20 names in one concurrent call. `agent_adherence_review` fans its per-user adherence queries out via thread pool (5-10× faster on large tenants). 361 tests; 44 tools.
+>
+> **v1.3 — June 2026:** soft-fail consistency + missing discovery tool. Every tool now uses a canonical soft-fail envelope (`status` / `kind` / `message` / id fields). New `list_org_presences` exposes the discovery path for the pre-break presence UUID. `get_conversation`, `queue_estimated_wait_time`, and `lookup_external_contact` all migrated to the shared envelope.
 >
 > **v1.2 — June 2026:** inline transcripts. New `get_conversation_transcript` returns structured, time-aligned utterances with speaker labels and optional per-utterance sentiment. The coaching pack uses it automatically — every flagged call ships with an inline transcript excerpt so TLs can read what was said without per-call round-trips.
 >
@@ -123,13 +125,13 @@ Or by hand: copy [`skills/cc-monthly-report/tenant.example.yaml`](skills/cc-mont
 |---|---|
 | `list_queues` | List routing queues, optionally filtered by name |
 | `list_users` | List active/inactive users |
-| `find_user` | Free-text search by name or email (uses /api/v2/users/search) |
+| `find_user` | Free-text search by name or email (uses /api/v2/users/search). v1.4: optional `name_contains_list` runs N searches concurrently for TL workflows that need a target + peer set in one call. |
 | `find_user_by_email` | Exact email lookup |
 | `get_queue_members` | Who's a member of a given queue, with routing status |
 | `list_wrapup_codes` | Resolve disposition UUIDs to names |
 | `list_routing_skills` / `get_user_skills` | Skill catalogue and per-user mapping |
 | `list_org_presences` | (v1.3) Org-level presence definitions with UUIDs + labels. Filter by `name_contains`. Closes the *"what's my pre-break presence UUID?"* discovery gap — pair with `break_overrun_report` config. |
-| `get_user_routing_status` / `get_user_presence_now` | Real-time per-user status |
+| `get_user_routing_status` / `get_user_presence_now` | Real-time per-user status. v1.4: `get_user_presence_now` resolves the presence definition UUID to a friendly label ("Pre Break", "Coaching", etc.) via a process-lifetime cache. |
 | `get_user_queues` | Which queues an agent is joined to |
 
 ### Real-time & analytics
@@ -148,6 +150,7 @@ Or by hand: copy [`skills/cc-monthly-report/tenant.example.yaml`](skills/cc-mont
 | `get_conversation` | Full conversation detail |
 | `list_recordings` | Recording metadata (and region for residency checks) |
 | `get_recording_url` | Signed URL for downloading a single recording |
+| `voice_call_quality` | (v1.4) Per-conversation MOS (Mean Opinion Score) for voice-call quality triage. `quality_label: good/fair/poor` lets coaching briefs flag the *"was it the network or the agent?"* angle before suggesting agent coaching. Up to 100 conversation ids per call; configurable `low_mos_threshold` (default 3.5). |
 
 ### Composition reports
 | Tool | Purpose |

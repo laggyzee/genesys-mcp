@@ -14,6 +14,68 @@ from genesys_mcp.client import get_api, to_dict, with_retry
 logger = logging.getLogger(__name__)
 
 
+# v1.4: process-lifetime cache of presence-definition UUID → label. Presences
+# change rarely (typically only when an admin adds/edits a custom presence),
+# so a never-expire cache is the right trade-off. Restart the MCP server to
+# refresh. When a UUID isn't in the cache (e.g. a presence added mid-session),
+# we return label=None rather than re-fetching the entire definitions list.
+_PRESENCE_LABEL_CACHE: dict[str, str] = {}
+_PRESENCE_CACHE_LOADED: bool = False
+
+
+def _load_presence_label_cache() -> None:
+    """Populate _PRESENCE_LABEL_CACHE from /api/v2/presence/definitions.
+
+    Called lazily on first request that needs a label. Subsequent requests
+    hit the cache. Errors are swallowed (the caller gets label=None) so a
+    permission gap on presence:definition:view doesn't break the broader
+    presence-now query.
+    """
+    global _PRESENCE_CACHE_LOADED
+    if _PRESENCE_CACHE_LOADED:
+        return
+    try:
+        api = gc.PresenceApi(get_api())
+        page_number = 1
+        while True:
+            resp = with_retry(api.get_presence_definitions)(
+                page_size=200, page_number=page_number, deactivated="any",
+            )
+            entities = getattr(resp, "entities", None) or []
+            for e in entities:
+                pid = getattr(e, "id", None)
+                labels = getattr(e, "language_labels", None) or {}
+                label = next(iter(labels.values())) if labels else None
+                if pid and label:
+                    _PRESENCE_LABEL_CACHE[pid] = label
+            if not entities or len(entities) < 200:
+                break
+            page_number += 1
+            if page_number > 10:
+                break
+        _PRESENCE_CACHE_LOADED = True
+        logger.info(
+            "presence label cache loaded with %d entries",
+            len(_PRESENCE_LABEL_CACHE),
+        )
+    except Exception as exc:
+        logger.info(
+            "presence label cache load failed (continuing without labels): %s",
+            exc,
+        )
+        # Mark loaded anyway — don't retry every call. A restart re-attempts.
+        _PRESENCE_CACHE_LOADED = True
+
+
+def _presence_label_for(presence_definition_id: str | None) -> str | None:
+    """Look up a presence label from the cache; load lazily on first call."""
+    if not presence_definition_id:
+        return None
+    if not _PRESENCE_CACHE_LOADED:
+        _load_presence_label_cache()
+    return _PRESENCE_LABEL_CACHE.get(presence_definition_id)
+
+
 def _queue_row(q: Any) -> dict:
     return {
         "id": q.id,
@@ -102,8 +164,23 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool()
     def find_user(
-        query: str = Field(
-            description="Free-text search across name and email. Returns ranked matches.",
+        query: str | None = Field(
+            default=None,
+            description=(
+                "Single free-text search across name and email. Returns ranked "
+                "matches. Mutually exclusive with `name_contains_list` — pass "
+                "exactly one of the two."
+            ),
+        ),
+        name_contains_list: list[str] | None = Field(
+            default=None,
+            description=(
+                "(v1.4+) Batch mode: list of name fragments to resolve in one "
+                "call. Each fragment runs as a separate TERM search "
+                "concurrently; results are grouped per input query. Useful for "
+                "TL workflows that need to resolve a target + peer set "
+                "(typically 10-20 names) without N sequential round-trips."
+            ),
         ),
         page_size: int = Field(default=10, ge=1, le=25),
     ) -> dict:
@@ -111,18 +188,81 @@ def register(mcp: FastMCP) -> None:
 
         Backed by /api/v2/users/search with TERM-style query against name+email fields.
         For exact email match prefer find_user_by_email.
+
+        **Single mode** (default): pass ``query`` — returns ``{match_count, users}``
+        like every earlier version.
+
+        **Batch mode** (v1.4+): pass ``name_contains_list`` — returns
+        ``{matches: [{name_query, candidates}], unmatched: [name_query, ...]}``.
+        Concurrent fan-out (bounded thread pool); wall time is roughly the
+        slowest individual search, not the sum.
         """
         api = gc.SearchApi(get_api())
-        body = {
-            "pageSize": page_size,
-            "pageNumber": 1,
-            "query": [
-                {"type": "TERM", "fields": ["name", "email"], "value": query},
-            ],
+
+        # Validate the mutex contract up-front for clear errors.
+        if query is None and not name_contains_list:
+            raise ValueError(
+                "find_user requires either `query` (single mode) or "
+                "`name_contains_list` (batch mode)."
+            )
+        if query is not None and name_contains_list:
+            raise ValueError(
+                "find_user: pass either `query` or `name_contains_list`, not both."
+            )
+
+        # Single mode — original v1.0 shape, unchanged.
+        if query is not None:
+            body = {
+                "pageSize": page_size,
+                "pageNumber": 1,
+                "query": [
+                    {"type": "TERM", "fields": ["name", "email"], "value": query},
+                ],
+            }
+            resp = with_retry(api.post_users_search)(body)
+            results = to_dict(resp).get("results") or []
+            return {"match_count": len(results), "users": results}
+
+        # Batch mode — concurrent per-query search.
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _search_one(q: str) -> tuple[str, list[dict]]:
+            body = {
+                "pageSize": page_size,
+                "pageNumber": 1,
+                "query": [
+                    {"type": "TERM", "fields": ["name", "email"], "value": q},
+                ],
+            }
+            try:
+                resp = with_retry(api.post_users_search)(body)
+            except Exception:
+                # Surface the per-query failure as empty; total failures
+                # still propagate via empty unmatched + zero candidates.
+                return q, []
+            return q, (to_dict(resp).get("results") or [])
+
+        matches: list[dict] = []
+        unmatched: list[str] = []
+        # Keep concurrency modest — search is cheap but we don't want to
+        # hammer Genesys with 50 simultaneous searches if someone passes
+        # a long list.
+        max_workers = min(8, len(name_contains_list))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(_search_one, q) for q in name_contains_list]
+            for fut in futures:
+                q, candidates = fut.result()
+                if candidates:
+                    matches.append({"name_query": q, "candidates": candidates})
+                else:
+                    unmatched.append(q)
+        return {
+            "mode": "batch",
+            "total_queries": len(name_contains_list),
+            "matched_queries": len(matches),
+            "matches": matches,
+            "unmatched": unmatched,
         }
-        resp = with_retry(api.post_users_search)(body)
-        results = to_dict(resp).get("results") or []
-        return {"match_count": len(results), "users": results}
 
     @mcp.tool()
     def list_wrapup_codes(
@@ -332,10 +472,25 @@ def register(mcp: FastMCP) -> None:
         user_ids: list[str] = Field(
             description="User ids to fetch live presence + routing status for.",
         ),
+        include_label: bool = Field(
+            default=True,
+            description=(
+                "(v1.4+) When true (default), each user row includes a "
+                "``presence_label`` resolved from the presence-definition UUID "
+                "(e.g. 'Pre Break', 'Coaching'). Uses a process-lifetime cache "
+                "of /api/v2/presence/definitions — typically one load per "
+                "MCP server lifetime. Set to false to skip the lookup if "
+                "the OAuth client lacks ``presence:definition:view``."
+            ),
+        ),
     ) -> dict:
         """Single-call live presence for a list of users. Returns systemPresence
         (Available / Break / Meal / Away / Offline / etc.), routing status, and last
         status timestamp. Lighter-weight than pulling users/aggregates.
+
+        v1.4+: includes ``presence_label`` resolved from the presence-definition
+        UUID (e.g. 'Pre Break', 'Coaching') — set ``include_label=False`` to
+        skip.
 
         Uses GET /api/v2/users/{id}?expand=presence,routingStatus.
         """
@@ -350,16 +505,20 @@ def register(mcp: FastMCP) -> None:
                 presence = (data.get("presence") or {})
                 presence_def = presence.get("presenceDefinition") or {}
                 routing = data.get("routingStatus") or {}
-                out.append({
+                presence_def_id = presence_def.get("id")
+                row = {
                     "user_id": uid,
                     "name": data.get("name"),
                     "system_presence": presence.get("systemPresence") or presence_def.get("systemPresence"),
-                    "presence_definition_id": presence_def.get("id"),
+                    "presence_definition_id": presence_def_id,
                     "presence_message": presence.get("message"),
                     "presence_modified": presence.get("modifiedDate"),
                     "routing_status": routing.get("status"),
                     "routing_status_start": routing.get("startTime"),
-                })
+                }
+                if include_label:
+                    row["presence_label"] = _presence_label_for(presence_def_id)
+                out.append(row)
             except Exception as exc:
                 out.append({"user_id": uid, "error": str(exc)})
         return {"results": out}
