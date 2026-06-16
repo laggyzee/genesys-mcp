@@ -6,7 +6,7 @@
 
 ## `provision_users.py` — bulk agent provisioning from a template
 
-Creates new Genesys agents that mirror an existing "template" agent: same division, manager, location, ACD auto-answer, addresses, title/department, profile skills, routing skills + proficiency, routing languages, group memberships, and WFM management unit. Sends each new agent a Genesys activation email at the end.
+Creates new Genesys agents that mirror an existing "template" agent: same division, manager, location, ACD auto-answer, addresses, title/department, profile skills, routing skills + proficiency, routing languages, group memberships, and WFM management unit. Sends each new agent a Genesys activation email at the end. Also creates a named WebRTC phone (Firstname.Lastname) at the configured site and assigns it to the new agent.
 
 ### Tenant assumptions
 
@@ -16,7 +16,7 @@ This script bakes in two assumptions about how your tenant is configured. Both m
 
 2. **Queue membership flows from group→queue auto-assignment.** The script never calls `/api/v2/routing/queues/{id}/members`. If your tenant requires direct queue assignment, add it as a new step.
 
-The script also assumes WebRTC stations (no physical SIP phones) — Genesys auto-provisions a WebRTC station on first sign-in, so no `/telephony/providers/edges/phones` call is needed.
+The script assumes WebRTC stations (no physical SIP phones) — it creates a named WebRTC phone (`Firstname.Lastname`) via `/telephony/providers/edges/phones` and assigns it to the new user. Desk phones / physical SIP phones are out of scope.
 
 If any of these don't fit, this script is a starting point, not a drop-in.
 
@@ -37,6 +37,7 @@ If any of these don't fit, this script is a starting point, not a drop-in.
    | Bulk-assign routing languages      | `routing:language:assign`        |
    | Add to group                       | `directory:group:edit`           |
    | Move agent into WFM management unit | `wfm:agent:edit`                |
+   | Create WebRTC phone                 | `telephony:plugin:all`           |
    | Send invite                        | `directory:user:setPassword`     |
 
    Name it something obvious like `Provisioning Agent Onboarder`. **Do not** grant `admin` — the whole point of this role is bounded blast radius.
@@ -44,6 +45,12 @@ If any of these don't fit, this script is a starting point, not a drop-in.
    **`authorization:grant:add` is intentionally NOT in the list.** This script targets tenants where authorisation roles are inherited from group membership (`rolesEnabled: true` on the relevant groups), so it never calls `PUT /users/{id}/roles`. If your tenant assigns roles directly, add this permission back and re-introduce the roles step in `execute_user` (see the comment on `STEPS`).
 
    **`directory:user:delete` is intentionally NOT in the list.** The self-test leaves its throwaway user in place by default; you delete it manually in Genesys admin (People → search `__provisioning_self_test_*@example.invalid`). If you'd rather the self-test clean up after itself, add `directory:user:delete` to the role and run with `--auto-cleanup`.
+
+   **`telephony:plugin:all` is broad.** Genesys has no granular "add phone" scope —
+   this single permission grants full telephony plugin admin (edges, sites, trunks,
+   phones). It is required for the phone step. If you do not want this breadth, leave
+   the phone config unresolved (no telephony permission) — the step degrades to a
+   per-user warning and WebRTC still auto-provisions on first sign-in.
 
 3. **Assign the role to the OAuth client** (only — not to any human users).
 
@@ -78,7 +85,7 @@ If any of these don't fit, this script is a starting point, not a drop-in.
    python scripts/provision_users.py --self-test --template-email <existing-agent>@example.com
    ```
 
-   This creates a throwaway user (`__provisioning_self_test_<ts>@example.invalid` — `.invalid` is a reserved TLD that never resolves, so any accidental invite-send bounces harmlessly) and runs every write step against them. The actual invite-send is skipped during self-test to keep noise out of mail logs. On success the throwaway user is **left in place** — delete it manually in Genesys admin afterwards. If any step 403s, the role is missing a scope — fix it in Genesys admin and rerun. **Do this before every production batch.**
+   This creates a throwaway user (`__provisioning_self_test_<ts>@example.invalid` — `.invalid` is a reserved TLD that never resolves, so any accidental invite-send bounces harmlessly) and runs every write step against them. The actual invite-send is skipped during self-test to keep noise out of mail logs. The self-test also does a read-only check that the role holds `telephony:plugin:all` (it does not create a throwaway phone). On success the throwaway user is **left in place** — delete it manually in Genesys admin afterwards. If any step 403s, the role is missing a scope — fix it in Genesys admin and rerun. **Do this before every production batch.**
 
    Add `--auto-cleanup` to attempt `DELETE /users/{id}` at the end (requires `directory:user:delete` on the role).
 
@@ -101,6 +108,32 @@ python scripts/provision_users.py \
 
 The emails file is one address per line; `#` comments and blank lines are skipped. Names are derived from the email local-part (`new.starter.one@example.com` → `New Starter One`); the script prints the derived name and asks for interactive confirmation before any write when `--confirm` is set on a TTY.
 
+### Just double-click it (no command line)
+
+Operators can run the whole flow without the terminal:
+
+- **macOS:** double-click `scripts/provision_users.command` (Finder opens Terminal automatically).
+- **Windows:** double-click `scripts\provision_users.bat`.
+
+Either one prompts for the **template agent email**, then the **new-starter emails**
+(one per line, blank line to finish), prints the plan, and asks for a final
+`y` before creating anything. Both prefer the repo's `.venv`; on Windows they fall
+back to `py -3`/`python` if there's no venv.
+
+### Phone provisioning env overrides
+
+The phone step auto-discovers the site and WebRTC base settings, but you can pin them:
+
+| Env var | Effect |
+|---|---|
+| `PROVISION_PHONE_SITE` | Site name to look up (default `Prvidr Sydney`). |
+| `PROVISION_PHONE_SITE_ID` | Skip the lookup; use this site id directly. |
+| `PROVISION_PHONE_BASE_SETTINGS_ID` | Use this phone base-settings id (skip discovery). |
+| `PROVISION_PHONE_LINE_BASE_SETTINGS_ID` | Use this line base-settings id (skip discovery). |
+
+Run `python scripts/provision_users.py --discover-phone-settings` (after Phase 0)
+to print the resolved ids in ready-to-paste env form.
+
 ### Flags
 
 | Flag | What it does |
@@ -117,7 +150,7 @@ The emails file is one address per line; `#` comments and blank lines are skippe
 | `--template-allowlist FILE` | File of approved template emails. If provided, `--confirm` refuses any `--template-email` not on the list — defends against typos that might silently elevate every new hire by cloning the wrong template. |
 | `-v` / `--verbose` | Debug-level logging. |
 
-### What gets executed (7 steps per user)
+### What gets executed (8 steps per user)
 
 In order:
 
@@ -127,7 +160,8 @@ In order:
 4. `PUT /api/v2/users/{id}/routinglanguages/bulk` — assign template's routing languages with proficiency
 5. `POST /api/v2/groups/{groupId}/members` per group — refetches group `version` and skips already-members. **On tenants where `rolesEnabled: true` is configured on these groups and queues are auto-assigned by group, this step also gives the new user the right authorisation roles AND the right queues.** No separate roles or queues step is needed.
 6. `POST /api/v2/workforcemanagement/agents` — async move into template's WFM management unit, polls for visibility (~15 s)
-7. `POST /api/v2/users/{id}/invite?force=false` — Genesys emails the activation link
+7. `POST /api/v2/telephony/providers/edges/phones` — create a WebRTC phone named `Firstname.Lastname` at site `Prvidr Sydney`, assigned to the user via `webRtcUser`. **Best-effort:** a failure (duplicate name, transient error, or unresolved config) logs a warning and continues — WebRTC auto-provisions on first sign-in regardless. Skipped if a phone with that name already exists.
+8. `POST /api/v2/users/{id}/invite?force=false` — Genesys emails the activation link
 
 Invite is last so the user doesn't log in to a half-configured account. Genesys' default invite link is valid for 14 days — chase any new hires who haven't activated by then.
 
@@ -180,7 +214,7 @@ Exit code: `0` if all succeeded/skipped/resumed, `1` if any failed.
 
 ### Things that intentionally don't work
 
-- **Physical SIP phones** — the script targets WebRTC-only deployments, so it never touches `/api/v2/telephony/providers/edges/phones`. Genesys auto-provisions a per-user WebRTC station on first sign-in. If you use desk phones, add a phone-cloning step.
+- **Physical SIP / desk phones** — the script creates WebRTC phones (step 7) but does not provision physical SIP devices or desk phones. If you use hardware phones, you'll need to add a separate phone-cloning step that targets those base settings.
 - **Direct queue assignment** — see "Tenant assumptions" above; the script relies on group→queue auto-assignment.
 - **Off-boarding / leavers** — different safety profile, would be its own script.
 - **Per-row template overrides** — single template per batch; if you need multiple templates, run the script multiple times.
