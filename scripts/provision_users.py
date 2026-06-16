@@ -116,6 +116,17 @@ def derive_full_name(email: str) -> str:
     return " ".join(p.capitalize() for p in parts if p) or local
 
 
+def derive_phone_name(email: str) -> str:
+    """``jane.doe@x.com`` → ``"Jane.Doe"`` — the WebRTC phone display name.
+
+    Same parsing as ``derive_full_name`` but joins the parts with a dot to match
+    the Prvidr ``Firstname.Lastname`` phone naming convention.
+    """
+    local = email.split("@", 1)[0]
+    parts = re.split(r"[._\-]+", local)
+    return ".".join(p.capitalize() for p in parts if p) or local
+
+
 def call_api(api: gc.ApiClient, method: str, path: str, *, body: Any = None, query: dict | None = None) -> Any:
     """Thin wrapper around ``api.call_api()`` for endpoints not wrapped by the SDK.
 
