@@ -64,6 +64,15 @@ ENV_FILES = (
 LEDGER_BASE = Path(os.environ.get("PROVISION_LEDGER_DIR", "/tmp/provision_users"))
 TEMPLATE_CACHE_DIR = Path(os.environ.get("PROVISION_TEMPLATE_CACHE", "/tmp"))
 
+# WebRTC phone provisioning. The site name defaults to Prvidr's; all four can be
+# overridden by env for other tenants or when auto-discovery is ambiguous.
+PHONE_SITE_NAME = os.environ.get("PROVISION_PHONE_SITE", "Prvidr Sydney")
+PHONE_SITE_ID_OVERRIDE = os.environ.get("PROVISION_PHONE_SITE_ID")
+PHONE_BASE_SETTINGS_ID_OVERRIDE = os.environ.get("PROVISION_PHONE_BASE_SETTINGS_ID")
+PHONE_LINE_BASE_SETTINGS_ID_OVERRIDE = os.environ.get("PROVISION_PHONE_LINE_BASE_SETTINGS_ID")
+# Genesys meta-base id identifying the WebRTC phone/line base settings.
+WEBRTC_META_BASE_ID = "developer_webrtc.json"
+
 # Steps in execution order. Used by the per-user ledger to track resume points.
 # Steps in execution order. "roles" is intentionally absent: this script targets
 # tenants where authorisation roles are inherited from group membership (groups
@@ -125,6 +134,22 @@ def derive_phone_name(email: str) -> str:
     local = email.split("@", 1)[0]
     parts = re.split(r"[._\-]+", local)
     return ".".join(p.capitalize() for p in parts if p) or local
+
+
+def build_phone_body(phone_name: str, user_id: str, cfg: dict) -> dict:
+    """Assemble the POST body for a WebRTC phone assigned to ``user_id``.
+
+    ``webRtcUser`` is what binds the phone to the person; ``lines`` must carry a
+    ``lineBaseSettings`` id or the line won't register. ``cfg`` comes from
+    ``resolve_phone_config``.
+    """
+    return {
+        "name": phone_name,
+        "site": {"id": cfg["site_id"]},
+        "phoneBaseSettings": {"id": cfg["phone_base_settings_id"]},
+        "lines": [{"name": phone_name, "lineBaseSettings": {"id": cfg["line_base_settings_id"]}}],
+        "webRtcUser": {"id": user_id},
+    }
 
 
 def call_api(api: gc.ApiClient, method: str, path: str, *, body: Any = None, query: dict | None = None) -> Any:

@@ -41,3 +41,20 @@ class TestDerivePhoneName:
     ])
     def test_dotted_titlecase(self, email, expected):
         assert pu.derive_phone_name(email) == expected
+
+
+class TestBuildPhoneBody:
+    def test_shape(self):
+        cfg = {
+            "site_id": "site-1",
+            "phone_base_settings_id": "pbs-1",
+            "line_base_settings_id": "lbs-1",
+        }
+        body = pu.build_phone_body("Jane.Doe", "user-99", cfg)
+        assert body == {
+            "name": "Jane.Doe",
+            "site": {"id": "site-1"},
+            "phoneBaseSettings": {"id": "pbs-1"},
+            "lines": [{"name": "Jane.Doe", "lineBaseSettings": {"id": "lbs-1"}}],
+            "webRtcUser": {"id": "user-99"},
+        }
