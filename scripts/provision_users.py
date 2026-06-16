@@ -873,6 +873,28 @@ def resolve_phone_cfg_safe(write_api: gc.ApiClient) -> dict | None:
         return None
 
 
+def prompt_interactive_inputs() -> tuple[str, list[str]]:
+    """Prompt for a template email and new-starter emails (one per line, blank to end;
+    a single comma/space-separated line also works). Returns (template_email, emails)."""
+    print("\n=== Provision new agents from a template ===\n")
+    template = input("Template agent email (existing user to copy from): ").strip()
+    print("\nNew-starter emails — one per line. Blank line when done "
+          "(or paste several separated by commas/spaces):")
+    emails: list[str] = []
+    while True:
+        try:
+            line = input("  > ").strip()
+        except EOFError:
+            break
+        if not line:
+            break
+        parts = re.split(r"[,\s]+", line)
+        emails.extend(p for p in parts if p)
+    seen: set[str] = set()
+    deduped = [e for e in emails if not (e in seen or seen.add(e))]
+    return template, deduped
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI entry point
 # ─────────────────────────────────────────────────────────────────────────────
@@ -907,6 +929,12 @@ def main(argv: list[str] | None = None) -> int:
         help="File of approved template emails. If provided, --confirm refuses any "
              "--template-email not in this list. Defends against typos.")
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--interactive", action="store_true",
+        help="Prompt for the template email and new-starter emails, show the plan, "
+             "then ask before writing. Used by the double-click launchers.")
+    parser.add_argument("--discover-phone-settings", action="store_true",
+        help="Print the resolved WebRTC site/phone/line base-settings ids and exit "
+             "(needs telephony:plugin:all on the write client). Use to set PROVISION_PHONE_* overrides.")
 
     args = parser.parse_args(argv)
 
@@ -921,8 +949,9 @@ def main(argv: list[str] | None = None) -> int:
     if loaded_files:
         log.info("Loaded env from: %s", ", ".join(str(p) for p in loaded_files))
 
-    if not args.template_email:
-        parser.error("--template-email is required (use --self-test --template-email <known-good-agent>)")
+    if not args.template_email and not (args.interactive or args.discover_phone_settings):
+        parser.error("--template-email is required (use --self-test --template-email <known-good-agent>, "
+                     "or --interactive to be prompted)")
 
     # Initialise the read-only client (always needed: snapshot + pre-check).
     try:
@@ -946,7 +975,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     # Initialise the write client only if we're going to write.
-    will_write = args.confirm or args.self_test
+    will_write = args.confirm or args.self_test or args.interactive or args.discover_phone_settings
     write_api: gc.ApiClient | None = None
     if will_write:
         try:
@@ -958,6 +987,62 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
+
+    # Diagnostic: print resolved phone settings and exit.
+    if args.discover_phone_settings:
+        if write_api is None:
+            return 2
+        try:
+            cfg = resolve_phone_config(write_api)
+        except (ApiException, RuntimeError) as exc:
+            print(f"Could not resolve phone settings: {exc}", file=sys.stderr)
+            return 1
+        print("Resolved WebRTC phone settings:")
+        print(f"  PROVISION_PHONE_SITE_ID={cfg['site_id']}")
+        print(f"  PROVISION_PHONE_BASE_SETTINGS_ID={cfg['phone_base_settings_id']}")
+        print(f"  PROVISION_PHONE_LINE_BASE_SETTINGS_ID={cfg['line_base_settings_id']}")
+        return 0
+
+    # Interactive mode: gather inputs, preview, confirm, execute.
+    if args.interactive:
+        if write_api is None:
+            return 2
+        template_email, emails = prompt_interactive_inputs()
+        if not template_email:
+            print("No template email given. Aborted.", file=sys.stderr)
+            return 1
+        if not emails:
+            print("No new-starter emails given. Aborted.", file=sys.stderr)
+            return 1
+        args.template_email = template_email
+
+        snapshot = snapshot_template(read_api, template_email, refresh=args.refresh_template)
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ledger_dir = LEDGER_BASE / run_id
+
+        # Preview (dry-run): print the plan for each.
+        print(f"\nPLAN — template {template_email}, {len(emails)} new agent(s):\n")
+        for i, email in enumerate(emails, 1):
+            name = derive_full_name(email)
+            print(f"[{i}/{len(emails)}] {email} → \"{name}\"")
+            process_one(email, name, snapshot, read_api, write_api, ledger_dir, None,
+                        confirm=False, reconcile=args.reconcile)
+
+        ans = input("\nProceed and create these agents (with phones + invites)? [y/N]: ").strip().lower()
+        if ans != "y":
+            print("Aborted — nothing written.")
+            return 1
+
+        phone_cfg = resolve_phone_cfg_safe(write_api)
+        print(f"\nProcessing {len(emails)} email(s):\n")
+        summary: list[tuple[str, str, str, str]] = []
+        for i, email in enumerate(emails, 1):
+            name = derive_full_name(email)
+            print(f"[{i}/{len(emails)}] {email} → \"{name}\"")
+            summary.append(process_one(email, name, snapshot, read_api, write_api,
+                                       ledger_dir, phone_cfg, confirm=True,
+                                       reconcile=args.reconcile))
+        return print_summary(summary, ledger_dir)
 
     # Phase 1: snapshot the template (always, even for dry-run).
     snapshot = snapshot_template(read_api, args.template_email, refresh=args.refresh_template)
