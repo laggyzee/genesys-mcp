@@ -121,3 +121,45 @@ class TestResolvePhoneConfig:
         assert cfg == {"site_id": "env-site",
                        "phone_base_settings_id": "env-pbs",
                        "line_base_settings_id": "env-lbs"}
+
+
+class TestCreatePhoneForUser:
+    CFG = {"site_id": "s", "phone_base_settings_id": "p", "line_base_settings_id": "l"}
+
+    def test_skips_when_phone_name_exists(self, monkeypatch):
+        calls = []
+        def fake_call_api(api, method, path, *, body=None, query=None):
+            calls.append((method, path, query, body))
+            if method == "GET":
+                return {"entities": [{"id": "existing-phone", "name": "Jane.Doe"}]}
+            raise AssertionError("POST must not happen when phone exists")
+        monkeypatch.setattr(pu, "call_api", fake_call_api)
+        status, pid = pu.create_phone_for_user(object(), "Jane.Doe", "u1", self.CFG)
+        assert status == "skipped"
+        assert pid == "existing-phone"
+        assert all(m == "GET" for m, *_ in calls)
+
+    def test_creates_when_absent(self, monkeypatch):
+        seen = {}
+        def fake_call_api(api, method, path, *, body=None, query=None):
+            if method == "GET":
+                return {"entities": []}
+            seen["body"] = body
+            return {"id": "new-phone"}
+        monkeypatch.setattr(pu, "call_api", fake_call_api)
+        status, pid = pu.create_phone_for_user(object(), "Jane.Doe", "u1", self.CFG)
+        assert status == "created"
+        assert pid == "new-phone"
+        assert seen["body"]["webRtcUser"] == {"id": "u1"}
+        assert seen["body"]["name"] == "Jane.Doe"
+        assert seen["body"]["lines"][0]["lineBaseSettings"] == {"id": "l"}
+
+    def test_propagates_post_failure(self, monkeypatch):
+        from PureCloudPlatformClientV2.rest import ApiException
+        def fake_call_api(api, method, path, *, body=None, query=None):
+            if method == "GET":
+                return {"entities": []}
+            raise ApiException(status=400, reason="bad")
+        monkeypatch.setattr(pu, "call_api", fake_call_api)
+        with pytest.raises(ApiException):
+            pu.create_phone_for_user(object(), "Jane.Doe", "u1", self.CFG)

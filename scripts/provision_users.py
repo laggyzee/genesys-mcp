@@ -231,6 +231,27 @@ def resolve_phone_config(api: gc.ApiClient) -> dict:
     return {"site_id": site_id, "phone_base_settings_id": pbs_id, "line_base_settings_id": lbs_id}
 
 
+def create_phone_for_user(api: gc.ApiClient, phone_name: str, user_id: str, cfg: dict) -> tuple[str, str | None]:
+    """Create the WebRTC phone unless one with this name already exists.
+
+    Returns ``("skipped", existing_id)`` if a phone named ``phone_name`` already
+    exists (we don't reassign someone else's phone), else ``("created", new_id)``.
+    Raises ``ApiException`` on POST failure — the caller decides best-effort.
+    """
+    existing = call_api(
+        api, "GET", "/api/v2/telephony/providers/edges/phones",
+        query={"name": phone_name, "pageSize": 1},
+    ) or {}
+    ents = existing.get("entities") or []
+    if ents:
+        return ("skipped", ents[0].get("id"))
+    created = call_api(
+        api, "POST", "/api/v2/telephony/providers/edges/phones",
+        body=build_phone_body(phone_name, user_id, cfg),
+    ) or {}
+    return ("created", created.get("id"))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase 1: Template snapshot
 # ─────────────────────────────────────────────────────────────────────────────
