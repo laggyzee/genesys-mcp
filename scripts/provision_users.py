@@ -795,7 +795,82 @@ def print_plan(snapshot: dict, target_email: str, target_name: str) -> None:
     print(f"  GROUPS ({len(snapshot['groups'])}): {group_names or '(none)'}  (queues will follow via group→queue auto-assignment)")
     if snapshot.get("wfm_management_unit"):
         print(f"  WFM: move into management unit {snapshot['wfm_management_unit'].get('name', '?')}")
+    print(f"  PHONE: create WebRTC phone \"{derive_phone_name(target_email)}\" at site "
+          f"{PHONE_SITE_NAME} (base settings resolved at execute time)")
     print(f"  INVITE: send activation email to {target_email}")
+
+
+def process_one(
+    email: str,
+    name: str,
+    snapshot: dict,
+    read_api: gc.ApiClient,
+    write_api: gc.ApiClient | None,
+    ledger_dir: Path,
+    phone_cfg: dict | None,
+    *,
+    confirm: bool,
+    reconcile: bool,
+) -> tuple[str, str, str, str]:
+    """Process a single email: dry-run plan or full execute. Returns a summary row.
+
+    Shared by ``main``'s batch loop and ``--interactive`` so both behave identically.
+    """
+    existing = find_user_by_email(read_api, email)
+    ledger = Ledger.load_or_new(ledger_dir, email)
+    if ledger.user_id is None and existing:
+        ledger.user_id = existing["id"]
+
+    if existing and not ledger.completed_steps and not reconcile:
+        msg = "skipped — exists, no ledger (use --reconcile to bring in line with template)"
+        print(f"  ⚠ {msg}")
+        return ("⊘", email, existing.get("id", "?"), msg)
+
+    if not confirm:
+        print_plan(snapshot, email, name)
+        return ("•", email, existing.get("id", "—") if existing else "—", "dry-run only")
+
+    if write_api is None:
+        return ("✗", email, "—", "write client not initialised")
+
+    try:
+        execute_user(write_api, snapshot, email, name, ledger, ledger_dir, phone_cfg=phone_cfg)
+        note = "invite sent (expires 14 days)" if ledger.is_done("invite") else "completed (no invite)"
+        symbol = "↻" if existing and ledger.completed_steps != list(STEPS) else "✓"
+        return (symbol, email, ledger.user_id or "?", note)
+    except ApiException as exc:
+        return ("✗", email, ledger.user_id or "?",
+                f"failed: status={exc.status} body={_err_body(exc)[:120]}")
+    except Exception as exc:  # noqa: BLE001 — record and continue the batch
+        return ("✗", email, ledger.user_id or "?", f"failed: {exc}")
+
+
+def print_summary(summary: list[tuple[str, str, str, str]], ledger_dir: Path) -> int:
+    """Print the summary table and return process exit code (0 ok, 1 if any failed)."""
+    print("\n" + "─" * 90)
+    print("SUMMARY")
+    print("─" * 90)
+    for sym, email, uid, note in summary:
+        print(f" {sym}  {email:<40} {uid:<40} {note}")
+    print("─" * 90)
+    print(f"Ledger dir: {ledger_dir}")
+    failed = sum(1 for s in summary if s[0] == "✗")
+    return 0 if failed == 0 else 1
+
+
+def resolve_phone_cfg_safe(write_api: gc.ApiClient) -> dict | None:
+    """Resolve phone config once, logging (not raising) on failure so the rest of
+    the batch still runs and the phone step degrades to a per-user warning."""
+    try:
+        cfg = resolve_phone_config(write_api)
+        log.info("Phone config resolved: site=%s phoneBaseSettings=%s lineBaseSettings=%s",
+                 cfg["site_id"], cfg["phone_base_settings_id"], cfg["line_base_settings_id"])
+        return cfg
+    except (ApiException, RuntimeError) as exc:
+        log.error("Could not resolve WebRTC phone config (%s). Phone step will be "
+                  "skipped for all users this run. Check telephony:plugin:all and the "
+                  "PROVISION_PHONE_* env overrides.", exc)
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -953,56 +1028,22 @@ def main(argv: list[str] | None = None) -> int:
             print("Aborted.")
             return 1
 
+    # Resolve WebRTC phone config once (only when we'll actually write).
+    phone_cfg = resolve_phone_cfg_safe(write_api) if (args.confirm and write_api) else None
+
     # Phase 2/3: per-user processing.
     print(f"\nProcessing {len(emails)} email(s):\n")
     summary: list[tuple[str, str, str, str]] = []
     for i, email in enumerate(emails, 1):
         name = derive_full_name(email)
         print(f"[{i}/{len(emails)}] {email} → \"{name}\"")
-
-        existing = find_user_by_email(read_api, email)
-        ledger = Ledger.load_or_new(ledger_dir, email)
-        if ledger.user_id is None and existing:
-            ledger.user_id = existing["id"]
-
-        # Idempotency: existing user with no per-run ledger → don't overwrite.
-        if existing and not ledger.completed_steps and not args.reconcile:
-            msg = "skipped — exists, no ledger (use --reconcile to bring in line with template)"
-            print(f"  ⚠ {msg}")
-            summary.append(("⊘", email, existing.get("id", "?"), msg))
-            continue
-
-        if not args.confirm:
-            print_plan(snapshot, email, name)
-            summary.append(("•", email, existing.get("id", "—") if existing else "—", "dry-run only"))
-            continue
-
-        if write_api is None:
-            print("  (write client not initialised — should never happen)")
-            return 2
-
-        try:
-            execute_user(write_api, snapshot, email, name, ledger, ledger_dir)
-            note = "invite sent (expires 14 days)" if ledger.is_done("invite") else "completed (no invite)"
-            symbol = "↻" if existing and ledger.completed_steps != list(STEPS) else "✓"
-            summary.append((symbol, email, ledger.user_id or "?", note))
-        except ApiException as exc:
-            summary.append(("✗", email, ledger.user_id or "?",
-                            f"failed: status={exc.status} body={_err_body(exc)[:120]}"))
-        except Exception as exc:
-            summary.append(("✗", email, ledger.user_id or "?", f"failed: {exc}"))
+        summary.append(process_one(
+            email, name, snapshot, read_api, write_api, ledger_dir, phone_cfg,
+            confirm=args.confirm, reconcile=args.reconcile,
+        ))
 
     # Phase 4: summary table.
-    print("\n" + "─" * 90)
-    print("SUMMARY")
-    print("─" * 90)
-    for sym, email, uid, note in summary:
-        print(f" {sym}  {email:<40} {uid:<40} {note}")
-    print("─" * 90)
-    print(f"Ledger dir: {ledger_dir}")
-
-    failed = sum(1 for s in summary if s[0] == "✗")
-    return 0 if failed == 0 else 1
+    return print_summary(summary, ledger_dir)
 
 
 if __name__ == "__main__":
