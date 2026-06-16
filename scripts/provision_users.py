@@ -80,7 +80,7 @@ WEBRTC_META_BASE_ID = "developer_webrtc.json"
 # with adding the user to the right groups in step 5. If your tenant does NOT
 # inherit roles from groups, add `authorization:grant:add` to the OAuth role and
 # re-introduce a roles step before step 3.
-STEPS = ("create", "patch", "skills", "languages", "groups", "wfm", "invite")
+STEPS = ("create", "patch", "skills", "languages", "groups", "wfm", "phone", "invite")
 
 log = logging.getLogger("provision_users")
 
@@ -412,6 +412,7 @@ def execute_user(
     ledger_dir: Path,
     *,
     self_test: bool = False,
+    phone_cfg: dict | None = None,
 ) -> Ledger:
     """Run the 8 provisioning steps for a single user.
 
@@ -622,7 +623,43 @@ def execute_user(
         ledger.mark_done("wfm")
         ledger.save(ledger_dir)
 
-    # ─── Step 7: Invite (must be last; skipped during self-test) ─────────
+    # ─── Step 7: WebRTC phone (best-effort; assigned to the user) ──────────
+    if not ledger.is_done("phone"):
+        if self_test:
+            # No throwaway phone — just confirm the telephony permission is present.
+            try:
+                retry(lambda: call_api(
+                    write_api, "GET",
+                    "/api/v2/telephony/providers/edges/phonebasesettings",
+                    query={"pageSize": 1},
+                ))()
+                log.info("[%s] phone perm check OK (telephony:plugin:all present)", target_email)
+            except ApiException as exc:
+                fail("phone (perm check)", exc)
+        elif phone_cfg is None:
+            log.warning("[%s] no WebRTC phone config resolved — skipping phone creation", target_email)
+        else:
+            phone_name = derive_phone_name(target_email)
+            try:
+                status, phone_id = create_phone_for_user(
+                    write_api, phone_name, ledger.user_id, phone_cfg,
+                )
+                if status == "skipped":
+                    log.info("[%s] phone %r already exists (id=%s), skipping",
+                             target_email, phone_name, phone_id)
+                else:
+                    log.info("[%s] CREATED WebRTC phone %r (id=%s)",
+                             target_email, phone_name, phone_id)
+            except ApiException as exc:
+                # Best-effort: WebRTC auto-provisions on first login anyway.
+                log.warning(
+                    "[%s] phone creation failed (status=%s): %s — continuing",
+                    target_email, getattr(exc, "status", "?"), _err_body(exc),
+                )
+        ledger.mark_done("phone")
+        ledger.save(ledger_dir)
+
+    # ─── Step 8: Invite (must be last; skipped during self-test) ─────────
     if self_test:
         log.info("[%s] SKIP invite (self-test mode — would bounce off the .invalid domain)", target_email)
     elif not ledger.is_done("invite"):
