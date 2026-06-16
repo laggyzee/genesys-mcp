@@ -147,6 +147,8 @@ to print the resolved ids in ready-to-paste env form.
 | `--auto-cleanup` | With `--self-test`: also attempt `DELETE /users/{id}` (needs `directory:user:delete`). |
 | `--refresh-template` | Bypass cached template snapshot at `/tmp/template_<email>.json`. Use after editing the template in Genesys admin between dry-run and confirm. |
 | `--reconcile` | When a user already exists with no per-run ledger, bring their config in line with the template anyway. Off by default to avoid silent overwrites of pre-existing configurations. |
+| `--interactive` | Prompt for the template email and new-starter emails, show the plan, then confirm before writing. Used by the double-click launchers. |
+| `--discover-phone-settings` | Print the resolved WebRTC site/phone/line base-settings ids and exit. Needs `telephony:plugin:all`. |
 | `--template-allowlist FILE` | File of approved template emails. If provided, `--confirm` refuses any `--template-email` not on the list — defends against typos that might silently elevate every new hire by cloning the wrong template. |
 | `-v` / `--verbose` | Debug-level logging. |
 
@@ -193,7 +195,7 @@ Each ledger file looks like:
 {
   "email": "alice@example.com",
   "user_id": "abc-123-def",
-  "completed_steps": ["create", "patch", "skills", "languages", "groups", "wfm", "invite"],
+  "completed_steps": ["create", "patch", "skills", "languages", "groups", "wfm", "phone", "invite"],
   "last_error": null,
   "started_at": "2026-05-07T04:00:00.000Z"
 }

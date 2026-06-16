@@ -74,7 +74,7 @@ PHONE_LINE_BASE_SETTINGS_ID_OVERRIDE = os.environ.get("PROVISION_PHONE_LINE_BASE
 WEBRTC_META_BASE_ID = "developer_webrtc.json"
 
 # Steps in execution order. Used by the per-user ledger to track resume points.
-# Steps in execution order. "roles" is intentionally absent: this script targets
+# "roles" is intentionally absent: this script targets
 # tenants where authorisation roles are inherited from group membership (groups
 # with rolesEnabled=true). On those tenants `PUT /users/{id}/roles` is redundant
 # with adding the user to the right groups in step 5. If your tenant does NOT
