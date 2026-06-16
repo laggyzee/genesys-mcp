@@ -176,6 +176,61 @@ def _err_body(exc: ApiException) -> str:
     return str(body)[:500] if body else ""
 
 
+def _pick_webrtc(entities: list[dict], label: str) -> str:
+    """Pick the WebRTC entry from a phone/line base-settings list.
+
+    Prefers an exact ``phoneMetaBase``/``lineMetaBase`` id match; falls back to a
+    unique name containing 'webrtc'. Raises if it can't choose unambiguously, so
+    the operator sets the matching env override rather than getting a wrong phone.
+    """
+    for e in entities:
+        meta = (e.get("phoneMetaBase") or e.get("lineMetaBase") or {}).get("id", "")
+        if meta == WEBRTC_META_BASE_ID and e.get("id"):
+            return e["id"]
+    named = [e for e in entities if "webrtc" in (e.get("name") or "").lower() and e.get("id")]
+    if len(named) == 1:
+        return named[0]["id"]
+    candidates = [e.get("name") for e in entities]
+    raise RuntimeError(
+        f"Could not uniquely identify the WebRTC {label}. Set the matching env "
+        f"override. Candidates seen: {candidates}"
+    )
+
+
+def resolve_phone_config(api: gc.ApiClient) -> dict:
+    """Resolve the site id + WebRTC phone/line base-settings ids for phone creation.
+
+    Honours env overrides first; otherwise reads from the tenant. Requires the
+    ``telephony:plugin:all`` permission (uses the write client). Returns a dict with
+    keys ``site_id``, ``phone_base_settings_id``, ``line_base_settings_id``.
+    """
+    site_id = PHONE_SITE_ID_OVERRIDE
+    if not site_id:
+        sites = call_api(api, "GET", "/api/v2/telephony/providers/edges/sites",
+                         query={"pageSize": 100}) or {}
+        match = [s for s in (sites.get("entities") or []) if s.get("name") == PHONE_SITE_NAME]
+        if not match:
+            raise RuntimeError(
+                f"Phone site {PHONE_SITE_NAME!r} not found (set PROVISION_PHONE_SITE "
+                f"or PROVISION_PHONE_SITE_ID)."
+            )
+        site_id = match[0]["id"]
+
+    pbs_id = PHONE_BASE_SETTINGS_ID_OVERRIDE
+    if not pbs_id:
+        pbs = call_api(api, "GET", "/api/v2/telephony/providers/edges/phonebasesettings",
+                       query={"pageSize": 100}) or {}
+        pbs_id = _pick_webrtc(pbs.get("entities") or [], "phone base settings")
+
+    lbs_id = PHONE_LINE_BASE_SETTINGS_ID_OVERRIDE
+    if not lbs_id:
+        lbs = call_api(api, "GET", "/api/v2/telephony/providers/edges/linebasesettings",
+                       query={"pageSize": 100}) or {}
+        lbs_id = _pick_webrtc(lbs.get("entities") or [], "line base settings")
+
+    return {"site_id": site_id, "phone_base_settings_id": pbs_id, "line_base_settings_id": lbs_id}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase 1: Template snapshot
 # ─────────────────────────────────────────────────────────────────────────────

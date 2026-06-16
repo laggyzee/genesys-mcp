@@ -58,3 +58,66 @@ class TestBuildPhoneBody:
             "lines": [{"name": "Jane.Doe", "lineBaseSettings": {"id": "lbs-1"}}],
             "webRtcUser": {"id": "user-99"},
         }
+
+
+class TestResolvePhoneConfig:
+    def _fake_api_factory(self, sites, pbs, lbs):
+        """Return a fake call_api dispatching on path. Mirrors {entities:[...]}."""
+        def fake_call_api(api, method, path, *, body=None, query=None):
+            if path.endswith("/sites"):
+                return {"entities": sites}
+            if path.endswith("/phonebasesettings"):
+                return {"entities": pbs}
+            if path.endswith("/linebasesettings"):
+                return {"entities": lbs}
+            raise AssertionError(f"unexpected path {path}")
+        return fake_call_api
+
+    def test_discovers_by_metabase(self, monkeypatch):
+        sites = [{"id": "site-syd", "name": "Prvidr Sydney"},
+                 {"id": "other", "name": "Somewhere Else"}]
+        pbs = [{"id": "pbs-webrtc", "name": "WebRTC Phone",
+                "phoneMetaBase": {"id": "developer_webrtc.json"}},
+               {"id": "pbs-sip", "name": "Generic SIP",
+                "phoneMetaBase": {"id": "generic_sip.json"}}]
+        lbs = [{"id": "lbs-webrtc", "name": "WebRTC Line",
+                "lineMetaBase": {"id": "developer_webrtc.json"}}]
+        monkeypatch.setattr(pu, "call_api", self._fake_api_factory(sites, pbs, lbs))
+        cfg = pu.resolve_phone_config(object())
+        assert cfg == {"site_id": "site-syd",
+                       "phone_base_settings_id": "pbs-webrtc",
+                       "line_base_settings_id": "lbs-webrtc"}
+
+    def test_falls_back_to_name_contains_webrtc(self, monkeypatch):
+        sites = [{"id": "site-syd", "name": "Prvidr Sydney"}]
+        pbs = [{"id": "pbs-webrtc", "name": "Acme WebRTC base"}]  # no metaBase field
+        lbs = [{"id": "lbs-webrtc", "name": "Acme WebRTC line"}]
+        monkeypatch.setattr(pu, "call_api", self._fake_api_factory(sites, pbs, lbs))
+        cfg = pu.resolve_phone_config(object())
+        assert cfg["phone_base_settings_id"] == "pbs-webrtc"
+        assert cfg["line_base_settings_id"] == "lbs-webrtc"
+
+    def test_site_not_found_raises(self, monkeypatch):
+        monkeypatch.setattr(pu, "call_api",
+                            self._fake_api_factory([{"id": "x", "name": "Nope"}], [], []))
+        with pytest.raises(RuntimeError, match="site"):
+            pu.resolve_phone_config(object())
+
+    def test_ambiguous_webrtc_raises(self, monkeypatch):
+        sites = [{"id": "site-syd", "name": "Prvidr Sydney"}]
+        pbs = [{"id": "a", "name": "WebRTC one"}, {"id": "b", "name": "WebRTC two"}]
+        monkeypatch.setattr(pu, "call_api", self._fake_api_factory(sites, pbs, []))
+        with pytest.raises(RuntimeError, match="phone base settings"):
+            pu.resolve_phone_config(object())
+
+    def test_env_overrides_short_circuit(self, monkeypatch):
+        monkeypatch.setattr(pu, "PHONE_SITE_ID_OVERRIDE", "env-site")
+        monkeypatch.setattr(pu, "PHONE_BASE_SETTINGS_ID_OVERRIDE", "env-pbs")
+        monkeypatch.setattr(pu, "PHONE_LINE_BASE_SETTINGS_ID_OVERRIDE", "env-lbs")
+        def boom(*a, **k):
+            raise AssertionError("should not call API when all overrides set")
+        monkeypatch.setattr(pu, "call_api", boom)
+        cfg = pu.resolve_phone_config(object())
+        assert cfg == {"site_id": "env-site",
+                       "phone_base_settings_id": "env-pbs",
+                       "line_base_settings_id": "env-lbs"}
