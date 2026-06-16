@@ -64,14 +64,23 @@ ENV_FILES = (
 LEDGER_BASE = Path(os.environ.get("PROVISION_LEDGER_DIR", "/tmp/provision_users"))
 TEMPLATE_CACHE_DIR = Path(os.environ.get("PROVISION_TEMPLATE_CACHE", "/tmp"))
 
+# WebRTC phone provisioning. The site name defaults to Prvidr's; all four can be
+# overridden by env for other tenants or when auto-discovery is ambiguous.
+PHONE_SITE_NAME = os.environ.get("PROVISION_PHONE_SITE", "Prvidr Sydney")
+PHONE_SITE_ID_OVERRIDE = os.environ.get("PROVISION_PHONE_SITE_ID")
+PHONE_BASE_SETTINGS_ID_OVERRIDE = os.environ.get("PROVISION_PHONE_BASE_SETTINGS_ID")
+PHONE_LINE_BASE_SETTINGS_ID_OVERRIDE = os.environ.get("PROVISION_PHONE_LINE_BASE_SETTINGS_ID")
+# Genesys meta-base id identifying the WebRTC phone/line base settings.
+WEBRTC_META_BASE_ID = "developer_webrtc.json"
+
 # Steps in execution order. Used by the per-user ledger to track resume points.
-# Steps in execution order. "roles" is intentionally absent: this script targets
+# "roles" is intentionally absent: this script targets
 # tenants where authorisation roles are inherited from group membership (groups
 # with rolesEnabled=true). On those tenants `PUT /users/{id}/roles` is redundant
 # with adding the user to the right groups in step 5. If your tenant does NOT
 # inherit roles from groups, add `authorization:grant:add` to the OAuth role and
 # re-introduce a roles step before step 3.
-STEPS = ("create", "patch", "skills", "languages", "groups", "wfm", "invite")
+STEPS = ("create", "patch", "skills", "languages", "groups", "wfm", "phone", "invite")
 
 log = logging.getLogger("provision_users")
 
@@ -116,6 +125,33 @@ def derive_full_name(email: str) -> str:
     return " ".join(p.capitalize() for p in parts if p) or local
 
 
+def derive_phone_name(email: str) -> str:
+    """``jane.doe@x.com`` → ``"Jane.Doe"`` — the WebRTC phone display name.
+
+    Same parsing as ``derive_full_name`` but joins the parts with a dot to match
+    the Prvidr ``Firstname.Lastname`` phone naming convention.
+    """
+    local = email.split("@", 1)[0]
+    parts = re.split(r"[._\-]+", local)
+    return ".".join(p.capitalize() for p in parts if p) or local
+
+
+def build_phone_body(phone_name: str, user_id: str, cfg: dict) -> dict:
+    """Assemble the POST body for a WebRTC phone assigned to ``user_id``.
+
+    ``webRtcUser`` is what binds the phone to the person; ``lines`` must carry a
+    ``lineBaseSettings`` id or the line won't register. ``cfg`` comes from
+    ``resolve_phone_config``.
+    """
+    return {
+        "name": phone_name,
+        "site": {"id": cfg["site_id"]},
+        "phoneBaseSettings": {"id": cfg["phone_base_settings_id"]},
+        "lines": [{"name": phone_name, "lineBaseSettings": {"id": cfg["line_base_settings_id"]}}],
+        "webRtcUser": {"id": user_id},
+    }
+
+
 def call_api(api: gc.ApiClient, method: str, path: str, *, body: Any = None, query: dict | None = None) -> Any:
     """Thin wrapper around ``api.call_api()`` for endpoints not wrapped by the SDK.
 
@@ -138,6 +174,82 @@ def _err_body(exc: ApiException) -> str:
     if isinstance(body, (bytes, bytearray)):
         body = body.decode("utf-8", errors="replace")
     return str(body)[:500] if body else ""
+
+
+def _pick_webrtc(entities: list[dict], label: str) -> str:
+    """Pick the WebRTC entry from a phone/line base-settings list.
+
+    Prefers an exact ``phoneMetaBase``/``lineMetaBase`` id match; falls back to a
+    unique name containing 'webrtc'. Raises if it can't choose unambiguously, so
+    the operator sets the matching env override rather than getting a wrong phone.
+    """
+    for e in entities:
+        meta = (e.get("phoneMetaBase") or e.get("lineMetaBase") or {}).get("id", "")
+        if meta == WEBRTC_META_BASE_ID and e.get("id"):
+            return e["id"]
+    named = [e for e in entities if "webrtc" in (e.get("name") or "").lower() and e.get("id")]
+    if len(named) == 1:
+        return named[0]["id"]
+    candidates = [e.get("name") for e in entities]
+    raise RuntimeError(
+        f"Could not uniquely identify the WebRTC {label}. Set the matching env "
+        f"override. Candidates seen: {candidates}"
+    )
+
+
+def resolve_phone_config(api: gc.ApiClient) -> dict:
+    """Resolve the site id + WebRTC phone/line base-settings ids for phone creation.
+
+    Honours env overrides first; otherwise reads from the tenant. Requires the
+    ``telephony:plugin:all`` permission (uses the write client). Returns a dict with
+    keys ``site_id``, ``phone_base_settings_id``, ``line_base_settings_id``.
+    """
+    site_id = PHONE_SITE_ID_OVERRIDE
+    if not site_id:
+        sites = call_api(api, "GET", "/api/v2/telephony/providers/edges/sites",
+                         query={"pageSize": 100}) or {}
+        match = [s for s in (sites.get("entities") or []) if s.get("name") == PHONE_SITE_NAME]
+        if not match:
+            raise RuntimeError(
+                f"Phone site {PHONE_SITE_NAME!r} not found (set PROVISION_PHONE_SITE "
+                f"or PROVISION_PHONE_SITE_ID)."
+            )
+        site_id = match[0]["id"]
+
+    pbs_id = PHONE_BASE_SETTINGS_ID_OVERRIDE
+    if not pbs_id:
+        pbs = call_api(api, "GET", "/api/v2/telephony/providers/edges/phonebasesettings",
+                       query={"pageSize": 100}) or {}
+        pbs_id = _pick_webrtc(pbs.get("entities") or [], "phone base settings")
+
+    lbs_id = PHONE_LINE_BASE_SETTINGS_ID_OVERRIDE
+    if not lbs_id:
+        lbs = call_api(api, "GET", "/api/v2/telephony/providers/edges/linebasesettings",
+                       query={"pageSize": 100}) or {}
+        lbs_id = _pick_webrtc(lbs.get("entities") or [], "line base settings")
+
+    return {"site_id": site_id, "phone_base_settings_id": pbs_id, "line_base_settings_id": lbs_id}
+
+
+def create_phone_for_user(api: gc.ApiClient, phone_name: str, user_id: str, cfg: dict) -> tuple[str, str | None]:
+    """Create the WebRTC phone unless one with this name already exists.
+
+    Returns ``("skipped", existing_id)`` if a phone named ``phone_name`` already
+    exists (we don't reassign someone else's phone), else ``("created", new_id)``.
+    Raises ``ApiException`` on POST failure — the caller decides best-effort.
+    """
+    existing = call_api(
+        api, "GET", "/api/v2/telephony/providers/edges/phones",
+        query={"name": phone_name, "pageSize": 1},
+    ) or {}
+    ents = existing.get("entities") or []
+    if ents:
+        return ("skipped", ents[0].get("id"))
+    created = call_api(
+        api, "POST", "/api/v2/telephony/providers/edges/phones",
+        body=build_phone_body(phone_name, user_id, cfg),
+    ) or {}
+    return ("created", created.get("id"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -300,6 +412,7 @@ def execute_user(
     ledger_dir: Path,
     *,
     self_test: bool = False,
+    phone_cfg: dict | None = None,
 ) -> Ledger:
     """Run the 8 provisioning steps for a single user.
 
@@ -510,7 +623,43 @@ def execute_user(
         ledger.mark_done("wfm")
         ledger.save(ledger_dir)
 
-    # ─── Step 7: Invite (must be last; skipped during self-test) ─────────
+    # ─── Step 7: WebRTC phone (best-effort; assigned to the user) ──────────
+    if not ledger.is_done("phone"):
+        if self_test:
+            # No throwaway phone — just confirm the telephony permission is present.
+            try:
+                retry(lambda: call_api(
+                    write_api, "GET",
+                    "/api/v2/telephony/providers/edges/phonebasesettings",
+                    query={"pageSize": 1},
+                ))()
+                log.info("[%s] phone perm check OK (telephony:plugin:all present)", target_email)
+            except ApiException as exc:
+                fail("phone (perm check)", exc)
+        elif phone_cfg is None:
+            log.warning("[%s] no WebRTC phone config resolved — skipping phone creation", target_email)
+        else:
+            phone_name = derive_phone_name(target_email)
+            try:
+                status, phone_id = create_phone_for_user(
+                    write_api, phone_name, ledger.user_id, phone_cfg,
+                )
+                if status == "skipped":
+                    log.info("[%s] phone %r already exists (id=%s), skipping",
+                             target_email, phone_name, phone_id)
+                else:
+                    log.info("[%s] CREATED WebRTC phone %r (id=%s)",
+                             target_email, phone_name, phone_id)
+            except ApiException as exc:
+                # Best-effort: WebRTC auto-provisions on first login anyway.
+                log.warning(
+                    "[%s] phone creation failed (status=%s): %s — continuing",
+                    target_email, getattr(exc, "status", "?"), _err_body(exc),
+                )
+        ledger.mark_done("phone")
+        ledger.save(ledger_dir)
+
+    # ─── Step 8: Invite (must be last; skipped during self-test) ─────────
     if self_test:
         log.info("[%s] SKIP invite (self-test mode — would bounce off the .invalid domain)", target_email)
     elif not ledger.is_done("invite"):
@@ -646,7 +795,104 @@ def print_plan(snapshot: dict, target_email: str, target_name: str) -> None:
     print(f"  GROUPS ({len(snapshot['groups'])}): {group_names or '(none)'}  (queues will follow via group→queue auto-assignment)")
     if snapshot.get("wfm_management_unit"):
         print(f"  WFM: move into management unit {snapshot['wfm_management_unit'].get('name', '?')}")
+    print(f"  PHONE: create WebRTC phone \"{derive_phone_name(target_email)}\" at site "
+          f"{PHONE_SITE_NAME} (base settings resolved at execute time)")
     print(f"  INVITE: send activation email to {target_email}")
+
+
+def process_one(
+    email: str,
+    name: str,
+    snapshot: dict,
+    read_api: gc.ApiClient,
+    write_api: gc.ApiClient | None,
+    ledger_dir: Path,
+    phone_cfg: dict | None,
+    *,
+    confirm: bool,
+    reconcile: bool,
+) -> tuple[str, str, str, str]:
+    """Process a single email: dry-run plan or full execute. Returns a summary row.
+
+    Shared by ``main``'s batch loop and ``--interactive`` so both behave identically.
+    """
+    existing = find_user_by_email(read_api, email)
+    ledger = Ledger.load_or_new(ledger_dir, email)
+    if ledger.user_id is None and existing:
+        ledger.user_id = existing["id"]
+
+    if existing and not ledger.completed_steps and not reconcile:
+        msg = "skipped — exists, no ledger (use --reconcile to bring in line with template)"
+        print(f"  ⚠ {msg}")
+        return ("⊘", email, existing.get("id", "?"), msg)
+
+    if not confirm:
+        print_plan(snapshot, email, name)
+        return ("•", email, existing.get("id", "—") if existing else "—", "dry-run only")
+
+    if write_api is None:
+        return ("✗", email, "—", "write client not initialised")
+
+    try:
+        execute_user(write_api, snapshot, email, name, ledger, ledger_dir, phone_cfg=phone_cfg)
+        note = "invite sent (expires 14 days)" if ledger.is_done("invite") else "completed (no invite)"
+        symbol = "↻" if existing and ledger.completed_steps != list(STEPS) else "✓"
+        return (symbol, email, ledger.user_id or "?", note)
+    except ApiException as exc:
+        return ("✗", email, ledger.user_id or "?",
+                f"failed: status={exc.status} body={_err_body(exc)[:120]}")
+    except Exception as exc:  # noqa: BLE001 — record and continue the batch
+        return ("✗", email, ledger.user_id or "?", f"failed: {exc}")
+
+
+def print_summary(summary: list[tuple[str, str, str, str]], ledger_dir: Path) -> int:
+    """Print the summary table and return process exit code (0 ok, 1 if any failed)."""
+    print("\n" + "─" * 90)
+    print("SUMMARY")
+    print("─" * 90)
+    for sym, email, uid, note in summary:
+        print(f" {sym}  {email:<40} {uid:<40} {note}")
+    print("─" * 90)
+    print(f"Ledger dir: {ledger_dir}")
+    failed = sum(1 for s in summary if s[0] == "✗")
+    return 0 if failed == 0 else 1
+
+
+def resolve_phone_cfg_safe(write_api: gc.ApiClient) -> dict | None:
+    """Resolve phone config once, logging (not raising) on failure so the rest of
+    the batch still runs and the phone step degrades to a per-user warning."""
+    try:
+        cfg = resolve_phone_config(write_api)
+        log.info("Phone config resolved: site=%s phoneBaseSettings=%s lineBaseSettings=%s",
+                 cfg["site_id"], cfg["phone_base_settings_id"], cfg["line_base_settings_id"])
+        return cfg
+    except (ApiException, RuntimeError) as exc:
+        log.error("Could not resolve WebRTC phone config (%s). Phone step will be "
+                  "skipped for all users this run. Check telephony:plugin:all and the "
+                  "PROVISION_PHONE_* env overrides.", exc)
+        return None
+
+
+def prompt_interactive_inputs() -> tuple[str, list[str]]:
+    """Prompt for a template email and new-starter emails (one per line, blank to end;
+    a single comma/space-separated line also works). Returns (template_email, emails)."""
+    print("\n=== Provision new agents from a template ===\n")
+    template = input("Template agent email (existing user to copy from): ").strip()
+    print("\nNew-starter emails — one per line. Blank line when done "
+          "(or paste several separated by commas/spaces):")
+    emails: list[str] = []
+    while True:
+        try:
+            line = input("  > ").strip()
+        except EOFError:
+            break
+        if not line:
+            break
+        parts = re.split(r"[,\s]+", line)
+        emails.extend(p for p in parts if p)
+    seen: set[str] = set()
+    deduped = [e for e in emails if not (e in seen or seen.add(e))]
+    return template, deduped
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -683,6 +929,12 @@ def main(argv: list[str] | None = None) -> int:
         help="File of approved template emails. If provided, --confirm refuses any "
              "--template-email not in this list. Defends against typos.")
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--interactive", action="store_true",
+        help="Prompt for the template email and new-starter emails, show the plan, "
+             "then ask before writing. Used by the double-click launchers.")
+    parser.add_argument("--discover-phone-settings", action="store_true",
+        help="Print the resolved WebRTC site/phone/line base-settings ids and exit "
+             "(needs telephony:plugin:all on the write client). Use to set PROVISION_PHONE_* overrides.")
 
     args = parser.parse_args(argv)
 
@@ -697,8 +949,9 @@ def main(argv: list[str] | None = None) -> int:
     if loaded_files:
         log.info("Loaded env from: %s", ", ".join(str(p) for p in loaded_files))
 
-    if not args.template_email:
-        parser.error("--template-email is required (use --self-test --template-email <known-good-agent>)")
+    if not args.template_email and not (args.interactive or args.discover_phone_settings):
+        parser.error("--template-email is required (use --self-test --template-email <known-good-agent>, "
+                     "or --interactive to be prompted)")
 
     # Initialise the read-only client (always needed: snapshot + pre-check).
     try:
@@ -722,7 +975,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     # Initialise the write client only if we're going to write.
-    will_write = args.confirm or args.self_test
+    will_write = args.confirm or args.self_test or args.interactive or args.discover_phone_settings
     write_api: gc.ApiClient | None = None
     if will_write:
         try:
@@ -734,6 +987,62 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
+
+    # Diagnostic: print resolved phone settings and exit.
+    if args.discover_phone_settings:
+        if write_api is None:
+            return 2
+        try:
+            cfg = resolve_phone_config(write_api)
+        except (ApiException, RuntimeError) as exc:
+            print(f"Could not resolve phone settings: {exc}", file=sys.stderr)
+            return 1
+        print("Resolved WebRTC phone settings:")
+        print(f"  PROVISION_PHONE_SITE_ID={cfg['site_id']}")
+        print(f"  PROVISION_PHONE_BASE_SETTINGS_ID={cfg['phone_base_settings_id']}")
+        print(f"  PROVISION_PHONE_LINE_BASE_SETTINGS_ID={cfg['line_base_settings_id']}")
+        return 0
+
+    # Interactive mode: gather inputs, preview, confirm, execute.
+    if args.interactive:
+        if write_api is None:
+            return 2
+        template_email, emails = prompt_interactive_inputs()
+        if not template_email:
+            print("No template email given. Aborted.", file=sys.stderr)
+            return 1
+        if not emails:
+            print("No new-starter emails given. Aborted.", file=sys.stderr)
+            return 1
+        args.template_email = template_email
+
+        snapshot = snapshot_template(read_api, template_email, refresh=args.refresh_template)
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ledger_dir = LEDGER_BASE / run_id
+
+        # Preview (dry-run): print the plan for each.
+        print(f"\nPLAN — template {template_email}, {len(emails)} new agent(s):\n")
+        for i, email in enumerate(emails, 1):
+            name = derive_full_name(email)
+            print(f"[{i}/{len(emails)}] {email} → \"{name}\"")
+            process_one(email, name, snapshot, read_api, write_api, ledger_dir, None,
+                        confirm=False, reconcile=args.reconcile)
+
+        ans = input("\nProceed and create these agents (with phones + invites)? [y/N]: ").strip().lower()
+        if ans != "y":
+            print("Aborted — nothing written.")
+            return 1
+
+        phone_cfg = resolve_phone_cfg_safe(write_api)
+        print(f"\nProcessing {len(emails)} email(s):\n")
+        summary: list[tuple[str, str, str, str]] = []
+        for i, email in enumerate(emails, 1):
+            name = derive_full_name(email)
+            print(f"[{i}/{len(emails)}] {email} → \"{name}\"")
+            summary.append(process_one(email, name, snapshot, read_api, write_api,
+                                       ledger_dir, phone_cfg, confirm=True,
+                                       reconcile=args.reconcile))
+        return print_summary(summary, ledger_dir)
 
     # Phase 1: snapshot the template (always, even for dry-run).
     snapshot = snapshot_template(read_api, args.template_email, refresh=args.refresh_template)
@@ -804,56 +1113,22 @@ def main(argv: list[str] | None = None) -> int:
             print("Aborted.")
             return 1
 
+    # Resolve WebRTC phone config once (only when we'll actually write).
+    phone_cfg = resolve_phone_cfg_safe(write_api) if (args.confirm and write_api) else None
+
     # Phase 2/3: per-user processing.
     print(f"\nProcessing {len(emails)} email(s):\n")
     summary: list[tuple[str, str, str, str]] = []
     for i, email in enumerate(emails, 1):
         name = derive_full_name(email)
         print(f"[{i}/{len(emails)}] {email} → \"{name}\"")
-
-        existing = find_user_by_email(read_api, email)
-        ledger = Ledger.load_or_new(ledger_dir, email)
-        if ledger.user_id is None and existing:
-            ledger.user_id = existing["id"]
-
-        # Idempotency: existing user with no per-run ledger → don't overwrite.
-        if existing and not ledger.completed_steps and not args.reconcile:
-            msg = "skipped — exists, no ledger (use --reconcile to bring in line with template)"
-            print(f"  ⚠ {msg}")
-            summary.append(("⊘", email, existing.get("id", "?"), msg))
-            continue
-
-        if not args.confirm:
-            print_plan(snapshot, email, name)
-            summary.append(("•", email, existing.get("id", "—") if existing else "—", "dry-run only"))
-            continue
-
-        if write_api is None:
-            print("  (write client not initialised — should never happen)")
-            return 2
-
-        try:
-            execute_user(write_api, snapshot, email, name, ledger, ledger_dir)
-            note = "invite sent (expires 14 days)" if ledger.is_done("invite") else "completed (no invite)"
-            symbol = "↻" if existing and ledger.completed_steps != list(STEPS) else "✓"
-            summary.append((symbol, email, ledger.user_id or "?", note))
-        except ApiException as exc:
-            summary.append(("✗", email, ledger.user_id or "?",
-                            f"failed: status={exc.status} body={_err_body(exc)[:120]}"))
-        except Exception as exc:
-            summary.append(("✗", email, ledger.user_id or "?", f"failed: {exc}"))
+        summary.append(process_one(
+            email, name, snapshot, read_api, write_api, ledger_dir, phone_cfg,
+            confirm=args.confirm, reconcile=args.reconcile,
+        ))
 
     # Phase 4: summary table.
-    print("\n" + "─" * 90)
-    print("SUMMARY")
-    print("─" * 90)
-    for sym, email, uid, note in summary:
-        print(f" {sym}  {email:<40} {uid:<40} {note}")
-    print("─" * 90)
-    print(f"Ledger dir: {ledger_dir}")
-
-    failed = sum(1 for s in summary if s[0] == "✗")
-    return 0 if failed == 0 else 1
+    return print_summary(summary, ledger_dir)
 
 
 if __name__ == "__main__":
