@@ -118,6 +118,48 @@ class TestQueuePerformanceEchoes:
         )
         assert out["granularity"] == "P1D"
 
+    @pytest.mark.parametrize(
+        ("service_level_stats", "expected"),
+        [
+            ({"ratio": 0.825}, 82.5),
+            ({"numerator": 33, "denominator": 40}, 82.5),
+            ({}, None),
+        ],
+    )
+    def test_service_level_uses_genesys_ratio(self, monkeypatch, service_level_stats, expected):
+        from genesys_mcp.tools import analytics as a
+
+        class FakeAnalyticsApi:
+            def __init__(self, *args, **kwargs): pass
+            def post_analytics_conversations_aggregates_query(self, body):
+                assert "oServiceLevel" in body["metrics"]
+                return {
+                    "results": [{
+                        "group": {"queueId": "q1", "mediaType": "voice"},
+                        "data": [{
+                            "interval": _TEST_INTERVAL,
+                            "metrics": [
+                                {"metric": "nOffered", "stats": {"count": 40}},
+                                {"metric": "tAnswered", "stats": {"count": 33, "sum": 1000}},
+                                {"metric": "nOverSla", "stats": {"count": 5}},
+                                {"metric": "oServiceLevel", "stats": service_level_stats},
+                            ],
+                        }],
+                    }],
+                }
+
+        out = _call_tool(
+            a.register, "queue_performance",
+            {"queue_ids": ["q1"], "interval": _TEST_INTERVAL},
+            monkeypatch, sdk_patches=[(a.gc, "AnalyticsApi", FakeAnalyticsApi)],
+        )
+        derived = out["results"][0]["data"][0]["derived"]
+        assert derived["service_level_pct"] == expected
+        assert derived["service_level_source"] == ("genesys_oServiceLevel" if expected is not None else None)
+        assert out["service_level_source"] == "genesys_oServiceLevel"
+        if expected is None:
+            assert derived["service_level_unavailable_reason"]
+
 
 # ─────────────────────── agent_performance ───────────────────────
 

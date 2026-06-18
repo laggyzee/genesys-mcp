@@ -30,6 +30,7 @@ _QUEUE_SUMMARY_METRICS: dict[str, list[str]] = {
     "nOffered":   ["count"],
     "nOverSla":   ["count"],
     "nConnected": ["count"],   # daily-brief's offered fallback when nOffered is empty
+    "oServiceLevel": ["ratio", "numerator", "denominator"],
 }
 
 
@@ -103,7 +104,6 @@ def _attach_derived_metrics(resp: dict) -> None:
         for bucket in result.get("data") or []:
             stats = {m["metric"]: m.get("stats") or {} for m in bucket.get("metrics") or []}
             offered = stats.get("nOffered", {}).get("count", 0) or 0
-            over = stats.get("nOverSla", {}).get("count", 0) or 0
             answered = stats.get("tAnswered", {}).get("count", 0) or 0
             abandoned = stats.get("tAbandon", {}).get("count", 0) or 0
             a_sum = stats.get("tAnswered", {}).get("sum", 0) or 0
@@ -118,12 +118,32 @@ def _attach_derived_metrics(resp: dict) -> None:
             def secs(s: float, c: float) -> float | None:
                 return round(s / c / 1000, 1) if c else None
 
+            service_level_stats = stats.get("oServiceLevel", {})
+            service_level_ratio = service_level_stats.get("ratio")
+            if service_level_ratio is None:
+                numerator = service_level_stats.get("numerator")
+                denominator = service_level_stats.get("denominator")
+                if numerator is not None and denominator:
+                    service_level_ratio = numerator / denominator
+
             bucket["derived"] = {
                 "answered": answered,
                 "abandoned": abandoned,
                 "answered_pct": pct(answered, offered),
                 "abandoned_pct": pct(abandoned, offered),
-                "service_level_pct": pct(max(answered - over, 0), offered),
+                "service_level_pct": (
+                    round(service_level_ratio * 100, 1)
+                    if isinstance(service_level_ratio, (int, float))
+                    else None
+                ),
+                "service_level_source": (
+                    "genesys_oServiceLevel" if service_level_ratio is not None else None
+                ),
+                "service_level_unavailable_reason": (
+                    None
+                    if service_level_ratio is not None
+                    else "Genesys did not return oServiceLevel for this bucket."
+                ),
                 "avg_wait_s": secs(w_sum, w_cnt),
                 "avg_answer_s": secs(a_sum, answered),
                 "avg_handle_s": secs(h_sum, h_cnt),
@@ -209,7 +229,7 @@ def register(mcp: FastMCP) -> None:
           - abandoned      = tAbandon.count             (matches UI 'Abandon' column)
           - answered_pct   = answered / nOffered
           - abandoned_pct  = abandoned / nOffered
-          - service_level  = (answered - nOverSla) / nOffered   (matches UI 'Service Level')
+          - service_level  = Genesys oServiceLevel ratio (respects the organisation's analytics settings)
           - avg_wait_s     = tWait.sum / tWait.count / 1000
           - avg_answer_s   = tAnswered.sum / tAnswered.count / 1000  (ASA)
           - avg_handle_s   = tHandle.sum / tHandle.count / 1000
@@ -247,6 +267,7 @@ def register(mcp: FastMCP) -> None:
                 "nConnected",
                 "nTransferred",
                 "nOverSla",
+                "oServiceLevel",
                 "tHandle",
                 "tTalkComplete",
                 "tHeldComplete",
@@ -270,6 +291,7 @@ def register(mcp: FastMCP) -> None:
         # buried 4 levels deep at results[].data[].interval.
         out["interval"] = body["interval"]
         out["granularity"] = granularity
+        out["service_level_source"] = "genesys_oServiceLevel"
         out["as_of_utc"] = _now_utc().isoformat().replace("+00:00", "Z")
         return out
 
