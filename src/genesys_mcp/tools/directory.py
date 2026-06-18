@@ -9,7 +9,9 @@ import PureCloudPlatformClientV2 as gc
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from genesys_mcp._intervals import SUPPORTED_PERIODS, compute_period_interval
 from genesys_mcp.client import get_api, to_dict, with_retry
+from genesys_mcp.tenant import TenantConfigError, load_config
 
 logger = logging.getLogger(__name__)
 
@@ -443,6 +445,84 @@ def register(mcp: FastMCP) -> None:
             if page_number > 10:  # safety cap (org would need 2000+ presences)
                 break
         return {"count": len(out), "presences": out}
+
+    @mcp.tool()
+    def compute_interval(
+        period: str = Field(
+            description=(
+                "Period keyword. One of: 'today', 'yesterday', 'this_week', "
+                "'last_week', 'this_month', 'last_month', 'last_7_days', "
+                "'last_28_days'. Weeks anchor to Monday 00:00 local. Months "
+                "snap to the 1st of the month 00:00 local. 'last_7_days' is "
+                "rolling 7×24h ending now (distinct from 'this_week' which "
+                "anchors to Monday). Use 'last_28_days' for a rolling four-"
+                "week coaching window."
+            ),
+        ),
+        timezone: str | None = Field(
+            default=None,
+            description=(
+                "IANA timezone name (e.g. 'Australia/Sydney', "
+                "'America/New_York', 'Europe/London', 'UTC'). Defaults to "
+                "the tenant timezone configured in ~/.config/genesys-mcp/"
+                "tenant.yaml. Pass an explicit value to compute for a "
+                "different region without rewriting the config."
+            ),
+        ),
+    ) -> dict:
+        """Convert a period keyword to a tenant-timezone-aware ISO interval.
+
+        v1.5+. Call this BEFORE any analytical tool (queue_performance,
+        agent_performance, repeat_caller_deep_dive, break_overrun_report,
+        etc.) when you want a calendar-aligned window like 'today' or
+        'last_week' in the tenant's local time. Then paste the returned
+        ``interval`` field as the ``interval=`` argument on the analytical
+        tool. Saves clients (especially foreign LLMs) from doing timezone
+        math themselves — they get the right UTC ISO interval on the first
+        try.
+
+        Why this exists: cross-app smoke tests showed foreign LLMs
+        hallucinating constraints like *"Genesys can't slice to a calendar
+        day"* when given the analytical tools cold. The constraint is false
+        — every tool accepts any ISO interval — but the LLM lacked an
+        obvious path from "today, AEST" to the right ISO string. This tool
+        is that path.
+
+        Returns:
+
+        - ``period`` — echo of the input keyword
+        - ``timezone`` — the resolved timezone name
+        - ``start_local`` / ``end_local`` — local-time boundaries (ISO with
+          UTC offset, e.g. ``"2026-06-18T00:00:00+10:00"``)
+        - ``start_utc`` / ``end_utc`` — UTC boundaries (canonical ``...Z``
+          form, e.g. ``"2026-06-17T14:00:00.000Z"``)
+        - ``interval`` — paste-ready ``"<start_utc>/<end_utc>"`` string
+        - ``weekday_anchor`` — ``"Mon"`` for week-based periods (omitted
+          otherwise) so callers know which day the week starts on
+
+        Error envelope: returns ``{status: "error", kind: "invalid_argument",
+        message, supported_periods}`` on an unknown period or unresolvable
+        timezone — no exceptions raised across the MCP boundary.
+        """
+        if timezone is None:
+            try:
+                cfg = load_config()
+                tz_name = cfg.tenant.timezone or "UTC"
+            except TenantConfigError:
+                tz_name = "UTC"
+        else:
+            tz_name = timezone
+        try:
+            return compute_period_interval(period, tz_name)
+        except ValueError as exc:
+            return {
+                "status": "error",
+                "kind": "invalid_argument",
+                "message": str(exc),
+                "period": period,
+                "timezone": tz_name,
+                "supported_periods": list(SUPPORTED_PERIODS),
+            }
 
     @mcp.tool()
     def get_user_skills(

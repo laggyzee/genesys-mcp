@@ -11,16 +11,12 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from genesys_mcp._envelopes import soft_fail_envelope
+from genesys_mcp._intervals import INTERVAL_HELP_STRING
+from genesys_mcp._intervals import default_interval as _default_interval
+from genesys_mcp._intervals import now_utc as _now_utc
 from genesys_mcp.client import get_api, to_dict, with_retry
 
 logger = logging.getLogger(__name__)
-
-
-def _default_interval(days: int = 7) -> str:
-    """ISO-8601 interval 'start/end' covering the last N days up to now (UTC)."""
-    end = datetime.now(timezone.utc).replace(microsecond=0)
-    start = end - timedelta(days=days)
-    return f"{start.strftime('%Y-%m-%dT%H:%M:%S.000Z')}/{end.strftime('%Y-%m-%dT%H:%M:%S.000Z')}"
 
 
 # Fields we keep in `mode: "summary"` for queue_performance. Everything else
@@ -172,7 +168,7 @@ def register(mcp: FastMCP) -> None:
         ),
         interval: str | None = Field(
             default=None,
-            description="ISO-8601 interval 'start/end'. Defaults to last 7 days.",
+            description=INTERVAL_HELP_STRING,
         ),
         granularity: str = Field(
             default="P1D",
@@ -268,6 +264,13 @@ def register(mcp: FastMCP) -> None:
             raise ValueError(
                 f"queue_performance.mode must be 'summary' or 'full', got {mode!r}"
             )
+        # v1.5: surface interval + as_of_utc at the TOP of the response so a
+        # reader of a persisted file (or a foreign LLM scanning the first
+        # few lines) sees the query window immediately. Was previously
+        # buried 4 levels deep at results[].data[].interval.
+        out["interval"] = body["interval"]
+        out["granularity"] = granularity
+        out["as_of_utc"] = _now_utc().isoformat().replace("+00:00", "Z")
         return out
 
     @mcp.tool()
@@ -342,7 +345,7 @@ def register(mcp: FastMCP) -> None:
     def agent_performance(
         user_ids: list[str] = Field(description="User ids to report on (required)."),
         interval: str | None = Field(
-            default=None, description="ISO-8601 interval 'start/end'. Defaults to last 7 days."
+            default=None, description=INTERVAL_HELP_STRING,
         ),
         granularity: str = Field(default="P1D"),
         mode: str = Field(
@@ -496,6 +499,7 @@ def register(mcp: FastMCP) -> None:
         return {
             "interval": body["interval"],
             "granularity": granularity,
+            "as_of_utc": _now_utc().isoformat().replace("+00:00", "Z"),
             "summary": summary,
             "results": out_results,
         }
