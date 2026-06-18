@@ -557,8 +557,12 @@ def register(mcp: FastMCP) -> None:
         interval: str | None = Field(
             default=None,
             description=(
-                "ISO-8601 'startISO/endISO' interval. Defaults to last 28 days "
-                "(typical 4-week coaching cadence)."
+                'ISO-8601 interval "startISO/endISO" in UTC. Accepts ANY '
+                "window — calendar day, arbitrary range, multi-month. To get "
+                'a tenant-timezone-aware ISO interval for a period like "today" '
+                'or "last_month", call `compute_interval` first. Defaults to '
+                "the last 28 days UTC (typical 4-week coaching cadence) if "
+                "omitted."
             ),
         ),
         peer_user_ids: list[str] | None = Field(

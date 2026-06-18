@@ -15,20 +15,13 @@ import PureCloudPlatformClientV2 as gc
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from genesys_mcp._intervals import INTERVAL_HELP_STRING
+from genesys_mcp._intervals import default_interval as _default_interval
+from genesys_mcp._intervals import parse_iso as _parse_iso
 from genesys_mcp.client import get_api, to_dict, with_retry
 from genesys_mcp.naming import resolver
 
 logger = logging.getLogger(__name__)
-
-
-def _default_interval(days: int = 7) -> str:
-    end = datetime.now(timezone.utc).replace(microsecond=0)
-    start = end - timedelta(days=days)
-    return f"{start.strftime('%Y-%m-%dT%H:%M:%S.000Z')}/{end.strftime('%Y-%m-%dT%H:%M:%S.000Z')}"
-
-
-def _parse_iso(s: str) -> datetime:
-    return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
 def _bucket_key(dt: datetime, bucket_seconds: int) -> str:
@@ -93,7 +86,7 @@ def register(mcp: FastMCP) -> None:
         user_id: str = Field(description="User (agent) id."),
         interval: str | None = Field(
             default=None,
-            description="ISO-8601 interval. Defaults to last 7 days UTC.",
+            description=INTERVAL_HELP_STRING,
         ),
     ) -> dict:
         """Adherence explanations for an agent over a date range.
@@ -128,7 +121,7 @@ def register(mcp: FastMCP) -> None:
         ),
         interval: str | None = Field(
             default=None,
-            description="ISO-8601 interval. Defaults to last 7 days UTC.",
+            description=INTERVAL_HELP_STRING,
         ),
         break_target_min: int = Field(
             default=15, ge=1, le=120,
@@ -342,7 +335,7 @@ def register(mcp: FastMCP) -> None:
         ),
         interval: str | None = Field(
             default=None,
-            description="ISO-8601 interval. Defaults to last 7 days UTC.",
+            description=INTERVAL_HELP_STRING,
         ),
     ) -> dict:
         """Per-day WFM scheduled hours + headcount-forecast required hours.
@@ -557,7 +550,7 @@ def register(mcp: FastMCP) -> None:
         ),
         interval: str | None = Field(
             default=None,
-            description="ISO-8601 interval. Defaults to last 7 days UTC.",
+            description=INTERVAL_HELP_STRING,
         ),
         granularity: str = Field(
             default="1h",

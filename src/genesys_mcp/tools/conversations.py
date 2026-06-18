@@ -11,15 +11,11 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from genesys_mcp._envelopes import soft_fail_envelope
+from genesys_mcp._intervals import INTERVAL_HELP_STRING
+from genesys_mcp._intervals import default_interval as _default_interval
 from genesys_mcp.client import get_api, to_dict, with_retry
 
 logger = logging.getLogger(__name__)
-
-
-def _default_interval(days: int = 7) -> str:
-    end = datetime.now(timezone.utc).replace(microsecond=0)
-    start = end - timedelta(days=days)
-    return f"{start.strftime('%Y-%m-%dT%H:%M:%S.000Z')}/{end.strftime('%Y-%m-%dT%H:%M:%S.000Z')}"
 
 
 def register(mcp: FastMCP) -> None:
@@ -27,7 +23,7 @@ def register(mcp: FastMCP) -> None:
     def search_conversations(
         interval: str | None = Field(
             default=None,
-            description="ISO-8601 interval 'start/end' (UTC). Defaults to last 7 days.",
+            description=INTERVAL_HELP_STRING,
         ),
         ani: str | None = Field(
             default=None,

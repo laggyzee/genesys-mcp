@@ -22,6 +22,10 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from genesys_mcp._aggregates import accumulate_metric_stats
+from genesys_mcp._intervals import INTERVAL_HELP_STRING
+from genesys_mcp._intervals import default_interval as _default_interval
+from genesys_mcp._intervals import now_utc as _now_utc
+from genesys_mcp._intervals import parse_iso as _parse_iso
 from genesys_mcp.client import get_api, to_dict, with_retry
 from genesys_mcp.naming import resolver
 
@@ -264,15 +268,6 @@ def _recommend_action(row: dict) -> str:
     return "monitor"
 
 
-def _default_interval(days: int = 7) -> str:
-    end = datetime.now(timezone.utc).replace(microsecond=0)
-    start = end - timedelta(days=days)
-    return f"{start.strftime('%Y-%m-%dT%H:%M:%S.000Z')}/{end.strftime('%Y-%m-%dT%H:%M:%S.000Z')}"
-
-
-def _parse_iso(s: str) -> datetime:
-    return datetime.fromisoformat(s.replace("Z", "+00:00"))
-
 
 def _seg_dur_s(seg: dict) -> float:
     st_raw = seg.get("segmentStart")
@@ -327,7 +322,7 @@ def register(mcp: FastMCP) -> None:
         ),
         interval: str | None = Field(
             default=None,
-            description="ISO-8601 interval. Defaults to last 7 days UTC.",
+            description=INTERVAL_HELP_STRING,
         ),
         min_calls: int = Field(
             default=2, ge=2, le=20,
@@ -509,7 +504,7 @@ def register(mcp: FastMCP) -> None:
         ),
         interval: str | None = Field(
             default=None,
-            description="ISO-8601 interval. Defaults to last 7 days UTC.",
+            description=INTERVAL_HELP_STRING,
         ),
         min_calls: int = Field(
             default=3, ge=2, le=20,
@@ -863,6 +858,7 @@ def register(mcp: FastMCP) -> None:
 
         full_response = {
             "interval": interval,
+            "as_of_utc": _now_utc().isoformat().replace("+00:00", "Z"),
             "media_type": media_type,
             "scope": {
                 "max_anis": max_anis,
@@ -906,7 +902,7 @@ def register(mcp: FastMCP) -> None:
         ),
         interval: str | None = Field(
             default=None,
-            description="ISO-8601 interval. Defaults to last 7 days UTC.",
+            description=INTERVAL_HELP_STRING,
         ),
         break_target_min: int = Field(
             default=15,
@@ -1144,6 +1140,7 @@ def register(mcp: FastMCP) -> None:
             )
         return {
             "interval": interval,
+            "as_of_utc": _now_utc().isoformat().replace("+00:00", "Z"),
             "break_target_min": break_target_min,
             "meal_target_min": meal_target_min,
             "pre_break_target_min": pre_break_target_min,
@@ -1162,7 +1159,7 @@ def register(mcp: FastMCP) -> None:
         user_id: str = Field(description="User id to review."),
         interval: str | None = Field(
             default=None,
-            description="ISO-8601 interval. Defaults to last 7 days UTC.",
+            description=INTERVAL_HELP_STRING,
         ),
         peer_user_ids: list[str] | None = Field(
             default=None,

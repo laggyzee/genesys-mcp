@@ -1,5 +1,100 @@
 # Release Notes
 
+## v1.5.0 — 18 June 2026
+
+**Interval clarity + cross-app robustness.** Closes a real cross-app failure mode: when wired into a non-Claude-Code client, a foreign LLM hallucinated a non-existent constraint (*"Genesys can't slice to a calendar day"*) and read stale persisted-output files because the response top didn't surface the interval. Five deliverables — one new tool, top-level response echoes on the four analytical tools, a single-source docstring fragment across twelve tools, and a `_intervals` module that deduplicates timezone helpers previously copy-pasted across five tool modules. **409 tests; 45 tools.**
+
+### New tool: `compute_interval`
+
+The missing path from *"today, AEST"* to a paste-ready ISO interval. Any client (Claude Code, Claude Desktop, Cursor, a custom MCP harness) calls this **once** to convert a period keyword to a tenant-timezone-aware UTC interval, then passes the returned `interval` string to any analytical tool. No more timezone math in client prompts.
+
+```python
+compute_interval(
+    period: str,                 # 'today' | 'yesterday' | 'this_week' | 'last_week'
+                                 # | 'this_month' | 'last_month' | 'last_7_days' | 'last_28_days'
+    timezone: str | None = None, # defaults to cfg.tenant.timezone
+)
+```
+
+Returns:
+
+```yaml
+period: "today"
+timezone: "Australia/Sydney"
+start_local: "2026-06-18T00:00:00+10:00"
+end_local: "2026-06-19T00:00:00+10:00"
+start_utc: "2026-06-17T14:00:00.000Z"
+end_utc: "2026-06-18T14:00:00.000Z"
+interval: "2026-06-17T14:00:00.000Z/2026-06-18T14:00:00.000Z"   # paste-ready
+weekday_anchor: "Mon"                                            # for week-based periods
+```
+
+Spec is intentionally tight: eight enumerated keywords, no natural-language parsing, no month-year strings. Weeks anchor to Monday 00:00 local (ISO 8601 / Australian convention). Months snap to the 1st. `last_7_days` is rolling 7 × 24h ending now (distinct from `this_week` which anchors to Monday). `last_28_days` matches the coaching pack's default window.
+
+Error envelope: `{status: "error", kind: "invalid_argument", message, supported_periods}` on unknown period or unresolvable timezone — no exceptions raised across the MCP boundary.
+
+### Top-level `interval` + `as_of_utc` echo on every analytical tool
+
+The persisted-output bug that triggered this release: a foreign client harness saved a `queue_performance` response to disk and the LLM kept re-reading it instead of calling fresh, because the interval used was buried at `results[].data[].interval` — 4 levels deep. v1.5 surfaces it (plus a generation timestamp) at the very **top** of every analytical response:
+
+```yaml
+interval: "<the interval that was queried>"        # always present at top
+as_of_utc: "<ISO-8601 UTC at response generation>" # always present at top
+granularity: "P1D"                                  # queue_performance only
+results: [...]                                       # existing payload below
+```
+
+Four tools updated:
+
+| Tool | Pre-v1.5 | v1.5 |
+|---|---|---|
+| `queue_performance` | **neither** at top | **both** at top |
+| `agent_performance` | `interval` at top | + `as_of_utc` |
+| `repeat_caller_deep_dive` | `interval` at top | + `as_of_utc` |
+| `break_overrun_report` | `interval` at top | + `as_of_utc` |
+
+Reader-of-persisted-file test: `head -20` on a saved response now shows the window in the first lines. The foreign-LLM hallucination depended on the field being invisible; making it visible is the fix.
+
+### Docstring sweep: single source of truth for `interval:` help
+
+Every tool that takes an `interval:` parameter (twelve tools across six modules) now interpolates the same `INTERVAL_HELP_STRING` constant. Pre-v1.5 each tool's `interval:` description drifted independently — a foreign LLM introspecting the tool catalogue couldn't tell whether calendar-day boundaries were supported (they always have been). The new shared string is explicit about it:
+
+```
+ISO-8601 interval "startISO/endISO" in UTC. Accepts ANY window — calendar day,
+arbitrary range, multi-month. To get a tenant-timezone-aware ISO interval for
+a period like "today" or "last_week", call `compute_interval` first.
+Example for a calendar day in Australia/Sydney:
+  "2026-06-17T14:00:00.000Z/2026-06-18T14:00:00.000Z"
+Defaults to the last 7 days UTC if omitted.
+```
+
+Tools swept: `queue_performance`, `agent_performance`, `search_conversations`, `repeat_caller_report`, `repeat_caller_deep_dive`, `break_overrun_report`, `agent_quality_snapshot`, `presence_sessions`, `wfm_schedule`, `volume_vs_forecast`, `query_agent_adherence_explanations`, `agent_adherence_review`. `agent_coaching_pack` uses a customised variant that mentions `compute_interval` and notes the 28-day default.
+
+### Shared `_intervals` module — deduplication, no behaviour change
+
+`_default_interval()` was copy-pasted in five tool modules; `_parse_iso()` in three. v1.5 consolidates them in `genesys_mcp._intervals` and replaces the five copies with re-import aliases that preserve the original symbol names (so `coaching.py`'s `from genesys_mcp.tools.reports import _default_interval, _parse_iso` keeps working unchanged).
+
+New module exports:
+
+- `INTERVAL_HELP_STRING` — single canonical docstring fragment
+- `SUPPORTED_PERIODS` — `("today", "yesterday", "this_week", "last_week", "this_month", "last_month", "last_7_days", "last_28_days")`
+- `default_interval(days: int = 7) -> str` — dedup of the 5 copies
+- `parse_iso(s: str) -> datetime` — dedup of the 3 copies
+- `now_utc()` — extracted for monkey-patchable tests
+- `compute_period_interval(period, timezone_name, *, now=None) -> dict` — the engine behind `compute_interval`
+
+All 375 existing tests still pass; +34 new tests in `tests/test_intervals.py` (25) and `tests/test_response_envelopes.py` (9) lift the suite to **409 passing**.
+
+### Why this matters
+
+The MCP can't stop a foreign LLM from hallucinating, but it can make hallucination strictly harder. Three reinforcing changes — a discovery tool for periods, top-level response echoes, and a docstring sweep that's explicit about what's supported — change the surface area an unprompted client sees so the *"calendar day not supported"* hallucination has nothing to anchor on. Real-world test: from the other (non-Claude-Code) app that triggered this plan, ask *"what's the right interval for queues today, AEST?"* — the assistant now calls `compute_interval` first, then `queue_performance` with the returned string, and returns correct numbers.
+
+### Upgrading
+
+`uv sync` for fresh deps; no config changes required. Existing skills (`cc-monthly-report`, `cc-daily-brief`, `cc-coaching-prep`) continue to use the explicit-ISO-interval path they always have — `compute_interval` is for foreign clients that don't have the skill scaffolding. The five migrated tool modules import from `_intervals` instead of having local copies, but their public behaviour is byte-identical.
+
+---
+
 ## v1.4.0 — 3 June 2026
 
 **Call quality + batch ergonomics.** Four deliverables: MOS scores for voice-call quality (closes the gap vs the MakingChatbots MCP), presence-label resolution on `get_user_presence_now`, batch mode for `find_user`, and concurrent fan-out for `agent_adherence_review` (5-10× faster on large tenants).
