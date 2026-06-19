@@ -78,7 +78,7 @@ def conversation_url(
 
     The Genesys Cloud UI route for a single conversation is::
 
-        {app_base}/directory/#/analytics/interactions/{conversation_id}/admin/details
+        {app_base}/directory/#/analytics/interactions/{conversation_id}/admin
 
     Returns ``None`` when no base URL is resolvable — callers should fall
     back to a non-clickable rendering.
@@ -86,7 +86,7 @@ def conversation_url(
     base = resolve_app_base_url(tenant_base_url=tenant_base_url, region=region)
     if not base or not conversation_id:
         return None
-    return f"{base}/directory/#/analytics/interactions/{conversation_id}/admin/details"
+    return f"{base}/directory/#/analytics/interactions/{conversation_id}/admin"
 
 
 def render_conversation_cell(

@@ -61,13 +61,13 @@ class TestResolveAppBaseUrl:
 
 class TestConversationUrl:
     def test_canonical_url_shape(self):
-        # The /directory/#/analytics/interactions/{id}/admin/details path is
+        # The /directory/#/analytics/interactions/{id}/admin path is
         # what Genesys's web app uses. If they rename the route, this test
         # fails — that's the signal to update the helper.
         url = conversation_url("abc-123", region="ap-southeast-2")
         assert url == (
             "https://apps.mypurecloud.com.au"
-            "/directory/#/analytics/interactions/abc-123/admin/details"
+            "/directory/#/analytics/interactions/abc-123/admin"
         )
 
     def test_empty_id_returns_none(self):
