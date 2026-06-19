@@ -205,6 +205,28 @@ class TestRenderAdherence:
         assert "WFM permission unavailable" in html
 
 
+class TestFlaggedCalls:
+    def test_full_conversation_id_is_always_rendered(self, build_report_coaching, mock_tenant_config):
+        pack = _minimal_pack()
+        conversation_id = "11111111-2222-3333-4444-555555555555"
+        pack["flagged_calls"] = {
+            "total_flagged": 1,
+            "top": [{
+                "conversation_id": conversation_id,
+                "started_at": "2026-05-01T00:00:00Z",
+                "media": "voice",
+                "handle_s": 600,
+                "hold_s": 0,
+                "sentiment_score": -0.2,
+                "flag_reasons": ["AHT over target"],
+                "transcript_excerpt": {"status": 404, "message": "not transcribed"},
+            }],
+        }
+        html = build_report_coaching.render_flagged_section(pack, mock_tenant_config)
+        assert conversation_id in html
+        assert "not transcribed" in html
+
+
 # ── render_focus_section soft-degrade ──
 
 class TestRenderFocusSection:

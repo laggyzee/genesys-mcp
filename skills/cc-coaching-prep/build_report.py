@@ -460,6 +460,7 @@ def render_flagged_section(pack: dict, cfg: TenantConfig | None = None) -> str:
         )
     rows: list[str] = []
     for c in top:
+        conversation_id = str(c.get("conversation_id") or "")
         reasons = "".join(
             f'<span class="flag-pill">{escape(r)}</span>' for r in c.get("flag_reasons") or []
         )
@@ -483,7 +484,8 @@ def render_flagged_section(pack: dict, cfg: TenantConfig | None = None) -> str:
             f'<td class="num">{sentiment_html}</td>'
             f'<td>{reasons}</td>'
             f'<td>{transcript_html}</td>'
-            f'<td>{render_conversation_cell(c.get("conversation_id"), tenant_base_url=cfg.tenant.genesys_app_base_url if cfg else None)}</td>'
+            f'<td>{render_conversation_cell(conversation_id, tenant_base_url=cfg.tenant.genesys_app_base_url if cfg else None)}'
+            f'<div style="margin-top:3px;max-width:240px;word-break:break-all;font-family:monospace;font-size:9px;color:var(--muted);">{escape(conversation_id)}</div></td>'
             f'</tr>'
         )
     return (
