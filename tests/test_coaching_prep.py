@@ -126,6 +126,7 @@ def _minimal_pack(**overrides) -> dict:
                 "total_handle_hours": 117.6,
             },
             "per_peer": {},
+            "peer_resolution": {"strategy": "role", "reason": None},
         },
         "wrap_discipline": {
             "total_conversations": 1392, "with_wrapup_code": 1390,
@@ -134,6 +135,7 @@ def _minimal_pack(**overrides) -> dict:
         "queues_handled": [],
         "sentiment": {"avg": 0.16, "samples": 404},
         "quality": {"scope_available": True, "summary": None, "evaluations": []},
+        "adherence": {"status": "available", "user": {"session_count": 0, "explained_overruns": 0, "unexplained_overruns": 0, "sessions": []}},
         "flagged_calls": {"limit": 10, "total_flagged": 0, "top": []},
         "recommended_focus": [],
     }
@@ -171,6 +173,36 @@ class TestRenderPerformanceSection:
         assert "Peer comparison" not in html
         # The KPI cards still render — only the table is omitted
         assert "Voice answered" in html
+
+    def test_no_peers_renders_explicit_reason(
+        self, build_report_coaching, mock_tenant_config,
+    ):
+        pack = _minimal_pack()
+        pack["performance"]["peer_medians"] = {}
+        pack["performance"]["peer_count"] = 0
+        pack["performance"]["peer_resolution"] = {
+            "strategy": "role",
+            "reason": "No other active users matched the role.",
+        }
+        html = build_report_coaching.render_performance_section(pack, mock_tenant_config)
+        assert "Peer comparison unavailable" in html
+        assert "No other active users matched" in html
+
+
+class TestRenderAdherence:
+    def test_renders_adherence_summary(self, build_report_coaching):
+        html = build_report_coaching.render_adherence_section(_minimal_pack())
+        assert "Unexplained overruns" in html
+        assert "Break / meal sessions" in html
+
+    def test_unavailable_adherence_has_reason(self, build_report_coaching):
+        pack = _minimal_pack(adherence={
+            "status": "unavailable",
+            "reason": "WFM permission unavailable.",
+        })
+        html = build_report_coaching.render_adherence_section(pack)
+        assert "Adherence unavailable" in html
+        assert "WFM permission unavailable" in html
 
 
 # ── render_focus_section soft-degrade ──
@@ -255,7 +287,7 @@ class TestParseNarrativeMd:
 # ── End-to-end render_html sanity ──
 
 class TestRenderHtmlEndToEnd:
-    def test_full_pack_produces_all_five_sections(
+    def test_full_pack_produces_all_required_sections(
         self, build_report_coaching, mock_tenant_config,
     ):
         pack = _minimal_pack(recommended_focus=[
@@ -264,8 +296,7 @@ class TestRenderHtmlEndToEnd:
         html = build_report_coaching.render_html(
             pack, period="1-24 May 2026", cfg=mock_tenant_config,
         )
-        # All five section anchors must be present
-        for anchor in ("#performance", "#sentiment", "#wrap", "#flagged", "#focus"):
+        for anchor in ("#performance", "#sentiment", "#adherence", "#wrap", "#flagged", "#focus"):
             assert anchor in html, f"missing section anchor {anchor}"
         # Tenant name from mock config bleeds through into the header
         assert mock_tenant_config.tenant.name in html

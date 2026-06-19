@@ -162,9 +162,10 @@ def render_toc() -> str:
         '<strong>Sections:</strong> '
         '<a href="#performance">1. Performance vs targets</a>'
         '<a href="#sentiment">2. Sentiment &amp; quality</a>'
-        '<a href="#wrap">3. Wrap-up &amp; handling</a>'
-        '<a href="#flagged">4. Flagged calls</a>'
-        '<a href="#focus">5. Recommended focus</a>'
+        '<a href="#adherence">3. Adherence</a>'
+        '<a href="#wrap">4. Wrap-up &amp; handling</a>'
+        '<a href="#flagged">5. Flagged calls</a>'
+        '<a href="#focus">6. Recommended focus</a>'
         '</nav>'
     )
 
@@ -249,6 +250,11 @@ def render_performance_section(pack: dict, cfg: TenantConfig) -> str:
             '<table><thead><tr><th>Metric</th><th class="num">This agent</th>'
             f'<th class="num">Peer median (n={p.get("peer_count", 0)})</th><th>Delta</th></tr></thead>'
             f'<tbody>{"".join(rows)}</tbody></table>'
+        )
+    elif p.get("peer_resolution", {}).get("reason"):
+        peer_table = (
+            '<div class="callout warn"><strong>Peer comparison unavailable.</strong> '
+            f'{escape(str(p["peer_resolution"]["reason"]))}</div>'
         )
 
     return (
@@ -358,6 +364,46 @@ def render_sentiment_quality(pack: dict) -> str:
     )
 
 
+def render_adherence_section(pack: dict) -> str:
+    adherence = pack.get("adherence") or {}
+    if adherence.get("status") != "available":
+        reason = adherence.get("reason") or "Genesys did not return adherence evidence for this period."
+        return (
+            '<section id="adherence"><h2>3. Adherence</h2>'
+            '<div class="callout warn"><strong>Adherence unavailable.</strong> '
+            f'{escape(str(reason))}</div></section>'
+        )
+
+    user = adherence.get("user") or {}
+    unexplained = int(user.get("unexplained_overruns") or 0)
+    explained = int(user.get("explained_overruns") or 0)
+    overrun_rows = []
+    for row in [item for item in user.get("sessions") or [] if item.get("over_target")][:8]:
+        explanation = row.get("matching_explanation") or {}
+        explanation_text = explanation.get("type") or explanation.get("status") or "Unexplained"
+        overrun_rows.append(
+            f'<tr><td>{escape(str(row.get("presence") or "—"))}</td>'
+            f'<td>{_date_short(row.get("start_utc"))}</td>'
+            f'<td class="num">{row.get("duration_min", "—")}m</td>'
+            f'<td class="num">{row.get("overrun_min", "—")}m</td>'
+            f'<td>{escape(str(explanation_text))}</td></tr>'
+        )
+    table = ""
+    if overrun_rows:
+        table = (
+            '<h3>Break and meal exceptions</h3><table><thead><tr><th>Presence</th>'
+            '<th>Started</th><th class="num">Duration</th><th class="num">Overrun</th>'
+            f'<th>Explanation</th></tr></thead><tbody>{"".join(overrun_rows)}</tbody></table>'
+        )
+    return (
+        '<section id="adherence"><h2>3. Adherence</h2><div class="kpi-grid">'
+        + _kpi_card("Unexplained overruns", fmt_int(unexplained), "coaching candidates", cls="bad" if unexplained else "good")
+        + _kpi_card("Explained overruns", fmt_int(explained), "matched WFM explanations")
+        + _kpi_card("Break / meal sessions", fmt_int(user.get("session_count")), "sessions reviewed")
+        + f'</div>{table}</section>'
+    )
+
+
 def render_wrap_section(pack: dict) -> str:
     w = pack.get("wrap_discipline") or {}
     total = w.get("total_conversations") or 0
@@ -392,7 +438,7 @@ def render_wrap_section(pack: dict) -> str:
             f'<tbody>{"".join(rows)}</tbody></table>'
         )
 
-    return f'<section id="wrap"><h2>3. Wrap-up &amp; handling</h2>{cards}{disp_table}</section>'
+    return f'<section id="wrap"><h2>4. Wrap-up &amp; handling</h2>{cards}{disp_table}</section>'
 
 
 def render_flagged_section(pack: dict, cfg: TenantConfig | None = None) -> str:
@@ -406,7 +452,7 @@ def render_flagged_section(pack: dict, cfg: TenantConfig | None = None) -> str:
     )
     if not top:
         return (
-            f'<section id="flagged"><h2>4. Flagged calls</h2>'
+            f'<section id="flagged"><h2>5. Flagged calls</h2>'
             '<div class="callout good"><strong>No calls flagged</strong> against the configured '
             "thresholds (sentiment, hold ratio, AHT excess, wrap-up notes). This is a "
             "legitimate finding — the agent is performing within thresholds on every "
@@ -422,6 +468,12 @@ def render_flagged_section(pack: dict, cfg: TenantConfig | None = None) -> str:
             f'{sentiment:+.2f}' if sentiment is not None else
             '<span class="muted">—</span>'
         )
+        transcript = c.get("transcript_excerpt") or {}
+        transcript_html = (
+            f'{len(transcript["utterances"])} utterances available'
+            if transcript.get("utterances")
+            else escape(str(transcript.get("message") or transcript.get("status") or "Unavailable"))
+        )
         rows.append(
             f'<tr>'
             f'<td>{_date_short(c.get("started_at"))}</td>'
@@ -430,13 +482,15 @@ def render_flagged_section(pack: dict, cfg: TenantConfig | None = None) -> str:
             f'<td class="num">{fmt_secs(c.get("hold_s"))}</td>'
             f'<td class="num">{sentiment_html}</td>'
             f'<td>{reasons}</td>'
+            f'<td>{transcript_html}</td>'
             f'<td>{render_conversation_cell(c.get("conversation_id"), tenant_base_url=cfg.tenant.genesys_app_base_url if cfg else None)}</td>'
             f'</tr>'
         )
     return (
-        f'<section id="flagged"><h2>4. Flagged calls</h2>{intro}'
+        f'<section id="flagged"><h2>5. Flagged calls</h2>{intro}'
         '<table><thead><tr><th>Started</th><th>Media</th><th class="num">Handle</th>'
-        '<th class="num">Hold</th><th class="num">Sentiment</th><th>Reasons</th><th>Conv id</th></tr></thead>'
+        '<th class="num">Hold</th><th class="num">Sentiment</th><th>Reasons</th>'
+        '<th>Transcript</th><th>Conv id</th></tr></thead>'
         f'<tbody>{"".join(rows)}</tbody></table></section>'
     )
 
@@ -445,7 +499,7 @@ def render_focus_section(pack: dict) -> str:
     focus = pack.get("recommended_focus") or []
     if not focus:
         return (
-            '<section id="focus"><h2>5. Recommended coaching focus</h2>'
+            '<section id="focus"><h2>6. Recommended coaching focus</h2>'
             '<div class="callout good"><strong>No focus areas surfaced.</strong> The agent is '
             "broadly on target across AHT, ACW, wrap-up discipline, QA, sentiment, and hold time. "
             "Use this session to recognise that and explore career-development goals.</div></section>"
@@ -460,7 +514,7 @@ def render_focus_section(pack: dict) -> str:
             f"</div>"
         )
     return (
-        f'<section id="focus"><h2>5. Recommended coaching focus</h2>'
+        f'<section id="focus"><h2>6. Recommended coaching focus</h2>'
         '<p>Heuristic priorities — highest-leverage areas for this period given the data. '
         "Use as a starting point, not a rigid script. Acknowledge what's going well first.</p>"
         f'{"".join(cards)}</section>'
@@ -593,7 +647,7 @@ def render_narrative_block(narrative: dict[str, str] | None) -> str:
         '<section id="coaching-narrative" class="narrative" '
         'style="border-left:3px solid var(--accent);'
         'background:linear-gradient(to right, var(--accent-soft) 0%, var(--bg) 6%);">'
-        '<h2>6. Coaching narrative</h2>'
+        '<h2>7. Coaching narrative</h2>'
         f'{"".join(parts)}'
         '</section>'
     )
@@ -606,12 +660,14 @@ def render_html(pack: dict, period: str, cfg: TenantConfig,
         + render_toc()
         + render_performance_section(pack, cfg)
         + render_sentiment_quality(pack)
+        + render_adherence_section(pack)
         + render_wrap_section(pack)
         + render_flagged_section(pack, cfg)
         + render_focus_section(pack)
         + render_narrative_block(narrative)
         + (
             f'<footer>Generated {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")} · '
+            f'Data source: {escape(str((pack.get("provenance") or {}).get("label") or "Genesys"))} · '
             f"genesys-mcp cc-coaching-prep · "
             f"<a href=\"https://github.com/laggyzee/genesys-mcp\">github.com/laggyzee/genesys-mcp</a></footer>"
         )
