@@ -153,6 +153,8 @@ class TestRenderPerformanceSection:
         assert "Voice AHT" in html and "330s" in html
         assert "Message AHT" in html
         assert "Voice ACW" in html
+        assert "309.1h" in html
+        assert "—s" not in html
 
     def test_peer_table_appears_when_peers_present(
         self, build_report_coaching, mock_tenant_config,
@@ -201,8 +203,29 @@ class TestRenderAdherence:
             "reason": "WFM permission unavailable.",
         })
         html = build_report_coaching.render_adherence_section(pack)
-        assert "Adherence unavailable" in html
+        assert "Break/meal adherence unavailable" in html
         assert "WFM permission unavailable" in html
+
+    def test_exception_times_render_in_tenant_timezone(self, build_report_coaching, mock_tenant_config):
+        mock_tenant_config.tenant.timezone = "Australia/Sydney"
+        pack = _minimal_pack(adherence={
+            "status": "available",
+            "user": {
+                "session_count": 1,
+                "explained_overruns": 0,
+                "unexplained_overruns": 1,
+                "sessions": [{
+                    "presence": "BREAK",
+                    "start_utc": "2026-05-21T23:00:00Z",
+                    "duration_min": 25,
+                    "overrun_min": 10,
+                    "over_target": True,
+                    "matching_explanation": None,
+                }],
+            },
+        })
+        html = build_report_coaching.render_adherence_section(pack, mock_tenant_config)
+        assert "22 May 2026, 09:00 AM" in html
 
 
 class TestFlaggedCalls:

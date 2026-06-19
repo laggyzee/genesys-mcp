@@ -25,6 +25,7 @@ import sys
 from datetime import datetime
 from html import escape
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "src"))
@@ -180,7 +181,7 @@ def render_performance_section(pack: dict, cfg: TenantConfig) -> str:
         '<div class="kpi-grid">'
         + _kpi_card("Voice answered", fmt_int(t.get("voice_answered")), "calls")
         + _kpi_card("Message answered", fmt_int(t.get("message_answered")), "interactions")
-        + _kpi_card("Total handle hours", fmt_int(t.get("total_handle_hours")), "across all media")
+        + _kpi_card("Total handle hours", f'{t["total_handle_hours"]:.1f}h' if t.get("total_handle_hours") is not None else "—", "across all media")
         + _kpi_card(
             "Voice AHT",
             _aht_with_target(t.get("voice_aht_s"), t.get("voice_aht_vs_target_pct")),
@@ -216,7 +217,7 @@ def render_performance_section(pack: dict, cfg: TenantConfig) -> str:
     if peer.get("message_aht_s") is not None:
         rows.append(
             f'<tr><td>Message AHT</td>'
-            f'<td class="num">{int(t["message_aht_s"]) if t.get("message_aht_s") else "—"}s</td>'
+            f'<td class="num">{fmt_secs(t.get("message_aht_s"))}</td>'
             f'<td class="num">{int(peer["message_aht_s"])}s</td>'
             f'<td>{_peer_delta(t.get("message_aht_s"), peer.get("message_aht_s"))}</td></tr>'
         )
@@ -234,19 +235,12 @@ def render_performance_section(pack: dict, cfg: TenantConfig) -> str:
             f'<td class="num">{peer["voice_hold_ratio"]:.0%}</td>'
             f'<td>{_peer_delta(t.get("voice_hold_ratio"), peer.get("voice_hold_ratio"))}</td></tr>'
         )
-    if peer.get("total_handle_hours") is not None and t.get("total_handle_hours") is not None:
-        rows.append(
-            f'<tr><td>Total handle hours</td>'
-            f'<td class="num">{t["total_handle_hours"]:.1f}h</td>'
-            f'<td class="num">{peer["total_handle_hours"]:.1f}h</td>'
-            f'<td>{_peer_delta(t.get("total_handle_hours"), peer.get("total_handle_hours"), lower_is_better=False)}</td></tr>'
-        )
-
     peer_table = ""
     if rows:
+        strategy = str((p.get("peer_resolution") or {}).get("strategy") or "role")
         peer_table = (
             "<h3>Peer comparison</h3>"
-            f'<p class="muted">Comparing against {p.get("peer_count", 0)} peers in the same role / management unit.</p>'
+            f'<p class="muted">Comparing against {p.get("peer_count", 0)} {escape(strategy)}-matched peers.</p>'
             '<table><thead><tr><th>Metric</th><th class="num">This agent</th>'
             f'<th class="num">Peer median (n={p.get("peer_count", 0)})</th><th>Delta</th></tr></thead>'
             f'<tbody>{"".join(rows)}</tbody></table>'
@@ -364,13 +358,13 @@ def render_sentiment_quality(pack: dict) -> str:
     )
 
 
-def render_adherence_section(pack: dict) -> str:
+def render_adherence_section(pack: dict, cfg: TenantConfig | None = None) -> str:
     adherence = pack.get("adherence") or {}
     if adherence.get("status") != "available":
         reason = adherence.get("reason") or "Genesys did not return adherence evidence for this period."
         return (
-            '<section id="adherence"><h2>3. Adherence</h2>'
-            '<div class="callout warn"><strong>Adherence unavailable.</strong> '
+            '<section id="adherence"><h2>3. Break &amp; meal adherence signals</h2>'
+            '<div class="callout warn"><strong>Break/meal adherence unavailable.</strong> '
             f'{escape(str(reason))}</div></section>'
         )
 
@@ -383,7 +377,7 @@ def render_adherence_section(pack: dict) -> str:
         explanation_text = explanation.get("type") or explanation.get("status") or "Unexplained"
         overrun_rows.append(
             f'<tr><td>{escape(str(row.get("presence") or "—"))}</td>'
-            f'<td>{_date_short(row.get("start_utc"))}</td>'
+            f'<td>{_local_datetime(row.get("start_utc"), cfg=cfg, include_time=True)}</td>'
             f'<td class="num">{row.get("duration_min", "—")}m</td>'
             f'<td class="num">{row.get("overrun_min", "—")}m</td>'
             f'<td>{escape(str(explanation_text))}</td></tr>'
@@ -396,7 +390,9 @@ def render_adherence_section(pack: dict) -> str:
             f'<th>Explanation</th></tr></thead><tbody>{"".join(overrun_rows)}</tbody></table>'
         )
     return (
-        '<section id="adherence"><h2>3. Adherence</h2><div class="kpi-grid">'
+        '<section id="adherence"><h2>3. Break &amp; meal adherence signals</h2>'
+        '<div class="callout"><strong>Scope:</strong> break/meal overruns and matching WFM explanations; this is not full scheduled-adherence measurement.</div>'
+        '<div class="kpi-grid">'
         + _kpi_card("Unexplained overruns", fmt_int(unexplained), "coaching candidates", cls="bad" if unexplained else "good")
         + _kpi_card("Explained overruns", fmt_int(explained), "matched WFM explanations")
         + _kpi_card("Break / meal sessions", fmt_int(user.get("session_count")), "sessions reviewed")
@@ -477,7 +473,7 @@ def render_flagged_section(pack: dict, cfg: TenantConfig | None = None) -> str:
         )
         rows.append(
             f'<tr>'
-            f'<td>{_date_short(c.get("started_at"))}</td>'
+            f'<td>{_local_datetime(c.get("started_at"), cfg=cfg, include_time=True)}</td>'
             f'<td>{escape((c.get("media") or "").upper())}</td>'
             f'<td class="num">{fmt_secs(c.get("handle_s"))}</td>'
             f'<td class="num">{fmt_secs(c.get("hold_s"))}</td>'
@@ -531,6 +527,18 @@ def _date_short(s):
         return dt.strftime("%d %b %Y")
     except Exception:
         return s[:10]
+
+
+def _local_datetime(s, cfg: TenantConfig | None, include_time: bool = False):
+    if not s:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+        if cfg and cfg.tenant.timezone:
+            dt = dt.astimezone(ZoneInfo(cfg.tenant.timezone))
+        return dt.strftime("%d %b %Y, %I:%M %p") if include_time else dt.strftime("%d %b %Y")
+    except Exception:
+        return str(s)[:10]
 
 
 # ── Narrative synthesis (v0.9) ──
@@ -662,7 +670,7 @@ def render_html(pack: dict, period: str, cfg: TenantConfig,
         + render_toc()
         + render_performance_section(pack, cfg)
         + render_sentiment_quality(pack)
-        + render_adherence_section(pack)
+        + render_adherence_section(pack, cfg)
         + render_wrap_section(pack)
         + render_flagged_section(pack, cfg)
         + render_focus_section(pack)
