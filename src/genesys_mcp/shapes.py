@@ -109,6 +109,50 @@ def assert_aggregates_envelope(
         )
 
 
+def assert_users_aggregates_envelope(
+    resp: Any,
+    *,
+    source: str | None = None,
+) -> None:
+    """Validate the ``/api/v2/analytics/users/aggregates/query`` response envelope.
+
+    v1.6+. The users/aggregates endpoint shares the same outer shape as
+    conversations/aggregates — ``{results: [{group, data}]}`` — but the
+    ``group`` dict keys differ (``userId``, ``routingStatus`` for the
+    ``tAgentRoutingStatus`` metric; ``userId``, ``mediaType`` for
+    conversation-level rollups). This validator pins the envelope plus
+    the ``userId`` key on every group so a silent-empty bug class (the
+    aggregator reading the wrong group field and quietly emitting zeros)
+    can't repeat.
+    """
+    if not isinstance(resp, dict):
+        _raise(source, "<root>", "dict", resp)
+    results = resp.get("results")
+    if not isinstance(results, list):
+        _raise(source, ".results", "list", results)
+    for i, r in enumerate(results):
+        if not isinstance(r, dict):
+            _raise(source, f".results[{i}]", "dict", r)
+        group = r.get("group")
+        if not isinstance(group, dict):
+            _raise(source, f".results[{i}].group", "dict", group)
+        if "userId" not in group:
+            raise ShapeError(
+                f"{source + ': ' if source else ''}"
+                f".results[{i}].group is missing 'userId' — this is the "
+                "users/aggregates shape sentinel (v1.6)"
+            )
+        data = r.get("data")
+        if not isinstance(data, list):
+            _raise(source, f".results[{i}].data", "list", data)
+        for j, bucket in enumerate(data):
+            if not isinstance(bucket, dict):
+                _raise(source, f".results[{i}].data[{j}]", "dict", bucket)
+            metrics = bucket.get("metrics")
+            if metrics is not None and not isinstance(metrics, list):
+                _raise(source, f".results[{i}].data[{j}].metrics", "list or None", metrics)
+
+
 def assert_conversation_detail_list(
     convs: Any,
     *,

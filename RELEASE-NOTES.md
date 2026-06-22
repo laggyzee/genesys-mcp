@@ -1,5 +1,93 @@
 # Release Notes
 
+## v1.6.0 — 22 June 2026
+
+**Agent utilization.** Closes a real reporting gap: *"give me all agents, their on-queue time, calls and messages they took, and a ratio."* Pre-v1.6 the MCP could answer "how many answered" via `agent_performance` (conversations/aggregates endpoint) but had no way to answer "how long were they available" — nothing in the codebase queried `/api/v2/analytics/users/aggregates/query` to fetch routing-status durations. Without on-queue time, occupancy and interactions-per-hour were uncomputable.
+
+### New tool: `agent_utilization`
+
+One row per agent, combining routing-status durations + answered counts + three pre-computed productivity ratios.
+
+```python
+agent_utilization(
+    user_ids: list[str],          # required; resolve via list_users / find_user
+    interval: str | None = None,  # default last 7 days UTC; use compute_interval for tz-aware windows
+    mode: str = "summary",        # "summary" (default) | "full" (adds raw aggregates under _raw)
+)
+```
+
+Per-user block:
+
+```yaml
+user_id: "..."
+user_name: "Jane Doe"
+
+# Routing-status durations (from tAgentRoutingStatus)
+on_queue_seconds: 21600        # 6h available-to-route
+interacting_seconds: 14400     # 4h actually working an interaction
+idle_seconds: 7200             # 2h on-queue but no interaction
+not_responding_seconds: 0
+off_queue_seconds: 3600        # break / meal / admin (rolled up)
+
+# Answered counts (from tAnswered.count — matches Genesys "Performance > Agents" UI)
+voice_answered: 22
+message_answered: 14
+callback_answered: 0
+total_answered: 36
+
+voice_handle_seconds: 7200
+message_handle_seconds: 4200
+total_handle_seconds: 11400
+
+# Three productivity ratios
+interactions_per_on_queue_hour: 6.0   # ← HEADLINE: total_answered / (on_queue / 3600)
+occupancy_pct: 52.8                   # total_handle / on_queue × 100
+voice_to_message_ratio: 1.57          # voice_answered / message_answered (null if no messages)
+```
+
+Top-level (v1.5 contract): `interval`, `as_of_utc`, `mode`, `sort_by`, `routing_status_scope_available`, `user_count`, `users`.
+
+Sorted by `interactions_per_on_queue_hour` descending — high-throughput agents at the top, agents with no on-queue time (null rate) at the bottom.
+
+### Two API calls, fired concurrently
+
+| Call | Endpoint | Purpose |
+|---|---|---|
+| Routing status | `post_analytics_users_aggregates_query` (groupBy=[userId, routingStatus], metric=tAgentRoutingStatus) | per-user × status seconds |
+| Conversations | `post_analytics_conversations_aggregates_query` (mirrors `agent_performance` body) | per-user × media answered + handle |
+
+Both fire in a `ThreadPoolExecutor(max_workers=2)` — wall time is the slower call, not the sum.
+
+### Soft-fail on routing-status 403
+
+Some tenants restrict `analytics:agentRouting:view`. When the routing-status query fails with 403, the tool degrades gracefully:
+
+- `routing_status_scope_available: false` at the top
+- A `routing_status_unavailable_note` explaining the degraded state
+- Routing-status seconds and derived ratios → null/0
+- Conversation-side answered counts still populate — the response is still partially useful
+
+### Divide-by-zero guards
+
+- `interactions_per_on_queue_hour` and `occupancy_pct` are `null` when `on_queue_seconds == 0`
+- `voice_to_message_ratio` is `null` when `message_answered == 0` (instead of Infinity)
+
+### Shape validator
+
+New `assert_users_aggregates_envelope` in `genesys_mcp.shapes` — pins the `{results: [{group: {userId, routingStatus}, data: [...]}]}` envelope so any future Genesys-API rename can't silently emit zeros. Five tests pin the validator's behaviour.
+
+### Tests
+
+- `tests/test_agent_utilization.py` — 14 tests covering request shape, response composition, ratio math, divide-by-zero edge cases, sort order, v1.5 envelope contract, and the 403 soft-fail path
+- `tests/test_shapes.py` — 5 new tests for `assert_users_aggregates_envelope`
+- **431 tests passing, 46 tools** (was 409 / 45 in v1.5)
+
+### OAuth scope
+
+Needs `analytics:agentRouting:view` (typically bundled into `analytics:readonly`). Tenants without it still get answered counts but no routing-status data.
+
+---
+
 ## v1.5.0 — 18 June 2026
 
 **Interval clarity + cross-app robustness.** Closes a real cross-app failure mode: when wired into a non-Claude-Code client, a foreign LLM hallucinated a non-existent constraint (*"Genesys can't slice to a calendar day"*) and read stale persisted-output files because the response top didn't surface the interval. Five deliverables — one new tool, top-level response echoes on the four analytical tools, a single-source docstring fragment across twelve tools, and a `_intervals` module that deduplicates timezone helpers previously copy-pasted across five tool modules. **409 tests; 45 tools.**
