@@ -14,6 +14,7 @@ from genesys_mcp.shapes import (
     assert_break_overrun_report,
     assert_conversation_detail_list,
     assert_repeat_caller_deep_dive,
+    assert_users_aggregates_envelope,
 )
 
 
@@ -133,3 +134,46 @@ class TestBreakOverrunReport:
     def test_missing_users_key_raises(self):
         with pytest.raises(ShapeError, match=r"expected list at \.users"):
             assert_break_overrun_report({"interval": "..."})
+
+
+class TestUsersAggregatesEnvelope:
+    """v1.6 — pin the new users/aggregates response envelope shape."""
+
+    def test_valid_routing_status_payload_passes(self):
+        payload = {"results": [{
+            "group": {"userId": "u1", "routingStatus": "ON_QUEUE"},
+            "data": [{
+                "interval": "2026-06-15T14:00:00.000Z/2026-06-22T14:00:00.000Z",
+                "metrics": [{
+                    "metric": "tAgentRoutingStatus",
+                    "stats": {"sum": 21600000, "count": 12},
+                }],
+            }],
+        }]}
+        assert_users_aggregates_envelope(payload)
+
+    def test_empty_results_passes(self):
+        # Empty is valid — represents a queried interval with no agent
+        # activity (legitimate for off-hours intervals).
+        assert_users_aggregates_envelope({"results": []})
+
+    def test_missing_user_id_raises(self):
+        # If Genesys ever changes the group dict shape (e.g. renames userId),
+        # this fires loudly rather than silently emitting zeros.
+        payload = {"results": [{
+            "group": {"routingStatus": "ON_QUEUE"},
+            "data": [],
+        }]}
+        with pytest.raises(ShapeError, match="missing 'userId'"):
+            assert_users_aggregates_envelope(payload)
+
+    def test_non_dict_root_raises(self):
+        with pytest.raises(ShapeError, match="expected dict at <root>"):
+            assert_users_aggregates_envelope([1, 2, 3])
+
+    def test_source_appears_in_error_message(self):
+        with pytest.raises(ShapeError, match="agent_utilization:"):
+            assert_users_aggregates_envelope(
+                {"results": [{"group": {"routingStatus": "ON_QUEUE"}, "data": []}]},
+                source="agent_utilization",
+            )

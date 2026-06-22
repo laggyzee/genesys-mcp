@@ -23,6 +23,7 @@ from genesys_mcp.tools import (
     reports,
     routing,
     speech_analytics,
+    utilization,
     wfm,
 )
 
@@ -69,6 +70,7 @@ wfm.register(mcp)
 quality.register(mcp)
 coaching.register(mcp)
 routing.register(mcp)
+utilization.register(mcp)
 health.register(mcp)
 raw.register(mcp)
 
