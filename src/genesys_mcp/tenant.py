@@ -218,6 +218,46 @@ class _OperatingModel(BaseModel):
         return out
 
 
+class _Survey(BaseModel):
+    """Post-call / post-interaction survey attribute keys (v1.8).
+
+    Survey responses (NPS, agent rating, experience rating, etc.) land on
+    conversation participants as ``attributes: {key: value}``. The exact
+    key names vary by tenant — this org calls them ``"NPS Score"``,
+    ``"Agent Score"``, ``"Experience Score"``; others might use
+    ``"nps_score"`` / ``"csat"`` / whatever the survey integration writes.
+
+    When ``nps_attribute_key`` is set, callers (and v1.9+ skills) can
+    surface the NPS rollup automatically via the v1.8
+    ``search_conversations_by_attribute`` tool. When ``None``, sections
+    that depend on NPS are silently omitted (graceful degradation, like
+    ``operating_model``).
+    """
+
+    nps_attribute_key: str | None = Field(
+        default=None,
+        description=(
+            "The exact participant-attribute key (case + spaces) your "
+            "tenant uses to store the customer's NPS score. Typically "
+            "an integer 0-10. Example: 'NPS Score'. Leave None to opt out."
+        ),
+    )
+    agent_score_attribute_key: str | None = Field(
+        default=None,
+        description=(
+            "The participant-attribute key for the agent-rating score "
+            "from your post-call survey. Example: 'Agent Score'. Optional."
+        ),
+    )
+    experience_score_attribute_key: str | None = Field(
+        default=None,
+        description=(
+            "The participant-attribute key for the customer-experience "
+            "score. Example: 'Experience Score'. Optional."
+        ),
+    )
+
+
 class _Targets(BaseModel):
     voice_aht_s: int = Field(default=285, ge=1, description="Voice AHT target in seconds.")
     message_aht_s: int = Field(default=660, ge=1, description="Message AHT target in seconds.")
@@ -443,6 +483,17 @@ class TenantConfig(BaseModel):
             "Toggles for tenant operating-model assumptions. Defaults assume "
             "the built-in shape (multi-brand, pre-break presence, voice "
             "+ message). Other tenants override per their shape."
+        ),
+    )
+    survey: _Survey = Field(
+        default_factory=_Survey,
+        description=(
+            "Post-call / post-interaction survey attribute keys (v1.8). "
+            "Set the per-attribute keys your tenant uses to opt into "
+            "automatic NPS / agent-score / experience-score surfacing in "
+            "the daily-brief and monthly-report skills. All fields default "
+            "to None — leaving the block out entirely is the same as "
+            "opting out (sections silently omitted, no broken renders)."
         ),
     )
 
