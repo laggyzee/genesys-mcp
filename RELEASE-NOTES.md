@@ -1,5 +1,111 @@
 # Release Notes
 
+## v1.8.0 — 24 June 2026
+
+**Conversation attribute search + NPS auto-detection.** Closes a reporting gap surfaced by *"can you tell me what the NPS is today?"* and *"how many conversations had outcome = Resolved?"* Pre-v1.8 the MCP had **zero** path to question conversations by participant attribute — `search_conversations` only filtered by ANI / queue / agent / direction, and the async-jobs predicate dimensions don't target `participants[].attributes`. The dedicated Genesys "search by participant attribute" endpoint was completely unwrapped.
+
+### New tool: `search_conversations_by_attribute`
+
+Wraps `POST /api/v2/conversations/participants/attributes/search` and returns four layers in one call: totals, value distribution, numeric summary (with auto-detected NPS when values are integers 0-10), and one row per matching conversation (with `agent_user_id` extracted for downstream per-agent rollups).
+
+```python
+search_conversations_by_attribute(
+    attribute_key: str,                          # tenant-specific — "NPS Score", "Agent Score",
+                                                 # "Experience Score", "outcome", "csat", etc.
+    attribute_value: str | None = None,          # exact match; omit to default to NPS enumeration ['0',…,'10']
+    interval: str | None = None,                 # default last 7 days UTC
+    max_results: int = 1000,
+    mode: str = "summary",                       # "summary" | "full"
+)
+```
+
+Response:
+
+```yaml
+interval: "..."
+as_of_utc: "..."
+attribute_key: "NPS Score"
+attribute_value: null
+mode: "summary"
+
+totals:
+  conversation_count: 142
+  truncated: false
+
+value_distribution:                              # sorted by count desc
+  - value: "10"
+    count: 45
+    percentage: 31.7
+  - value: "9"
+    count: 40
+    percentage: 28.2
+
+numeric_summary:                                 # null when values aren't all numeric
+  count: 142
+  mean: 8.3
+  median: 9.0
+  min: 0
+  max: 10
+  nps:                                           # null unless values are integers 0-10
+    score: 51.4                                  # (%promoters - %detractors) × 100
+    detractors_0_6: 12
+    passives_7_8: 45
+    promoters_9_10: 85
+
+conversations:                                   # capped at max_results
+  - conversation_id: "..."
+    conversation_start: "..."
+    queue_id: "..."
+    agent_user_id: "..."                         # for per-agent NPS rollups
+    attribute_value: "9"
+```
+
+### Auto-detected NPS rollup
+
+When every matched value parses as an integer in `[0, 10]`, the tool computes the standard NPS automatically:
+
+- **detractors** = count of 0-6
+- **passives** = count of 7-8
+- **promoters** = count of 9-10
+- **score** = `(promoters - detractors) / total × 100`
+
+For non-NPS numeric attributes (e.g. Agent Score 1-5, Experience Score floats), `numeric_summary.nps` is `null` but `count / mean / median / min / max` still populate. For non-numeric attributes (e.g. `Resolved` / `Unresolved`), `numeric_summary` is entirely `null` and `value_distribution` carries the answer.
+
+### New optional `survey` block in `tenant.yaml`
+
+Tenant config gains a new optional top-level `survey` block following the `operating_model` precedent (fully backward-compatible, graceful when absent):
+
+```yaml
+survey:
+  nps_attribute_key: "NPS Score"             # leave None to opt out
+  agent_score_attribute_key: "Agent Score"
+  experience_score_attribute_key: "Experience Score"
+```
+
+This is the **discovery aid** — callers (and v1.9+ skills) read these keys instead of hardcoding. The tool itself doesn't require the block; it accepts any `attribute_key` string.
+
+### Implementation notes
+
+- **Endpoint**: `POST /api/v2/conversations/participants/attributes/search` (distinct from the analytics async-jobs path).
+- **Permission**: `conversation:participant:attributesview` (typically bundled into `conversation:readonly`).
+- **Predicate shape**: `query` array with one `DATE_RANGE` criterion (`fields: ["segments.start"]`) AND one `EXACT` criterion (`fields: ["participantData.<key>"]`).
+- **Pagination**: 100 results per page, up to `max_results` or 100 pages (10,000), whichever first.
+- **Default value enumeration**: when `attribute_value` is None, defaults to `["0","1",…,"10"]` covering NPS. For non-NPS attributes pass the specific value — unbounded scans aren't supported by the underlying endpoint (no exists operator).
+
+### Tests
+
+`tests/test_attribute_search.py` — 13 tests covering request-body shape (default NPS enumeration vs explicit value, DATE_RANGE criterion, endpoint path), NPS detection (positive + 3 negative paths), value distribution sort + percentage math, v1.5 envelope contract, empty-result safety, and `agent_user_id` extraction. **466 tests passing, 49 tools** (was 453 / 48 in v1.7).
+
+### Skill wiring — coming in v1.9
+
+The full v1.8 plan included wiring NPS into `cc-daily-brief` (top-line KPI card), `cc-monthly-report` (Customer Experience section), and `cc-coaching-prep` (per-agent NPS rollup). That landed as a follow-on (**v1.9**) to keep this release scoped to the foundational MCP tool + tenant.yaml schema. The skill wiring is independent and can ship without re-touching the tool.
+
+### Upgrading
+
+`uv sync` for fresh deps. No required config changes. Tenants wanting to opt into the upcoming v1.9 NPS surfacing can set the `survey` block now; it's harmless until v1.9 ships.
+
+---
+
 ## v1.7.0 — 22 June 2026
 
 **Leave / time-off reporting.** Closes a reporting gap surfaced by *"can you give me a report on any leave/time off etc over the last 4 weeks?"* Pre-v1.7 the MCP had **zero** access to Genesys' time-off-request endpoint family — the closest signal was `query_agent_adherence_explanations` (post-hoc commentary on off-schedule events, not the approved leave record). When the user asked "who's been off", there was no obvious tool to call.
