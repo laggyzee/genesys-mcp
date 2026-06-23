@@ -1,5 +1,112 @@
 # Release Notes
 
+## v1.7.0 — 22 June 2026
+
+**Leave / time-off reporting.** Closes a reporting gap surfaced by *"can you give me a report on any leave/time off etc over the last 4 weeks?"* Pre-v1.7 the MCP had **zero** access to Genesys' time-off-request endpoint family — the closest signal was `query_agent_adherence_explanations` (post-hoc commentary on off-schedule events, not the approved leave record). When the user asked "who's been off", there was no obvious tool to call.
+
+### New tool: `wfm_time_off_requests`
+
+Per-agent leave / time-off requests over an interval, with activity codes resolved to human-readable names (no UUIDs in the response table) and pre-computed rollups by user and by leave type.
+
+```python
+wfm_time_off_requests(
+    business_unit_id: str,
+    interval: str | None = None,                   # default last 28 days UTC
+    user_ids: list[str] | None = None,             # filter to specific agents
+    statuses: list[str] | None = None,             # default ["APPROVED", "PENDING"]
+    mode: str = "summary",                         # "summary" | "full"
+)
+```
+
+Four-layer response:
+
+```yaml
+interval: "..."
+as_of_utc: "..."
+business_unit_id: "..."
+statuses_queried: ["APPROVED", "PENDING"]
+
+totals:
+  request_count: 23
+  approved_count: 19
+  pending_count: 4
+  total_hours: 312.0
+  total_days: 39
+
+by_activity:                                       # sorted by total_hours desc
+  - activity_name: "Annual Leave"
+    request_count: 14
+    total_hours: 224.0
+    total_days: 28
+  - activity_name: "Sick Leave"
+    request_count: 6
+    total_hours: 48.0
+    total_days: 6
+
+by_user:                                           # sorted by total_hours desc
+  - user_id: "..."
+    user_name: "Jane Doe"
+    request_count: 3
+    total_hours: 56.0
+    total_days: 7
+    activities: ["Annual Leave", "Sick Leave"]
+
+requests:                                          # most recent first
+  - id: "..."
+    user_id: "..."
+    user_name: "Jane Doe"
+    activity_code_id: "..."
+    activity_name: "Annual Leave"
+    activity_category: "TimeOff"
+    status: "APPROVED"
+    is_full_day: true
+    start_date: "2026-06-08"
+    end_date: "2026-06-12"
+    dates: ["2026-06-08", "2026-06-09", "2026-06-10", "2026-06-11", "2026-06-12"]
+    days: 5
+    hours: 40.0
+    notes: "..."
+    modified_by_name: "Supervisor X"
+    modified_at: "..."
+    submitted_at: "..."
+```
+
+**Full-day and partial-day request normalisation.** Genesys emits two different shapes:
+
+- `isFullDayRequest=true` with `fullDayManagementUnitDates: ["2026-06-08", ...]`
+- `isFullDayRequest=false` with `partialDayStartDateTimes: ["2026-06-15T09:00:00Z", ...]` + `dailyDurationMinutes`
+
+The tool flattens both into the same `start_date / end_date / dates / days / hours` shape — no caller needs to know which form the API returned.
+
+**Defaults reflect the retrospective lens** (confirmed with the user): interval = last 28 days UTC, statuses = `["APPROVED", "PENDING"]`. Cover both leave actually taken and leave currently in the approval pipeline. Pass `statuses=["APPROVED"]` for confirmed-only, or `["APPROVED","PENDING","DENIED","CANCELED"]` to audit the approval workflow itself.
+
+### New tool: `wfm_activity_codes`
+
+WFM activity-code catalogue for a business unit — the leave-type definitions plus all the other activities (On Queue Time, Break, Meal, Training, etc.). Each row carries the `id`, `name`, `category` (`OnQueueTime` / `OffQueueTime` / `TimeOff` / `Meeting` / `Break` / `Meal` / `Training` / `Unavailable`), `paid` flag, and default `length_minutes`.
+
+**Process-lifetime cached** (pattern from `directory.list_org_presences` v1.3) — first call hits Genesys, subsequent calls hit the in-process cache. Restart the MCP server to refresh after an admin change. The cache also powers `wfm_time_off_requests`'s name resolution — so a follow-up time-off-requests call against the same BU is free of the catalogue lookup.
+
+Answers *"what leave types does this org track?"* in one call.
+
+### Top-level envelope (v1.5 contract held)
+
+Both new tools echo `interval` (where applicable) and `as_of_utc` at the top of the response so persisted-file readers see the window in the first lines. No buried-field hallucination risk.
+
+### OAuth scope
+
+Both tools need `workforce-management:readonly` (typically bundled into the WFM permissions you already have for `wfm_schedule` / `agent_adherence_review`).
+
+### Tests
+
+- `tests/test_timeoff.py` — 17 tests covering activity-code catalogue + cache, request-body shape (YYYY-MM-DD `dateRange`, status default, user-filter propagation), full-day and partial-day normalisation, rollups (totals, by_activity sorted by hours desc, by_user sorted by hours desc with activity-set union), v1.5 envelope contract, cache reuse across multiple `wfm_time_off_requests` calls, and the empty-result safe path.
+- **453 tests passing, 48 tools** (was 431 / 46 in v1.6).
+
+### Upgrading
+
+`uv sync` for fresh deps. No config changes required. The two new tools work for any tenant that has WFM enabled — there's no tenant-specific scaffolding.
+
+---
+
 ## v1.6.0 — 22 June 2026
 
 **Agent utilization.** Closes a real reporting gap: *"give me all agents, their on-queue time, calls and messages they took, and a ratio."* Pre-v1.6 the MCP could answer "how many answered" via `agent_performance` (conversations/aggregates endpoint) but had no way to answer "how long were they available" — nothing in the codebase queried `/api/v2/analytics/users/aggregates/query` to fetch routing-status durations. Without on-queue time, occupancy and interactions-per-hour were uncomputable.
