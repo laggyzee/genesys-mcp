@@ -345,3 +345,128 @@ class TestRenderHtmlEndToEnd:
             assert anchor in html, f"missing section anchor {anchor}"
         # Tenant name from mock config bleeds through into the header
         assert mock_tenant_config.tenant.name in html
+
+
+# ── v1.11: per-agent NPS + disposition mix ──
+
+class TestAgentNpsRollup:
+    """Pins the v1.11 per-agent NPS rollup (group org-wide search by agent_user_id)."""
+
+    def test_none_inputs_return_none(self, build_report_coaching):
+        assert build_report_coaching.aggregate_agent_nps(None, None) is None
+        assert build_report_coaching.aggregate_agent_nps({}, "u1") is None
+        assert build_report_coaching.aggregate_agent_nps({"conversations": []}, "u1") is None
+
+    def test_groups_target_agent_and_picks_detractors(self, build_report_coaching):
+        raw = {"totals": {"conversation_count": 5}, "conversations": [
+            {"conversation_id": "c1", "conversation_start": "2026-06-01T10:00Z", "agent_user_id": "u1", "attribute_value": "3"},
+            {"conversation_id": "c2", "conversation_start": "2026-06-02T10:00Z", "agent_user_id": "u1", "attribute_value": "8"},
+            {"conversation_id": "c3", "conversation_start": "2026-06-03T10:00Z", "agent_user_id": "u1", "attribute_value": "9"},
+            {"conversation_id": "c4", "conversation_start": "2026-06-04T10:00Z", "agent_user_id": "u1", "attribute_value": "10"},
+            {"conversation_id": "c5", "conversation_start": "2026-06-05T10:00Z", "agent_user_id": "u2", "attribute_value": "0"},
+        ]}
+        nps = build_report_coaching.aggregate_agent_nps(raw, "u1")
+        # promoters=2, passives=1, detractors=1, total=4 → score = (2-1)/4*100 = 25
+        assert nps["total"] == 4
+        assert nps["promoters"] == 2 and nps["passives"] == 1 and nps["detractors"] == 1
+        assert nps["score"] == 25.0
+        assert len(nps["detractor_calls"]) == 1
+        assert nps["detractor_calls"][0]["conversation_id"] == "c1"
+
+    def test_target_not_in_conversations_returns_none(self, build_report_coaching):
+        raw = {"totals": {"conversation_count": 1}, "conversations": [
+            {"conversation_id": "c1", "agent_user_id": "u-other", "attribute_value": "9"},
+        ]}
+        assert build_report_coaching.aggregate_agent_nps(raw, "u1") is None
+
+
+class TestAgentNpsSectionRender:
+    def test_none_renders_empty(self, build_report_coaching):
+        assert build_report_coaching.render_agent_nps_section(None) == ""
+
+    def test_with_detractor_calls_renders_table(self, build_report_coaching):
+        nps = {
+            "score": 25.0, "total": 4, "promoters": 2, "passives": 1, "detractors": 1,
+            "detractor_calls": [
+                {"conversation_id": "abc-123", "score": 3, "conversation_start": "2026-06-01T10:00Z"},
+            ],
+        }
+        html = build_report_coaching.render_agent_nps_section(nps)
+        assert "section" in html and "cx-nps" in html
+        assert "abc-123" in html
+        assert "listen back" in html
+
+    def test_no_detractor_calls_renders_clean_callout(self, build_report_coaching):
+        nps = {
+            "score": 80.0, "total": 5, "promoters": 5, "passives": 0, "detractors": 0,
+            "detractor_calls": [],
+        }
+        html = build_report_coaching.render_agent_nps_section(nps)
+        assert "No detractor calls" in html
+
+
+class TestDispositionMix:
+    """Pins the v1.11 per-agent disposition mix vs team."""
+
+    def test_either_input_none_returns_none(self, build_report_coaching):
+        team = {"distribution": [{"name": "Resolved", "percentage": 70.0}]}
+        assert build_report_coaching.aggregate_disposition_mix(None, team) is None
+        assert build_report_coaching.aggregate_disposition_mix(
+            {"distribution": [{"name": "X", "percentage": 50.0}]}, None
+        ) is None
+
+    def test_flags_codes_with_large_delta(self, build_report_coaching):
+        agent = {"distribution": [
+            {"name": "Resolved", "count": 60, "percentage": 60.0},
+            {"name": "Transfer", "count": 40, "percentage": 40.0},
+        ]}
+        team = {"distribution": [
+            {"name": "Resolved", "count": 600, "percentage": 75.0},
+            {"name": "Transfer", "count": 200, "percentage": 25.0},
+        ]}
+        mix = build_report_coaching.aggregate_disposition_mix(agent, team, flag_pp_delta=10.0)
+        # Resolved -15pp, Transfer +15pp → both flagged
+        assert len(mix["flagged_codes"]) == 2
+        delta_by_name = {r["name"]: r["delta_pp"] for r in mix["rows"]}
+        assert delta_by_name["Resolved"] == -15.0
+        assert delta_by_name["Transfer"] == 15.0
+
+    def test_does_not_flag_inside_tolerance(self, build_report_coaching):
+        agent = {"distribution": [{"name": "Resolved", "count": 100, "percentage": 80.0}]}
+        team = {"distribution": [{"name": "Resolved", "count": 1000, "percentage": 75.0}]}
+        mix = build_report_coaching.aggregate_disposition_mix(agent, team, flag_pp_delta=10.0)
+        # |80 - 75| = 5pp < 10pp → not flagged
+        assert len(mix["flagged_codes"]) == 0
+
+
+class TestDispositionMixRender:
+    def test_none_renders_empty(self, build_report_coaching):
+        assert build_report_coaching.render_disposition_mix_section(None) == ""
+
+    def test_flagged_codes_callout(self, build_report_coaching):
+        mix = {
+            "rows": [
+                {"name": "Resolved", "count": 60, "agent_pct": 60.0, "team_pct": 75.0, "delta_pp": -15.0, "flagged": True},
+                {"name": "Transfer", "count": 40, "agent_pct": 40.0, "team_pct": 25.0, "delta_pp": 15.0, "flagged": True},
+            ],
+            "flagged_codes": [
+                {"name": "Resolved", "count": 60, "agent_pct": 60.0, "team_pct": 75.0, "delta_pp": -15.0, "flagged": True},
+                {"name": "Transfer", "count": 40, "agent_pct": 40.0, "team_pct": 25.0, "delta_pp": 15.0, "flagged": True},
+            ],
+        }
+        html = build_report_coaching.render_disposition_mix_section(mix)
+        assert "section" in html and "disposition-mix" in html
+        assert "2 code(s) flagged" in html
+        # Negative delta → 'good' (under-use); positive → 'bad' (over-use)
+        assert "vs-target good" in html and "vs-target bad" in html
+
+    def test_no_flagged_codes_no_callout(self, build_report_coaching):
+        mix = {
+            "rows": [
+                {"name": "Resolved", "count": 80, "agent_pct": 80.0, "team_pct": 78.0, "delta_pp": 2.0, "flagged": False},
+            ],
+            "flagged_codes": [],
+        }
+        html = build_report_coaching.render_disposition_mix_section(mix)
+        assert "Resolved" in html
+        assert "code(s) flagged" not in html

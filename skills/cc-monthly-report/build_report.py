@@ -933,16 +933,21 @@ def _count_and_min_cell(count: int, minutes: float, sessions_known: bool = True,
 
 
 def render_workforce_table(rows: list[dict],
-                           sparklines: dict[str, list[dict]] | None = None) -> str:
+                           sparklines: dict[str, list[dict]] | None = None,
+                           occupancy: dict[str, dict] | None = None) -> str:
     """Render the per-agent workforce table.
 
     When ``sparklines`` is provided (a dict of user_id → daily voice AHT
     series from ``aggregate_agent_voice_sparklines``), each row's Voice AHT
     cell gets a small inline-SVG trend line next to the headline value.
-    Distinguishes *"330s and trending down (improving)"* from *"330s but
-    actually worsening"* — the v0.6 workforce table couldn't show that.
+
+    When ``occupancy`` is provided (a dict of user_id → {occupancy_pct, ...}
+    from ``aggregate_occupancy`` over v1.6 ``agent_utilization`` output),
+    an extra Occupancy column is rendered to the right of Total handle.
+    Standard CC band is 70-85% — colour cues mirror that.
     """
     sparklines = sparklines or {}
+    show_occupancy = occupancy is not None
     body = []
     for r in rows:
         bg = ""
@@ -968,6 +973,20 @@ def render_workforce_table(rows: list[dict],
         pb_cell = _count_and_min_cell(r["pre_break_overrun_count"], r["pre_break_overrun_min"],
                                        sessions_known, warn_at=15, bad_at=25)
 
+        if show_occupancy:
+            occ_row = occupancy.get(r.get("user_id") or "") or {}
+            occ_pct = occ_row.get("occupancy_pct")
+            if occ_pct is None:
+                occ_cell = '<span class="muted">—</span>'
+            else:
+                occ_cls = ("good" if 70.0 <= occ_pct <= 85.0
+                           else "warn" if 60.0 <= occ_pct < 70.0 or 85.0 < occ_pct <= 92.0
+                           else "bad")
+                occ_cell = f'<span class="vs-target {occ_cls}">{occ_pct:.0f}%</span>'
+            occ_td = f'  <td class="num">{occ_cell}</td>\n'
+        else:
+            occ_td = ""
+
         body.append(f"""<tr{bg}>
   <td>{r['name']}</td><td>{r['role']}</td>
   <td class="num"><strong>{fmt_int(r['answered'])}</strong></td>
@@ -977,10 +996,11 @@ def render_workforce_table(rows: list[dict],
   <td class="num">{m_aht_cell}</td>
   <td class="num">{acw_cell}</td>
   <td class="num">{r['total_handle_h']}</td>
-  <td class="num">{br_cell}</td>
+{occ_td}  <td class="num">{br_cell}</td>
   <td class="num">{away_cell}</td>
   <td class="num">{pb_cell}</td>
 </tr>""")
+    occ_th = '    <th class="num">Occupancy</th>\n' if show_occupancy else ""
     return f"""<table>
   <thead><tr>
     <th>Agent</th><th>Role</th>
@@ -989,7 +1009,7 @@ def render_workforce_table(rows: list[dict],
     <th class="num">Msg AHT</th>
     <th class="num">ACW</th>
     <th class="num">Total handle (h)</th>
-    <th class="num">Br overruns</th>
+{occ_th}    <th class="num">Br overruns</th>
     <th class="num">Away</th>
     <th class="num">Pre-br overruns</th>
   </tr></thead>
@@ -1023,6 +1043,265 @@ def render_unresolved_table(unresolved: list[dict]) -> str:
         outcomes_str = ", ".join(f"{k}: {v}" for k, v in (u.get("ai_outcomes") or {}).items())
         rows_html.append(f'<tr><td>{u.get("ani")}</td><td class="num">{u.get("answered_with_outcome")}</td><td class="num"><span class="pill {pill_cls}">{share_str}</span></td><td>{outcomes_str}</td></tr>')
     return f'<table><thead><tr><th>ANI</th><th class="num">Answered (with outcome)</th><th class="num">Unresolved %</th><th>Outcome breakdown</th></tr></thead><tbody>{"".join(rows_html)}</tbody></table>'
+
+
+# ── v1.11: Customer Experience + Wrap-up + Leave + Occupancy aggregators ──
+
+def aggregate_cx_attribute(attr_search: dict | None) -> dict | None:
+    """Reduce a single ``search_conversations_by_attribute`` payload to the
+    monthly CX-card shape. Returns ``None`` when the tool wasn't called or
+    the payload had zero matching conversations."""
+    if not attr_search:
+        return None
+    totals = attr_search.get("totals") or {}
+    total = totals.get("conversation_count") or 0
+    if total <= 0:
+        return None
+    numeric = attr_search.get("numeric_summary") or {}
+    if not numeric:
+        return None
+    nps = numeric.get("nps")
+    return {
+        "total": total,
+        "mean": numeric.get("mean"),
+        "median": numeric.get("median"),
+        "min": numeric.get("min"),
+        "max": numeric.get("max"),
+        "nps": {
+            "score": nps.get("score"),
+            "promoters": nps.get("promoters_9_10") or 0,
+            "passives": nps.get("passives_7_8") or 0,
+            "detractors": nps.get("detractors_0_6") or 0,
+        } if nps else None,
+    }
+
+
+def aggregate_cx(nps_raw: dict | None, agent_raw: dict | None,
+                 exp_raw: dict | None) -> dict | None:
+    """Combine NPS + agent-score + experience-score attribute payloads.
+
+    Returns ``None`` when all three are absent — signal for render_html to
+    omit the entire Customer Experience section. Returns a dict with
+    whichever sub-keys had data otherwise; missing sub-keys are ``None``
+    and the renderer skips that tile.
+    """
+    nps = aggregate_cx_attribute(nps_raw)
+    agent = aggregate_cx_attribute(agent_raw)
+    exp = aggregate_cx_attribute(exp_raw)
+    if nps is None and agent is None and exp is None:
+        return None
+    return {"nps": nps, "agent_score": agent, "experience_score": exp}
+
+
+def aggregate_wrap_up_section(wrap_up: dict | None) -> dict | None:
+    """Pass through the v1.10 wrap_up_code_distribution payload, normalising
+    None when the tool wasn't called or returned zero conversations."""
+    if not wrap_up:
+        return None
+    totals = wrap_up.get("totals") or {}
+    if (totals.get("conversation_count") or 0) <= 0:
+        return None
+    return wrap_up
+
+
+def aggregate_leave_summary(timeoff: dict | None) -> dict | None:
+    """Reduce v1.7 wfm_time_off_requests to the monthly Leave summary shape.
+
+    Returns ``None`` when the tool wasn't called or zero requests landed.
+    """
+    if not timeoff:
+        return None
+    totals = timeoff.get("totals") or {}
+    if (totals.get("request_count") or 0) <= 0:
+        return None
+    by_activity = timeoff.get("by_activity") or []
+    by_user = timeoff.get("by_user") or []
+    return {
+        "total_days": totals.get("total_days") or 0,
+        "total_hours": totals.get("total_hours") or 0.0,
+        "approved_count": totals.get("approved_count") or 0,
+        "pending_count": totals.get("pending_count") or 0,
+        "distinct_agents": len(by_user),
+        "top_activities": [
+            {"name": a.get("activity_name") or "—",
+             "hours": a.get("total_hours") or 0.0,
+             "days": a.get("total_days") or 0}
+            for a in by_activity[:3]
+        ],
+        "top_users": [
+            {"name": u.get("user_name") or u.get("user_id") or "—",
+             "hours": u.get("total_hours") or 0.0,
+             "days": u.get("total_days") or 0}
+            for u in by_user[:3]
+        ],
+    }
+
+
+def aggregate_occupancy(util: dict | None) -> dict[str, dict] | None:
+    """Reduce v1.6 agent_utilization output to {user_id: {occupancy_pct,
+    interactions_per_on_queue_hour}}. Returns None when no users."""
+    if not util:
+        return None
+    users = util.get("users") or []
+    if not users:
+        return None
+    return {
+        u["user_id"]: {
+            "occupancy_pct": u.get("occupancy_pct"),
+            "interactions_per_on_queue_hour": u.get("interactions_per_on_queue_hour"),
+        }
+        for u in users if u.get("user_id")
+    }
+
+
+def render_cx_section(cx: dict | None) -> str:
+    """Render the Customer Experience section. Empty string when cx is None."""
+    if cx is None:
+        return ""
+    tiles = []
+
+    nps = cx.get("nps")
+    if nps and nps.get("nps"):
+        n = nps["nps"]
+        score = n.get("score")
+        if score is None:
+            score_str, cls = "—", ""
+        else:
+            cls = "good" if score >= 30 else "warn" if score >= 0 else "bad"
+            sign = "+" if score > 0 else ""
+            score_str = f"{sign}{score:.0f}"
+        tiles.append(
+            f'<div class="kpi {cls}"><div class="label">NPS</div>'
+            f'<div class="value">{score_str}</div>'
+            f'<div class="sub">{n["promoters"]} / {n["passives"]} / {n["detractors"]} '
+            f'prom / pass / det · n={nps["total"]}</div></div>'
+        )
+
+    agent = cx.get("agent_score")
+    if agent:
+        mean = agent.get("mean")
+        mean_str = f"{mean:.1f}" if mean is not None else "—"
+        tiles.append(
+            f'<div class="kpi"><div class="label">Agent Score</div>'
+            f'<div class="value">{mean_str}</div>'
+            f'<div class="sub">mean across {agent["total"]} responses</div></div>'
+        )
+
+    exp = cx.get("experience_score")
+    if exp:
+        mean = exp.get("mean")
+        mean_str = f"{mean:.1f}" if mean is not None else "—"
+        tiles.append(
+            f'<div class="kpi"><div class="label">Experience Score</div>'
+            f'<div class="value">{mean_str}</div>'
+            f'<div class="sub">mean across {exp["total"]} responses</div></div>'
+        )
+
+    if not tiles:
+        return ""
+    return (
+        '<section id="cx">'
+        '<h2>4a. Customer Experience</h2>'
+        '<p style="color:var(--muted); font-size:13px;">From survey '
+        'attributes attached to conversations during the period. NPS uses '
+        'the standard 0-10 scale (promoters 9-10, passives 7-8, detractors 0-6); '
+        'Agent / Experience scores show the arithmetic mean.</p>'
+        f'<div class="kpi-grid">{"".join(tiles)}</div>'
+        '</section>'
+    )
+
+
+def render_wrap_up_section(wrap_up: dict | None) -> str:
+    """Render the full Wrap-up Codes section. Empty string when wrap_up is None."""
+    if wrap_up is None:
+        return ""
+    distribution = wrap_up.get("distribution") or []
+    if not distribution:
+        return ""
+    rows_html = []
+    for d in distribution:
+        dp = d.get("delta_pct")
+        if dp is None:
+            delta_cell = '<span class="muted">—</span>'
+        else:
+            cls = "good" if dp > 0 else "bad" if dp < 0 else "warn"
+            sign = "+" if dp > 0 else ""
+            arrow = "↑" if dp > 0 else ("↓" if dp < 0 else "→")
+            delta_cell = f'<span class="vs-target {cls}">{arrow} {sign}{dp:.1f}%</span>'
+        rows_html.append(
+            f'<tr><td>{d.get("name") or "—"}</td>'
+            f'<td class="num">{fmt_int(d.get("count"))}</td>'
+            f'<td class="num">{fmt_pct(d.get("percentage"))}</td>'
+            f'<td class="num">{fmt_int(d.get("prior_count"))}</td>'
+            f'<td class="num">{delta_cell}</td></tr>'
+        )
+    table = (
+        '<table><thead><tr><th>Wrap-up code</th><th class="num">Calls</th>'
+        '<th class="num">Share</th><th class="num">Prior period</th>'
+        '<th class="num">Δ</th></tr></thead>'
+        f'<tbody>{"".join(rows_html)}</tbody></table>'
+    )
+
+    trend = wrap_up.get("trend") or {}
+    callouts = []
+    movers = trend.get("largest_movers") or []
+    if movers:
+        callouts.append(
+            '<div class="callout"><strong>Largest movers (period-on-period):</strong> '
+            + ', '.join(
+                f'{m.get("name")} ({"+" if (m.get("delta_pct") or 0) > 0 else ""}{m.get("delta_pct"):.1f}%)'
+                for m in movers if m.get("delta_pct") is not None
+            )
+            + '</div>'
+        )
+    new_codes = trend.get("new_codes_this_period") or []
+    if new_codes:
+        callouts.append(
+            f'<div class="callout"><strong>New codes this period:</strong> '
+            f'{", ".join(new_codes)}</div>'
+        )
+    retired = trend.get("retired_codes") or []
+    if retired:
+        callouts.append(
+            f'<div class="callout"><strong>Retired (zero usage this period):</strong> '
+            f'{", ".join(retired)}</div>'
+        )
+    totals = wrap_up.get("totals") or {}
+    intro = (
+        f'<p style="color:var(--muted); font-size:13px;">'
+        f'{fmt_int(totals.get("conversation_count"))} conversations across '
+        f'{fmt_int(totals.get("distinct_code_count"))} distinct codes.'
+        + (' Truncated — see "Other (truncated)" row.' if totals.get("truncated") else '')
+        + '</p>'
+    )
+    return (
+        '<section id="wrapup">'
+        '<h2>3a. Wrap-up codes — distribution &amp; trend</h2>'
+        f'{intro}{table}{"".join(callouts)}'
+        '</section>'
+    )
+
+
+def render_leave_summary(leave: dict | None) -> str:
+    """Render the Leave summary block (lives inside Workforce). Empty when None."""
+    if leave is None:
+        return ""
+    activities_str = ", ".join(
+        f'{a["name"]} ({a["hours"]:.0f}h / {a["days"]} d)'
+        for a in leave["top_activities"]
+    ) or "—"
+    users_str = ", ".join(
+        f'{u["name"]} ({u["hours"]:.0f}h)'
+        for u in leave["top_users"]
+    ) or "—"
+    return (
+        '<div class="callout"><strong>Leave taken this period: '
+        f'{leave["total_days"]} day(s) / {leave["total_hours"]:.1f}h '
+        f'across {leave["distinct_agents"]} agents</strong> '
+        f'({leave["approved_count"]} approved, {leave["pending_count"]} pending). '
+        f'Top activities: {activities_str}. '
+        f'Top by hours: {users_str}.</div>'
+    )
 
 
 def render_performance_leverage(lev: dict) -> str:
@@ -1273,7 +1552,11 @@ def render_html(period: str, interval: str, brand_rows: list[dict], per_queue: l
                 leverage: dict | None = None, staffing: dict | None = None,
                 narrative: dict[str, str] | None = None,
                 hourly_heatmap: dict | None = None,
-                voice_aht_sparklines: dict[str, list[dict]] | None = None) -> str:
+                voice_aht_sparklines: dict[str, list[dict]] | None = None,
+                cx: dict | None = None,
+                wrap_up: dict | None = None,
+                leave: dict | None = None,
+                occupancy: dict[str, dict] | None = None) -> str:
     # KPIs
     total_voice_off = sum(r["offered"] for r in brand_rows if r["media"] == "voice")
     total_voice_ans = sum(r["answered"] for r in brand_rows if r["media"] == "voice")
@@ -1332,7 +1615,7 @@ def render_html(period: str, interval: str, brand_rows: list[dict], per_queue: l
   <a href="#funnel">Volume &amp; funnel</a>
   <a href="#themes">Themes</a>
   <a href="#repeat">Repeat callers</a>
-  <a href="#workforce">Workforce</a>
+{('  <a href="#cx">Customer Experience</a>' + chr(10)) if cx else ''}{('  <a href="#wrapup">Wrap-up codes</a>' + chr(10)) if wrap_up else ''}  <a href="#workforce">Workforce</a>
   <a href="#leverage">Performance leverage</a>
 </nav>
 
@@ -1382,11 +1665,17 @@ def render_html(period: str, interval: str, brand_rows: list[dict], per_queue: l
 {render_unresolved_table(themes['unresolved_repeaters'])}
 </section>
 
+{render_cx_section(cx)}
+
+{render_wrap_up_section(wrap_up)}
+
 <section id="workforce">
 <h2>5. Workforce — productivity &amp; adherence</h2>
-<p style="color:var(--muted); font-size:13px;"><strong>Email is excluded</strong> from this table (email handle times can span days, which inflates AHT and total handle hours unhelpfully). The figures below are voice + message + callback only. <strong>Voice AHT / Msg AHT</strong> in seconds — split out so neither inflates the other. <strong>Br over</strong> = break/meal overruns. <strong>Away n / min</strong> = count + total minutes on AWAY (raw negative). <strong>Pre-br over n / min</strong> = pre-break sessions running &gt;{cfg.targets.pre_break_min} min.</p>
+<p style="color:var(--muted); font-size:13px;"><strong>Email is excluded</strong> from this table (email handle times can span days, which inflates AHT and total handle hours unhelpfully). The figures below are voice + message + callback only. <strong>Voice AHT / Msg AHT</strong> in seconds — split out so neither inflates the other. <strong>Br over</strong> = break/meal overruns. <strong>Away n / min</strong> = count + total minutes on AWAY (raw negative). <strong>Pre-br over n / min</strong> = pre-break sessions running &gt;{cfg.targets.pre_break_min} min.{' <strong>Occupancy</strong> = (interacting + ACW) / on-queue (target band 70-85%).' if occupancy else ''}</p>
 
-{render_workforce_table(workforce, sparklines=voice_aht_sparklines)}
+{render_leave_summary(leave)}
+
+{render_workforce_table(workforce, sparklines=voice_aht_sparklines, occupancy=occupancy)}
 
 {f'<div class="callout"><strong>Top performer:</strong> {top_performer["name"]} — {fmt_int(top_performer["answered"])} answered ({fmt_int(top_performer["voice_ans"])} voice + {fmt_int(top_performer["msg_ans"])} messages), {top_performer["overruns"]} break overruns.</div>' if top_performer and top_performer["answered"] > 0 else ''}
 
@@ -1466,6 +1755,24 @@ def main() -> int:
     ap_daily_path = data_dir / "agent_performance_daily.json"
     ap_daily = json.loads(ap_daily_path.read_text()) if ap_daily_path.exists() else None
 
+    # v1.11: optional CX + wrap-up + leave + utilization inputs. Each file is
+    # gated entirely on existence in data_dir — the skill workflow only saves
+    # NPS/agent_score/exp_score when the matching tenant.yaml survey.* key is
+    # set, and only saves wfm_time_off_requests / agent_utilization when those
+    # tools are in scope. Missing file → section silently omitted.
+    nps_path = data_dir / "nps.json"
+    nps_raw = json.loads(nps_path.read_text()) if nps_path.exists() else None
+    agent_score_path = data_dir / "agent_score.json"
+    agent_score_raw = json.loads(agent_score_path.read_text()) if agent_score_path.exists() else None
+    exp_score_path = data_dir / "experience_score.json"
+    exp_score_raw = json.loads(exp_score_path.read_text()) if exp_score_path.exists() else None
+    wrap_up_path = data_dir / "wrap_up_distribution.json"
+    wrap_up_raw = json.loads(wrap_up_path.read_text()) if wrap_up_path.exists() else None
+    timeoff_path = data_dir / "wfm_time_off_requests.json"
+    timeoff_raw = json.loads(timeoff_path.read_text()) if timeoff_path.exists() else None
+    util_path = data_dir / "agent_utilization.json"
+    util_raw = json.loads(util_path.read_text()) if util_path.exists() else None
+
     # Fail loud on shape mismatches (the silent-empty bug class the v0.9.x
     # patches addressed). queue_performance carries a derived block; agent
     # performance never does — assert each accordingly.
@@ -1501,6 +1808,12 @@ def main() -> int:
     hourly_heatmap = aggregate_hourly_heatmap(qp_hourly, qmap, tz_offset_hours=tz_offset) if qp_hourly else None
     voice_aht_sparklines = aggregate_agent_voice_sparklines(ap_daily) if ap_daily else None
 
+    # v1.11 aggregates — each returns None when its raw input is absent.
+    cx = aggregate_cx(nps_raw, agent_score_raw, exp_score_raw)
+    wrap_up = aggregate_wrap_up_section(wrap_up_raw)
+    leave = aggregate_leave_summary(timeoff_raw)
+    occupancy = aggregate_occupancy(util_raw)
+
     narrative = (
         parse_narrative_md(Path(args.with_narrative).expanduser())
         if args.with_narrative else None
@@ -1509,7 +1822,8 @@ def main() -> int:
                        workforce, themes, cfg=cfg, daily_sl=daily_sl,
                        leverage=leverage, staffing=staffing, narrative=narrative,
                        hourly_heatmap=hourly_heatmap,
-                       voice_aht_sparklines=voice_aht_sparklines)
+                       voice_aht_sparklines=voice_aht_sparklines,
+                       cx=cx, wrap_up=wrap_up, leave=leave, occupancy=occupancy)
     out_path.write_text(html)
 
     print(f"OK report written to {out_path}")

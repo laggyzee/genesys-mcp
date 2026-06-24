@@ -111,9 +111,9 @@ Filter using values from the tenant config:
 
 Save the filtered ID lists as `QUEUE_IDS` and `USER_IDS`. Build a `QMAP` of `{queueId: [brand, queue_name]}` and a `NAME_ROLE` dict of `{userId: [display_name, role]}`. Pass these to the build script in step 4.
 
-### Step 3 — Pull all the data in parallel (v0.8: 6 calls in one batch)
+### Step 3 — Pull all the data in parallel (v1.11: up to 14 calls in one batch)
 
-Issue **all six** tool calls in a **single assistant message with parallel tool-use blocks**. This is the meaningful perf optimisation in v0.8 — each call's underlying `_run_conv_details_job` takes 5-15s of polling, so sequential = 45-90s total, parallel = ~15s (bound by the slowest call). Claude Code supports parallel tool calls natively; the skill just has to ask for them.
+Issue **all** tool calls in a **single assistant message with parallel tool-use blocks**. Each call's underlying `_run_conv_details_job` takes 5-15s of polling, so sequential = many minutes; parallel = ~15s (bound by the slowest call). Claude Code supports parallel tool calls natively; the skill just has to ask for them.
 
 ```
 queue_performance(queue_ids=QUEUE_IDS, interval=INTERVAL, granularity="P1M")        # monthly totals
@@ -126,9 +126,22 @@ break_overrun_report(user_ids=USER_IDS, interval=INTERVAL,
                      pre_break_target_min=PRE_BREAK_MIN)
 repeat_caller_deep_dive(queue_ids=[], interval=INTERVAL, media_type="voice", min_calls=3, max_anis=25)
 wfm_schedule(business_unit_id=BU_ID, management_unit_ids=MU_IDS, user_ids=USER_IDS, interval=INTERVAL)
+
+# v1.11 additions — each one optional and gated, see notes below
+agent_utilization(user_ids=USER_IDS, interval=INTERVAL)                             # occupancy column
+wrap_up_code_distribution(interval=INTERVAL, include_trend=True, top_n=20)          # wrap-up section
+wfm_time_off_requests(business_unit_id=BU_ID, interval=INTERVAL)                    # leave summary (only if BU_ID set)
+search_conversations_by_attribute(attribute_key=cfg.survey.nps_attribute_key,              interval=INTERVAL)  # NPS tile — only if cfg.survey.nps_attribute_key set
+search_conversations_by_attribute(attribute_key=cfg.survey.agent_score_attribute_key,      interval=INTERVAL)  # Agent Score tile — only if set
+search_conversations_by_attribute(attribute_key=cfg.survey.experience_score_attribute_key, interval=INTERVAL)  # Experience Score tile — only if set
 ```
 
-**Important:** do not split these across multiple turns or wait for one to return before issuing the next. All six are independent — there are no dependencies between them, so they all go in one batch. The aggregation logic in `build_report.py` doesn't care about the order results come back in.
+**Important:** do not split these across multiple turns or wait for one to return before issuing the next. All are independent — no dependencies between them, so they all go in one batch. The aggregation logic in `build_report.py` doesn't care about the order results come back in.
+
+**v1.11 gating rules:** Each v1.11 addition is *individually* optional. Skip a tool entirely (don't write a file with `null`) when its precondition isn't met — the build script gates each section on file presence, so an omitted file = section silently absent. Specifically:
+- The three `search_conversations_by_attribute` calls each require the matching `cfg.survey.*_attribute_key` to be set. If `nps_attribute_key` is `None`, skip the NPS call.
+- `wfm_time_off_requests` requires `cfg.business_unit.id` to be set (or auto-discovered earlier).
+- `agent_utilization` and `wrap_up_code_distribution` always run when the OAuth client has the read scopes — no tenant.yaml gating beyond that.
 
 If a tool call errors (e.g. WFM scope missing), let it fail — `build_report.py` treats missing `wfm_schedule.json` as "no WFM section in the output", and the other sections still render. Don't retry, don't try to work around — just note it and continue.
 
@@ -150,6 +163,14 @@ If any of these returns "result exceeds maximum allowed tokens" and saves to a f
 /tmp/cc-report-{period-slug}/break_overrun_report.json
 /tmp/cc-report-{period-slug}/repeat_caller_deep_dive.json
 /tmp/cc-report-{period-slug}/wfm_schedule.json               # WFM scheduled vs forecast
+
+# v1.11 — write only if the matching gate is met (skip the file otherwise)
+/tmp/cc-report-{period-slug}/agent_utilization.json          # occupancy column in workforce table
+/tmp/cc-report-{period-slug}/wrap_up_distribution.json       # Wrap-up codes section + largest movers
+/tmp/cc-report-{period-slug}/wfm_time_off_requests.json      # Leave summary inside Workforce section
+/tmp/cc-report-{period-slug}/nps.json                        # NPS tile in Customer Experience section
+/tmp/cc-report-{period-slug}/agent_score.json                # Agent Score tile
+/tmp/cc-report-{period-slug}/experience_score.json           # Experience Score tile
 ```
 
 The hourly file feeds the new (v0.9) hour-of-day × day-of-week heatmap in section 2 — reveals intra-day staffing-shape patterns the daily line chart averages away. The daily agent-perf file powers the per-agent voice-AHT sparklines in the workforce table — distinguishes *"330s and improving"* from *"330s and worsening"*. Either can be skipped — the report falls back to the v0.7 layout for the missing visualisation.

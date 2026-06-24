@@ -172,3 +172,108 @@ class TestAdherenceSummary:
         assert s["total_min"] == 0
         assert s["agents_with_any"] == 0
         assert s["overrun_sessions"] == 0
+
+
+# ── v1.11: NPS card + wrap-up mini-card ──
+
+class TestNpsAggregator:
+    """Pins the v1.11 NPS aggregator for the daily brief."""
+
+    def test_none_input(self, build_report_daily):
+        assert build_report_daily.aggregate_nps(None) is None
+
+    def test_zero_conversations(self, build_report_daily):
+        payload = {"totals": {"conversation_count": 0}, "numeric_summary": None}
+        assert build_report_daily.aggregate_nps(payload) is None
+
+    def test_non_nps_numeric_returns_none(self, build_report_daily):
+        # Numeric values that aren't 0-10 integers → numeric_summary.nps is None.
+        payload = {
+            "totals": {"conversation_count": 25},
+            "numeric_summary": {"mean": 4.2, "median": 4.0, "nps": None},
+        }
+        assert build_report_daily.aggregate_nps(payload) is None
+
+    def test_well_formed_nps_payload(self, build_report_daily):
+        payload = {
+            "totals": {"conversation_count": 40},
+            "numeric_summary": {
+                "mean": 8.2,
+                "nps": {"score": 35.0, "promoters_9_10": 22, "passives_7_8": 14, "detractors_0_6": 4},
+            },
+        }
+        nps = build_report_daily.aggregate_nps(payload)
+        assert nps == {"score": 35.0, "total": 40, "promoters": 22, "passives": 14, "detractors": 4}
+
+
+class TestNpsCardRender:
+    """Pins the v1.11 NPS card render gating + colour bands."""
+
+    def test_none_renders_empty(self, build_report_daily):
+        assert build_report_daily.render_nps_card(None) == ""
+
+    def test_strong_score_renders_good_band(self, build_report_daily):
+        nps = {"score": 45.0, "total": 100, "promoters": 60, "passives": 25, "detractors": 15}
+        html = build_report_daily.render_nps_card(nps)
+        assert "good" in html and "+45" in html
+        assert "60 / 25 / 15" in html
+        assert "n=100" in html
+
+    def test_negative_score_renders_bad_band(self, build_report_daily):
+        nps = {"score": -10.0, "total": 50, "promoters": 10, "passives": 20, "detractors": 20}
+        html = build_report_daily.render_nps_card(nps)
+        assert "bad" in html and "-10" in html
+
+
+class TestWrapUpMiniAggregator:
+    """Pins the v1.11 wrap-up mini-card aggregator."""
+
+    def test_none_input(self, build_report_daily):
+        assert build_report_daily.aggregate_wrap_up_mini(None) is None
+
+    def test_zero_conversations(self, build_report_daily):
+        payload = {"totals": {"conversation_count": 0}, "distribution": []}
+        assert build_report_daily.aggregate_wrap_up_mini(payload) is None
+
+    def test_top_n_cap_and_largest_mover(self, build_report_daily):
+        payload = {
+            "totals": {"conversation_count": 200, "distinct_code_count": 8},
+            "distribution": [
+                {"name": f"Code{i}", "count": 50 - i * 5, "percentage": 25.0 - i * 2.5}
+                for i in range(8)
+            ],
+            "trend": {
+                "largest_movers": [
+                    {"name": "Code0", "delta_pct": 15.0, "movement": "up"},
+                    {"name": "Code3", "delta_pct": -10.0, "movement": "down"},
+                ],
+            },
+        }
+        agg = build_report_daily.aggregate_wrap_up_mini(payload, top_n=5)
+        assert len(agg["top_codes"]) == 5
+        assert agg["largest_mover"]["name"] == "Code0"
+        assert agg["total_conversations"] == 200
+
+
+class TestWrapUpMiniCardRender:
+    """Pins the v1.11 wrap-up mini-card render."""
+
+    def test_none_renders_empty(self, build_report_daily):
+        assert build_report_daily.render_wrap_up_mini_card(None) == ""
+
+    def test_renders_table_and_mover_callout(self, build_report_daily):
+        from bs4 import BeautifulSoup
+        wrap = {
+            "total_conversations": 100,
+            "top_codes": [
+                {"name": "Resolved", "count": 60, "percentage": 60.0},
+                {"name": "Transfer", "count": 20, "percentage": 20.0},
+            ],
+            "largest_mover": {"name": "Transfer", "delta_pct": 12.3, "movement": "up"},
+        }
+        html = build_report_daily.render_wrap_up_mini_card(wrap)
+        assert "Resolved" in html and "Transfer" in html
+        assert "Largest mover" in html
+        assert "↑" in html and "+12.3%" in html
+        soup = BeautifulSoup(html, "html.parser")
+        assert len(soup.find("thead").find_all("th")) == 3

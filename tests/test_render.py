@@ -422,3 +422,164 @@ class TestParseNarrativeMd:
         html = sections["coverage"]
         assert "<script>" not in html
         assert "&lt;script&gt;" in html
+
+
+# ── v1.11: Customer Experience + Wrap-up + Leave + Occupancy ──
+
+class TestCxSection:
+    """Pins the v1.11 Customer Experience section gating + tile composition."""
+
+    def test_none_input_renders_empty(self, build_report_monthly):
+        assert build_report_monthly.render_cx_section(None) == ""
+
+    def test_all_three_tiles_render_when_all_present(self, build_report_monthly):
+        nps_raw = {
+            "totals": {"conversation_count": 100},
+            "numeric_summary": {
+                "mean": 8.5,
+                "nps": {"score": 42.0, "promoters_9_10": 60, "passives_7_8": 22, "detractors_0_6": 18},
+            },
+        }
+        agent_raw = {"totals": {"conversation_count": 80}, "numeric_summary": {"mean": 4.6}}
+        exp_raw = {"totals": {"conversation_count": 75}, "numeric_summary": {"mean": 4.2}}
+        cx = build_report_monthly.aggregate_cx(nps_raw, agent_raw, exp_raw)
+        html = build_report_monthly.render_cx_section(cx)
+        soup = BeautifulSoup(html, "html.parser")
+        assert soup.find("section", id="cx") is not None
+        labels = [d.get_text() for d in soup.select(".kpi .label")]
+        assert "NPS" in labels and "Agent Score" in labels and "Experience Score" in labels
+
+    def test_omits_tile_when_attribute_payload_absent(self, build_report_monthly):
+        nps_raw = {
+            "totals": {"conversation_count": 50},
+            "numeric_summary": {"mean": 8.5, "nps": {"score": 30.0, "promoters_9_10": 35, "passives_7_8": 10, "detractors_0_6": 5}},
+        }
+        # Agent + experience absent → tiles omitted, NPS still renders.
+        cx = build_report_monthly.aggregate_cx(nps_raw, None, None)
+        html = build_report_monthly.render_cx_section(cx)
+        assert "NPS" in html
+        assert "Agent Score" not in html and "Experience Score" not in html
+
+
+class TestWrapUpSection:
+    """Pins the v1.11 monthly Wrap-up Codes section."""
+
+    def test_none_input_renders_empty(self, build_report_monthly):
+        assert build_report_monthly.render_wrap_up_section(None) == ""
+
+    def test_zero_conversations_aggregates_to_none(self, build_report_monthly):
+        empty = {"totals": {"conversation_count": 0}, "distribution": [], "trend": None}
+        assert build_report_monthly.aggregate_wrap_up_section(empty) is None
+
+    def test_table_columns_and_trend_callout(self, build_report_monthly):
+        wrap = {
+            "totals": {"conversation_count": 1000, "distinct_code_count": 4},
+            "distribution": [
+                {"name": "Resolved", "count": 600, "percentage": 60.0, "prior_count": 500, "delta_pct": 20.0},
+                {"name": "Transfer", "count": 250, "percentage": 25.0, "prior_count": 300, "delta_pct": -16.7},
+            ],
+            "trend": {
+                "largest_movers": [
+                    {"name": "Resolved", "delta_pct": 20.0, "movement": "up"},
+                    {"name": "Transfer", "delta_pct": -16.7, "movement": "down"},
+                ],
+                "new_codes_this_period": ["New Code A"],
+                "retired_codes": [],
+            },
+        }
+        agg = build_report_monthly.aggregate_wrap_up_section(wrap)
+        html = build_report_monthly.render_wrap_up_section(agg)
+        soup = BeautifulSoup(html, "html.parser")
+        # 5 columns: name, calls, share, prior, delta
+        assert len(soup.find("thead").find_all("th")) == 5
+        assert "Largest movers" in html and "New codes this period" in html
+        assert "New Code A" in html
+        # Up arrow on +20% delta, down arrow on -16.7%
+        assert "↑" in html and "↓" in html
+
+
+class TestLeaveSummary:
+    """Pins the v1.11 monthly Leave summary block."""
+
+    def test_none_input_renders_empty(self, build_report_monthly):
+        assert build_report_monthly.render_leave_summary(None) == ""
+
+    def test_zero_requests_aggregates_to_none(self, build_report_monthly):
+        empty = {"totals": {"request_count": 0}, "by_activity": [], "by_user": []}
+        assert build_report_monthly.aggregate_leave_summary(empty) is None
+
+    def test_summary_includes_top_activities_and_users(self, build_report_monthly):
+        timeoff = {
+            "totals": {
+                "request_count": 8, "approved_count": 6, "pending_count": 2,
+                "total_hours": 96.0, "total_days": 12,
+            },
+            "by_activity": [
+                {"activity_name": "Annual Leave", "total_hours": 64.0, "total_days": 8, "request_count": 4},
+                {"activity_name": "Sick Leave", "total_hours": 24.0, "total_days": 3, "request_count": 3},
+            ],
+            "by_user": [
+                {"user_id": "u1", "user_name": "Alice", "total_hours": 48.0, "total_days": 6, "request_count": 3},
+                {"user_id": "u2", "user_name": "Bob", "total_hours": 32.0, "total_days": 4, "request_count": 2},
+            ],
+        }
+        leave = build_report_monthly.aggregate_leave_summary(timeoff)
+        assert leave["distinct_agents"] == 2
+        html = build_report_monthly.render_leave_summary(leave)
+        assert "Annual Leave" in html and "Sick Leave" in html
+        assert "Alice" in html and "Bob" in html
+        assert "12 day(s)" in html and "96.0h" in html
+        assert "6 approved, 2 pending" in html
+
+
+class TestOccupancyColumn:
+    """Pins the v1.11 Occupancy column on render_workforce_table."""
+
+    def _row(self, user_id="u1") -> dict:
+        return {
+            "user_id": user_id, "name": "Test", "role": "Specialist",
+            "answered": 100, "voice_ans": 30, "msg_ans": 70,
+            "voice_aht_s": 300.0, "msg_aht_s": 700.0,
+            "voice_aht_vs_target_pct": 5.0, "msg_aht_vs_target_pct": 6.0,
+            "avg_acw_s": 20.0, "acw_vs_target_pct": 33.0,
+            "total_handle_h": 20.0, "overruns": 1, "overrun_min": 5,
+            "break_sessions": 5, "away_count": 0, "away_min": 0,
+            "pre_break_overrun_count": 0, "pre_break_overrun_min": 0,
+        }
+
+    def test_column_absent_when_occupancy_none(self, build_report_monthly):
+        # v0.2.1 contract — 12 columns when occupancy not passed.
+        html = build_report_monthly.render_workforce_table([self._row()])
+        soup = BeautifulSoup(html, "html.parser")
+        assert len(soup.find("thead").find_all("th")) == 12
+        assert "Occupancy" not in html
+
+    def test_column_added_when_occupancy_passed(self, build_report_monthly):
+        occupancy = {"u1": {"occupancy_pct": 78.0, "interactions_per_on_queue_hour": 5.2}}
+        html = build_report_monthly.render_workforce_table(
+            [self._row()], occupancy=occupancy,
+        )
+        soup = BeautifulSoup(html, "html.parser")
+        assert len(soup.find("thead").find_all("th")) == 13
+        assert "Occupancy" in html
+        assert "78%" in html
+        # In-band → good class
+        assert "vs-target good" in html
+
+    def test_out_of_band_occupancy_renders_bad(self, build_report_monthly):
+        occupancy = {"u1": {"occupancy_pct": 95.0, "interactions_per_on_queue_hour": 6.0}}
+        html = build_report_monthly.render_workforce_table(
+            [self._row()], occupancy=occupancy,
+        )
+        # 95% is above the upper band edge (92%) → 'bad'
+        assert "vs-target bad" in html
+        assert "95%" in html
+
+    def test_missing_user_in_occupancy_map_renders_dash(self, build_report_monthly):
+        occupancy = {"u-other": {"occupancy_pct": 75.0, "interactions_per_on_queue_hour": 5.0}}
+        html = build_report_monthly.render_workforce_table(
+            [self._row("u1")], occupancy=occupancy,
+        )
+        soup = BeautifulSoup(html, "html.parser")
+        body_cells = soup.find("tbody").find_all("td")
+        assert any("—" in c.get_text() for c in body_cells)
