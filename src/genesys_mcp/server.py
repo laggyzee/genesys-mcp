@@ -27,6 +27,7 @@ from genesys_mcp.tools import (
     timeoff,
     utilization,
     wfm,
+    wrapup,
 )
 
 logging.basicConfig(
@@ -75,6 +76,7 @@ routing.register(mcp)
 attribute_search.register(mcp)
 timeoff.register(mcp)
 utilization.register(mcp)
+wrapup.register(mcp)
 health.register(mcp)
 raw.register(mcp)
 
