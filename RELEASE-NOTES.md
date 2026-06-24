@@ -1,5 +1,81 @@
 # Release Notes
 
+## v1.11.0 — 24 June 2026
+
+**Skill wiring catch-up.** Four MCP tools shipped between v1.6 and v1.10 (`agent_utilization`, `wfm_time_off_requests`, `search_conversations_by_attribute`, `wrap_up_code_distribution`) but were never wired into the three reporting skills — each release deferred the integration to "the next one" and the deferral kept compounding. v1.11 closes every deferred wiring in one focused sweep. **No new MCP tools.** Tool count stays at 50.
+
+### Why this happened
+
+- v1.6 added `agent_utilization` (on-queue / occupancy / interactions-per-hour) — never reached the workforce table.
+- v1.7 added `wfm_time_off_requests` — leave summaries stayed chat-only.
+- v1.8 added `search_conversations_by_attribute` + the `survey` block in tenant.yaml — NPS / agent-score / experience-score tiles never landed.
+- v1.10 added `wrap_up_code_distribution` — closed the *"Wrap-up code distribution not available in this run"* placeholder at the tool layer, but the placeholder text still surfaced because no skill called the tool yet.
+
+Result: skills were silently leaving data on the table. Users asking *"what's the NPS today?"* in a daily brief still got the v1.10 brief, not the answer.
+
+### cc-daily-brief — two new cards
+
+- **NPS card** (gated on `cfg.survey.nps_attribute_key`) — score + promoter / passive / detractor counts. Industry NPS bands: ≥30 green, 0–29 amber, <0 red.
+- **Wrap-up mini-section** — top 5 wrap-up codes by count + the single largest mover (delta vs immediately prior day, with an up/down arrow).
+
+Both omit silently when the tool wasn't called or returned zero conversations.
+
+### cc-monthly-report — four new sections
+
+- **Customer Experience section** (between Repeat callers and Workforce) — three KPI tiles: NPS, Agent Score, Experience Score. Each gated on the matching `cfg.survey.*_attribute_key`.
+- **Wrap-up Codes section** — full distribution table (code, calls, share, prior period, Δ) + Largest movers callout + New / Retired codes callouts.
+- **Leave summary** inside the Workforce section (gated on `cfg.business_unit.id`) — *"X day(s) / Yh across N agents this period"* + top 3 leave types + top 3 by hours.
+- **Occupancy column** in the workforce table (gated on the `agent_utilization` payload being present) — uses the standard 70-85% band for colour, 60-70% / 85-92% warn, outside that bad.
+
+Workforce table column count: **12 → 13** when occupancy is wired; **12** unchanged when not.
+
+### cc-coaching-prep — per-agent NPS + per-agent disposition mix
+
+- **Section 4a — NPS, this agent** (gated on `cfg.survey.nps_attribute_key`). Calls the org-wide attribute search once, groups by `agent_user_id`, surfaces the target's NPS score + promoter/passive/detractor split + a clickable list of detractor `conversation_id` values for listen-back.
+- **Section 4b — Disposition mix vs team.** Two `wrap_up_code_distribution` calls (`user_ids=[target]` + `user_ids=team`) — table of agent % vs team % per code, with codes flagged where the deviation ≥ 10pp.
+
+Both sections sit between section 4 (Wrap-up & handling) and section 5 (Flagged calls). Both omit silently when the input flag isn't passed.
+
+### Graceful-when-absent — verified end-to-end
+
+New `no_survey` weird-tenants fixture exercises a config where:
+
+- `survey:` block is absent entirely → Pydantic defaults all-None.
+- `business_unit:` block is absent → `id` is None, leave summary skipped.
+- `management_units:` block is absent → `ids` is empty.
+
+The three skills' renders all complete without crashes, without empty placeholders, without TOC entries that go nowhere. Mirrors the v1.0 `operating_model` precedent.
+
+### Tests
+
+- `tests/test_render.py` — +13 tests: CX section, wrap-up section, leave summary, occupancy column (gated + unflagged + colour bands + missing-user case).
+- `tests/test_daily_brief.py` — +14 tests: NPS aggregator, NPS card render, wrap-up mini aggregator, wrap-up mini card render.
+- `tests/test_coaching_prep.py` — +13 tests: per-agent NPS rollup, per-agent NPS section render, disposition mix aggregation, disposition mix section render.
+- `tests/test_weird_tenants.py` — +4 tests + 1 new fixture (`no_survey`): smoke tests for the graceful-when-absent paths across daily brief, monthly report, and coaching prep.
+
+**524 tests** total (482 → 524). All passing.
+
+### What you have to do to adopt v1.11
+
+If your tenant.yaml already has the `survey` block from v1.8 and `business_unit.id` set, the new sections light up automatically next time you run a skill — no migration needed.
+
+If you want NPS / Agent Score / Experience Score tiles, add the relevant key(s) to tenant.yaml:
+
+```yaml
+survey:
+  nps_attribute_key: "NPS Score"             # exact key your tenant uses
+  agent_score_attribute_key: "Agent Score"
+  experience_score_attribute_key: "Experience Score"
+```
+
+Run a daily brief or monthly report — the matching tiles appear. Leave summary needs `business_unit.id`; occupancy column needs nothing beyond the existing `analytics:readonly` scope.
+
+### Reserved for v1.12
+
+- **Hour-of-day × channel wrap-up heatmap** — needs its own design decision (new MCP tool vs new mode on `wrap_up_code_distribution` with multi-dim groupBy) and a dedicated heatmap render. Out of v1.11 scope.
+
+---
+
 ## v1.10.0 — 24 June 2026
 
 **Wrap-up code distribution + period-over-period trend.** Closes the gap that surfaced as *"Wrap-up code distribution not available in this run"* in `cc-monthly-report` and `cc-daily-brief`. Pre-v1.10 no MCP tool aggregated wrap-up codes via Genesys analytics — the only path that produced a wrap-up rollup (`repeat_caller_deep_dive.org_rollup.top_dispositions`) walked one conversation at a time and only covered the repeat-caller cohort. A skill asking *"wrap-up code share across all conversations this month"* had no good data source, so it rendered the "Not available" placeholder.

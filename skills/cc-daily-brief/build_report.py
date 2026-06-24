@@ -506,6 +506,116 @@ footer { color:var(--muted); font-size:11px; padding-top:12px; margin-top:18px; 
 """
 
 
+# ── v1.11: NPS + wrap-up mini-card aggregators ──
+
+def aggregate_nps(attr_search: dict | None) -> dict | None:
+    """Reduce v1.8 ``search_conversations_by_attribute`` output to the NPS
+    rollup the daily-brief card needs. Returns ``None`` when the tool wasn't
+    called, returned zero conversations, or the attribute wasn't NPS-shaped
+    (integer 0-10 values). Graceful-when-absent — caller skips the card.
+    """
+    if not attr_search:
+        return None
+    totals = attr_search.get("totals") or {}
+    total = totals.get("conversation_count") or 0
+    if total <= 0:
+        return None
+    numeric = attr_search.get("numeric_summary") or {}
+    nps = numeric.get("nps") if numeric else None
+    if not nps:
+        return None
+    return {
+        "score": nps.get("score"),
+        "total": total,
+        "promoters": nps.get("promoters_9_10") or 0,
+        "passives": nps.get("passives_7_8") or 0,
+        "detractors": nps.get("detractors_0_6") or 0,
+    }
+
+
+def aggregate_wrap_up_mini(wrap_up: dict | None, top_n: int = 5) -> dict | None:
+    """Reduce v1.10 ``wrap_up_code_distribution`` output to the top-N codes
+    plus the single largest mover. Returns ``None`` when the tool wasn't
+    called or returned zero conversations.
+    """
+    if not wrap_up:
+        return None
+    totals = wrap_up.get("totals") or {}
+    total_convs = totals.get("conversation_count") or 0
+    if total_convs <= 0:
+        return None
+    distribution = wrap_up.get("distribution") or []
+    top_codes = [
+        {
+            "name": d.get("name") or "<unknown>",
+            "count": d.get("count") or 0,
+            "percentage": d.get("percentage") or 0.0,
+        }
+        for d in distribution[:top_n]
+    ]
+    trend = wrap_up.get("trend") or {}
+    movers = trend.get("largest_movers") or []
+    largest_mover = movers[0] if movers else None
+    return {
+        "total_conversations": total_convs,
+        "top_codes": top_codes,
+        "largest_mover": largest_mover,
+    }
+
+
+def render_nps_card(nps: dict | None) -> str:
+    """Render the NPS KPI card. Returns empty string when ``nps`` is None."""
+    if nps is None:
+        return ""
+    score = nps["score"]
+    if score is None:
+        score_str = "—"
+        cls = ""
+    else:
+        cls = "good" if score >= 30 else "warn" if score >= 0 else "bad"
+        sign = "+" if score > 0 else ""
+        score_str = f"{sign}{score:.0f}"
+    return (
+        f'<div class="kpi {cls}"><div class="label">NPS (yesterday)</div>'
+        f'<div class="value">{score_str}</div>'
+        f'<div class="sub">{nps["promoters"]} / {nps["passives"]} / {nps["detractors"]} '
+        f'prom / pass / det · n={nps["total"]}</div></div>'
+    )
+
+
+def render_wrap_up_mini_card(wrap_mini: dict | None) -> str:
+    """Render the wrap-up mini-card. Returns empty string when ``wrap_mini`` is None."""
+    if wrap_mini is None:
+        return ""
+    rows = "".join(
+        f'<tr><td>{escape(c["name"])}</td>'
+        f'<td class="num">{fmt_int(c["count"])}</td>'
+        f'<td class="num">{fmt_pct(c["percentage"])}</td></tr>'
+        for c in wrap_mini["top_codes"]
+    )
+    mover = wrap_mini.get("largest_mover")
+    if mover and mover.get("delta_pct") is not None:
+        dp = mover["delta_pct"]
+        arrow = "↑" if dp > 0 else ("↓" if dp < 0 else "→")
+        cls = "good" if dp > 0 else "bad" if dp < 0 else "warn"
+        sign = "+" if dp > 0 else ""
+        mover_html = (
+            f'<div class="callout" style="margin-top:6px;font-size:12px">'
+            f'<strong>Largest mover:</strong> {escape(mover.get("name") or "")} '
+            f'<span class="vs-target {cls}">{arrow} {sign}{dp:.1f}%</span></div>'
+        )
+    else:
+        mover_html = ""
+    return (
+        '<div>'
+        '<table><thead><tr><th>Wrap-up code</th>'
+        '<th class="num">Calls</th><th class="num">Share</th></tr></thead>'
+        f'<tbody>{rows}</tbody></table>'
+        f'{mover_html}'
+        '</div>'
+    )
+
+
 # ── HTML render ──
 
 def render_html(cfg: TenantConfig, target_date: str, day_interval: str,
@@ -513,7 +623,9 @@ def render_html(cfg: TenantConfig, target_date: str, day_interval: str,
                 flagged: list[dict], hotlist: list[dict],
                 adherence: list[dict],
                 adherence_summary_data: dict | None = None,
-                narrative: dict[str, str] | None = None) -> str:
+                narrative: dict[str, str] | None = None,
+                nps: dict | None = None,
+                wrap_mini: dict | None = None) -> str:
     # v1.0: respect operating_model.expected_channels. Tenants without
     # voice or without message skip the corresponding KPI card rather than
     # rendering a misleading "0%" or "—".
@@ -552,8 +664,17 @@ def render_html(cfg: TenantConfig, target_date: str, day_interval: str,
         f'<div class="value">{fmt_int(headline["total_offered_today"])}</div>'
         f'<div class="sub">{channel_label} offered</div></div>'
     )
+    # v1.11: NPS card (gated on cfg.survey.nps_attribute_key + tool output).
+    # render_nps_card returns "" when nps is None, so this is a no-op for
+    # tenants that haven't opted in.
+    cards.append(render_nps_card(nps))
     cards.append('</div>')
     headline_html = "".join(cards)
+
+    # v1.11: wrap-up mini-card section — sits between Headline and Worst
+    # routes when wrap_up_code_distribution returned data; omitted entirely
+    # otherwise so tenants who don't fetch it see no empty placeholder.
+    wrap_mini_html = render_wrap_up_mini_card(wrap_mini)
 
     # Worst routes
     if not worst:
@@ -690,7 +811,9 @@ def render_html(cfg: TenantConfig, target_date: str, day_interval: str,
         f'</header>'
         f'{render_narrative_block(narrative)}'
         f'<section><h2>1. Headline KPIs</h2>{headline_html}</section>'
-        f'<section><h2>2. Worst routes</h2>{worst_html}</section>'
+        + (f'<section><h2>1a. Top wrap-up codes</h2>{wrap_mini_html}</section>'
+           if wrap_mini_html else '')
+        + f'<section><h2>2. Worst routes</h2>{worst_html}</section>'
         f'<section><h2>3. Flagged agents (voice AHT)</h2>{flagged_html}</section>'
         f'<section><h2>4. Repeat-caller callback list</h2>{hotlist_html}</section>'
         f'<section><h2>5. Adherence flags</h2>{adherence_html}</section>'
@@ -745,6 +868,15 @@ def main() -> int:
     user_names_path = data_dir / "user_names.json"
     user_names = json.loads(user_names_path.read_text()) if user_names_path.exists() else {}
 
+    # v1.11: optional NPS + wrap-up inputs. Both gated entirely on the file
+    # being present in data_dir — the skill workflow only saves them when
+    # tenant.yaml has cfg.survey.nps_attribute_key set (NPS) or unconditionally
+    # for wrap-up. Missing file → card/section silently omitted.
+    nps_path = data_dir / "nps.json"
+    nps_raw = json.loads(nps_path.read_text()) if nps_path.exists() else None
+    wrap_path = data_dir / "wrap_up_distribution.json"
+    wrap_raw = json.loads(wrap_path.read_text()) if wrap_path.exists() else None
+
     day_kpis = aggregate_queue_kpis(qp_day, qmap)
     window_kpis = aggregate_queue_kpis(qp_window, qmap)
     headline = headline_kpis(day_kpis, window_kpis)
@@ -761,11 +893,14 @@ def main() -> int:
         parse_narrative_md(Path(args.with_narrative).expanduser())
         if args.with_narrative else None
     )
+    nps = aggregate_nps(nps_raw)
+    wrap_mini = aggregate_wrap_up_mini(wrap_raw)
     html = render_html(cfg, args.target_date, args.day_interval,
                        args.window_interval, headline, worst, flagged,
                        hotlist, adherence,
                        adherence_summary_data=adherence_summary_data,
-                       narrative=narrative)
+                       narrative=narrative,
+                       nps=nps, wrap_mini=wrap_mini)
 
     out_path = (Path(args.output).expanduser() if args.output
                 else cfg.daily_brief_output_path(args.target_date))

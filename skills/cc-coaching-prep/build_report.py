@@ -663,8 +663,179 @@ def render_narrative_block(narrative: dict[str, str] | None) -> str:
     )
 
 
+# ── v1.11: per-agent NPS + disposition-mix aggregators + renderers ──
+
+def aggregate_agent_nps(nps_raw: dict | None, target_user_id: str | None) -> dict | None:
+    """Group an org-wide v1.8 ``search_conversations_by_attribute`` payload by
+    ``agent_user_id`` and return the target agent's NPS rollup.
+
+    Returns ``None`` when the tool wasn't called, the payload had zero
+    conversations, or the target agent didn't appear in the conversations.
+    """
+    if not nps_raw or not target_user_id:
+        return None
+    conversations = nps_raw.get("conversations") or []
+    if not conversations:
+        return None
+    target_convs = [c for c in conversations if c.get("agent_user_id") == target_user_id]
+    if not target_convs:
+        return None
+    detractors: list[dict] = []
+    passives = 0
+    promoters = 0
+    for c in target_convs:
+        try:
+            n = int(c.get("attribute_value"))
+        except (TypeError, ValueError):
+            continue
+        if 0 <= n <= 6:
+            detractors.append({
+                "conversation_id": c.get("conversation_id"),
+                "score": n,
+                "conversation_start": c.get("conversation_start"),
+            })
+        elif 7 <= n <= 8:
+            passives += 1
+        elif 9 <= n <= 10:
+            promoters += 1
+    total = len(detractors) + passives + promoters
+    if total == 0:
+        return None
+    score = round((promoters - len(detractors)) / total * 100, 1)
+    return {
+        "score": score,
+        "total": total,
+        "promoters": promoters,
+        "passives": passives,
+        "detractors": len(detractors),
+        "detractor_calls": detractors,
+    }
+
+
+def aggregate_disposition_mix(agent_wrap: dict | None, team_wrap: dict | None,
+                              flag_pp_delta: float = 10.0) -> dict | None:
+    """Compare the target agent's wrap-up code distribution against the team's.
+
+    Returns ``None`` when either input is missing or empty. Otherwise returns
+    ``{rows: [{name, count, agent_pct, team_pct, delta_pp, flagged}], flagged_codes}``
+    where ``flagged=True`` for any code whose agent_pct differs from team_pct
+    by at least ``flag_pp_delta`` percentage points.
+    """
+    if not agent_wrap or not team_wrap:
+        return None
+    agent_dist = agent_wrap.get("distribution") or []
+    team_dist = team_wrap.get("distribution") or []
+    if not agent_dist:
+        return None
+    team_pct_by_name = {d.get("name"): d.get("percentage") or 0.0 for d in team_dist}
+    rows: list[dict] = []
+    for d in agent_dist[:8]:
+        name = d.get("name") or "<unknown>"
+        agent_pct = d.get("percentage") or 0.0
+        team_pct = team_pct_by_name.get(name, 0.0)
+        delta = agent_pct - team_pct
+        rows.append({
+            "name": name,
+            "count": d.get("count") or 0,
+            "agent_pct": agent_pct,
+            "team_pct": team_pct,
+            "delta_pp": delta,
+            "flagged": abs(delta) >= flag_pp_delta,
+        })
+    flagged_codes = [r for r in rows if r["flagged"]]
+    return {"rows": rows, "flagged_codes": flagged_codes}
+
+
+def render_agent_nps_section(nps: dict | None) -> str:
+    """Render the per-agent NPS section. Empty string when nps is None."""
+    if nps is None:
+        return ""
+    score = nps["score"]
+    cls = "good" if score >= 30 else "warn" if score >= 0 else "bad"
+    sign = "+" if score > 0 else ""
+    detractor_calls = nps.get("detractor_calls") or []
+    if detractor_calls:
+        det_rows = "".join(
+            f'<tr><td><code style="font-size:11px">{escape(c.get("conversation_id") or "")}</code></td>'
+            f'<td class="num">{c.get("score")}</td>'
+            f'<td>{escape(c.get("conversation_start") or "")}</td></tr>'
+            for c in detractor_calls
+        )
+        det_table = (
+            '<h3 style="margin-top:14px;">Detractor calls (score 0–6) — listen back</h3>'
+            '<table><thead><tr><th>Conversation</th><th class="num">Score</th>'
+            '<th>Started</th></tr></thead>'
+            f'<tbody>{det_rows}</tbody></table>'
+        )
+    else:
+        det_table = '<p style="color:var(--muted);">No detractor calls this period — nothing to listen back to.</p>'
+    return (
+        '<section id="cx-nps">'
+        '<h2>4a. NPS — this agent</h2>'
+        f'<div class="kpi-grid">'
+        f'<div class="kpi {cls}"><div class="label">NPS (period)</div>'
+        f'<div class="value">{sign}{score:.0f}</div>'
+        f'<div class="sub">{nps["promoters"]} / {nps["passives"]} / {nps["detractors"]} '
+        f'prom / pass / det · n={nps["total"]}</div></div>'
+        '</div>'
+        f'{det_table}'
+        '</section>'
+    )
+
+
+def render_disposition_mix_section(mix: dict | None) -> str:
+    """Render the per-agent disposition-mix section. Empty string when None."""
+    if mix is None:
+        return ""
+    rows = mix.get("rows") or []
+    if not rows:
+        return ""
+    rows_html = []
+    for r in rows:
+        delta = r["delta_pp"]
+        if r["flagged"]:
+            cls = "bad" if delta > 0 else "good"
+            sign = "+" if delta > 0 else ""
+            delta_cell = f'<span class="vs-target {cls}"><strong>{sign}{delta:.1f}pp</strong></span>'
+        else:
+            sign = "+" if delta > 0 else ""
+            delta_cell = f'<span class="muted">{sign}{delta:.1f}pp</span>'
+        rows_html.append(
+            f'<tr><td>{escape(r["name"])}</td>'
+            f'<td class="num">{r["count"]}</td>'
+            f'<td class="num">{r["agent_pct"]:.1f}%</td>'
+            f'<td class="num">{r["team_pct"]:.1f}%</td>'
+            f'<td class="num">{delta_cell}</td></tr>'
+        )
+    flagged = mix.get("flagged_codes") or []
+    callout = (
+        f'<div class="callout"><strong>{len(flagged)} code(s) flagged</strong> '
+        f'(≥10pp deviation vs team): '
+        + ', '.join(f'{c["name"]} ({"+" if c["delta_pp"] > 0 else ""}{c["delta_pp"]:.1f}pp)' for c in flagged)
+        + '. Worth a conversation about why.</div>'
+    ) if flagged else ''
+    return (
+        '<section id="disposition-mix">'
+        '<h2>4b. Disposition mix — agent vs team</h2>'
+        '<p style="color:var(--muted); font-size:13px;">Top 8 wrap-up codes '
+        'this agent used, with their share vs the team mean for the same '
+        'period. Codes where the agent\'s share differs from team by ≥10pp '
+        'are flagged — over-use can signal a routing issue, under-use can '
+        'signal an avoided category.</p>'
+        '<table><thead><tr><th>Wrap-up code</th>'
+        '<th class="num">Calls (agent)</th>'
+        '<th class="num">Agent %</th><th class="num">Team %</th>'
+        '<th class="num">Δ</th></tr></thead>'
+        f'<tbody>{"".join(rows_html)}</tbody></table>'
+        f'{callout}'
+        '</section>'
+    )
+
+
 def render_html(pack: dict, period: str, cfg: TenantConfig,
-                narrative: dict[str, str] | None = None) -> str:
+                narrative: dict[str, str] | None = None,
+                agent_nps: dict | None = None,
+                disposition_mix: dict | None = None) -> str:
     body = (
         render_header(pack, period, cfg)
         + render_toc()
@@ -672,6 +843,8 @@ def render_html(pack: dict, period: str, cfg: TenantConfig,
         + render_sentiment_quality(pack)
         + render_adherence_section(pack, cfg)
         + render_wrap_section(pack)
+        + render_agent_nps_section(agent_nps)
+        + render_disposition_mix_section(disposition_mix)
         + render_flagged_section(pack, cfg)
         + render_focus_section(pack)
         + render_narrative_block(narrative)
@@ -706,6 +879,18 @@ def main() -> int:
                         "brief, after Recommended Focus. Optional; omitting it "
                         "produces the v0.5-era data-only brief (talking points "
                         "stay chat-only).")
+    p.add_argument("--nps-json",
+                   help="(v1.11) Path to an org-wide search_conversations_by_attribute "
+                        "payload (attribute_key=cfg.survey.nps_attribute_key, interval=<period>). "
+                        "Build script groups by agent_user_id and surfaces the target "
+                        "agent's NPS rollup + clickable detractor calls. Optional.")
+    p.add_argument("--wrap-up-agent-json",
+                   help="(v1.11) Path to a wrap_up_code_distribution payload filtered to "
+                        "the target user_id only. Pairs with --wrap-up-team-json to render "
+                        "the per-agent disposition-mix vs team section. Optional.")
+    p.add_argument("--wrap-up-team-json",
+                   help="(v1.11) Path to a wrap_up_code_distribution payload across the "
+                        "target's peer set. Optional; pair with --wrap-up-agent-json.")
     args = p.parse_args()
 
     cfg = load_config()
@@ -714,7 +899,26 @@ def main() -> int:
         parse_narrative_md(Path(args.with_narrative).expanduser())
         if args.with_narrative else None
     )
-    html = render_html(pack, args.period, cfg, narrative=narrative)
+
+    # v1.11: per-agent NPS + disposition-mix aggregates (optional inputs).
+    target_user_id = (pack.get("agent") or {}).get("user_id")
+    nps_raw = (
+        json.loads(Path(args.nps_json).expanduser().read_text())
+        if args.nps_json else None
+    )
+    wrap_agent_raw = (
+        json.loads(Path(args.wrap_up_agent_json).expanduser().read_text())
+        if args.wrap_up_agent_json else None
+    )
+    wrap_team_raw = (
+        json.loads(Path(args.wrap_up_team_json).expanduser().read_text())
+        if args.wrap_up_team_json else None
+    )
+    agent_nps = aggregate_agent_nps(nps_raw, target_user_id)
+    disposition_mix = aggregate_disposition_mix(wrap_agent_raw, wrap_team_raw)
+
+    html = render_html(pack, args.period, cfg, narrative=narrative,
+                       agent_nps=agent_nps, disposition_mix=disposition_mix)
 
     out_path = (
         Path(args.output).expanduser() if args.output

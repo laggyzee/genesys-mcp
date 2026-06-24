@@ -1,0 +1,22 @@
+schema_version: "1.0"
+tenant:
+  name: "NoSurveyCo"
+  short_name: "nosurvey"
+  timezone: "UTC"
+brands:
+  names: ["BrandA"]
+queues:
+  name_pattern: "{brand} - {function}"
+  channels: ["Voice", "Chat"]
+  functions: ["Sales", "Support"]
+  skip_substrings: []
+specialist_roles: ["Specialist"]
+operating_model:
+  has_pre_break_presence: false
+  has_brand_structure: false
+  expected_channels: ["voice", "message"]
+# No `survey:` block at all — v1.8 defaults (all-None) apply.
+# No `business_unit:` block — id defaults to None.
+# No `management_units:` block — ids defaults to empty list.
+# v1.11 contract: every new section / card omits silently, no crashes,
+# no empty rendered placeholders.

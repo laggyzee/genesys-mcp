@@ -74,24 +74,56 @@ Based on `cfg.coaching.peer_grouping`:
 
 Cap the peer set at 20 (peer-median computation gets noisy past that, and it slows the aggregates query). Save the peer `user_ids` list.
 
-### Step 4 — Call `agent_coaching_pack`
+### Step 4 — Call `agent_coaching_pack` (+ v1.11 optional sidecars in parallel)
 
-Single call:
+Fire `agent_coaching_pack` plus the v1.11 sidecar calls in **one parallel batch**. The sidecars are independent of `agent_coaching_pack` and add new optional sections to the HTML; omitting one simply omits its section.
 
 ```
+# Always:
 mcp__genesys__agent_coaching_pack(
     user_id=<target>,
     interval=<iso interval>,
     peer_user_ids=<peers>,
     flagged_calls_limit=10,
 )
+
+# v1.11 — per-agent NPS section (only when cfg.survey.nps_attribute_key is set):
+mcp__genesys__search_conversations_by_attribute(
+    attribute_key=cfg.survey.nps_attribute_key,
+    interval=<iso interval>,
+    # No user_ids filter — fetch org-wide; the build script groups by agent_user_id
+    # and surfaces the target's slice plus a detractor-call list to listen back to.
+)
+
+# v1.11 — per-agent disposition mix vs team (always when read scope is granted):
+mcp__genesys__wrap_up_code_distribution(
+    user_ids=[<target>],
+    interval=<iso interval>,
+    include_trend=False,
+    top_n=20,
+)
+mcp__genesys__wrap_up_code_distribution(
+    user_ids=<peers>,     # the peer set from Step 3
+    interval=<iso interval>,
+    include_trend=False,
+    top_n=20,
+)
 ```
 
-Save the result JSON to `/tmp/cc-coaching-{agent_slug}-{period_slug}/coaching_pack.json`. (Use a slug like `anthony-kha` / `april-2026`.)
+Save the result JSONs to `/tmp/cc-coaching-{agent_slug}-{period_slug}/`:
+
+```
+coaching_pack.json                  # required
+nps.json                            # optional (v1.11) — only when nps_attribute_key set
+wrap_up_agent.json                  # optional (v1.11)
+wrap_up_team.json                   # optional (v1.11) — pair with wrap_up_agent.json
+```
+
+(Use a slug like `anthony-kha` / `april-2026`.)
 
 ### Step 5 — Render the HTML
 
-Run `build_report.py`:
+Run `build_report.py`. Pass `--nps-json`, `--wrap-up-agent-json`, `--wrap-up-team-json` only when the matching file exists — omit the flag otherwise and the section silently absents.
 
 ```bash
 cd ~/code/genesys-mcp/skills/cc-coaching-prep
@@ -99,7 +131,10 @@ cd ~/code/genesys-mcp/skills/cc-coaching-prep
     --coaching-pack /tmp/cc-coaching-{agent_slug}-{period_slug}/coaching_pack.json \
     --agent-slug "{agent_slug}" \
     --period "{period_label}" \
-    --period-slug "{period_slug}"
+    --period-slug "{period_slug}" \
+    [--nps-json /tmp/cc-coaching-{agent_slug}-{period_slug}/nps.json] \
+    [--wrap-up-agent-json /tmp/cc-coaching-{agent_slug}-{period_slug}/wrap_up_agent.json] \
+    [--wrap-up-team-json /tmp/cc-coaching-{agent_slug}-{period_slug}/wrap_up_team.json]
 ```
 
 The script reads `cfg.coaching_output_path(agent_slug, period_slug)` to resolve the output path — typically `~/Documents/coaching-<agent>-<period>.html`.

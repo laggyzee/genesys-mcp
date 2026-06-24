@@ -79,6 +79,8 @@ Make all of these calls in parallel — they're independent. Save each result's 
 | `agent_perf_day.json` | `mcp__genesys__agent_performance(interval=<day>, user_ids=[])` | yesterday's per-agent AHT/answered |
 | `repeat_callers.json` | `mcp__genesys__repeat_caller_deep_dive(queue_ids=[], interval=<day>, top_n=10)` | unresolved-from-yesterday hotlist |
 | `break_overrun.json` | `mcp__genesys__break_overrun_report(interval=<day>, user_ids=[])` | break/pre-break overruns |
+| `nps.json` *(v1.11, optional)* | `mcp__genesys__search_conversations_by_attribute(attribute_key=cfg.survey.nps_attribute_key, interval=<day>)` | **Only call when `cfg.survey.nps_attribute_key` is set in tenant.yaml.** Powers the NPS card. Omit the file entirely (don't write `null`) when the tenant hasn't opted in — the build script gates on file presence. |
+| `wrap_up_distribution.json` *(v1.11)* | `mcp__genesys__wrap_up_code_distribution(interval=<day>, include_trend=True, top_n=5)` | Top wrap-up codes + largest mover (vs immediately prior day). Section auto-omits if zero conversations. |
 
 The skill's pattern matches `cc-monthly-report` Step 3: parallel tool calls, save raw JSON, then a single Python build script does aggregation + HTML rendering.
 
