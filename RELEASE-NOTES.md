@@ -1,5 +1,88 @@
 # Release Notes
 
+## v1.10.0 — 24 June 2026
+
+**Wrap-up code distribution + period-over-period trend.** Closes the gap that surfaced as *"Wrap-up code distribution not available in this run"* in `cc-monthly-report` and `cc-daily-brief`. Pre-v1.10 no MCP tool aggregated wrap-up codes via Genesys analytics — the only path that produced a wrap-up rollup (`repeat_caller_deep_dive.org_rollup.top_dispositions`) walked one conversation at a time and only covered the repeat-caller cohort. A skill asking *"wrap-up code share across all conversations this month"* had no good data source, so it rendered the "Not available" placeholder.
+
+### Why this happened
+
+- `list_wrapup_codes` (directory tool) returns the catalogue but not usage counts.
+- `_fetch_wrapup(conversation_id)` is per-conversation N+1 — fine for a few hundred deep-dive conversations, useless for a month of org-wide traffic.
+- Genesys analytics aggregates support `groupBy: ["wrapUpCode"]` natively (confirmed via the platform-api schema), but nothing in the MCP exercised it. v1.10 fixes that.
+
+### New tool: `wrap_up_code_distribution`
+
+```python
+wrap_up_code_distribution(
+    interval: str | None = None,           # default last 7 days UTC
+    queue_ids: list[str] | None = None,    # optional filter (multi-queue OR)
+    user_ids: list[str] | None = None,     # optional filter (multi-user OR)
+    media_types: list[str] | None = None,  # optional ['voice','message','callback','email']
+    include_trend: bool = True,            # compute prior-period comparison
+    top_n: int = 25,                       # cap on rows (with "Other (truncated)" rollup)
+    mode: str = "summary",                 # "summary" | "full"
+)
+```
+
+Returns:
+
+```yaml
+interval: "..."
+as_of_utc: "..."
+filters: {queue_ids: null, user_ids: null, media_types: null}
+
+totals:
+  conversation_count: 12450
+  distinct_code_count: 23
+  truncated: false
+
+distribution:                              # sorted by count desc; "Other (truncated)" last
+  - wrapup_code_id: "..."
+    name: "Customer Resolved"
+    count: 4200
+    percentage: 33.7
+    prior_count: 3900                      # only when include_trend=true
+    delta: 300
+    delta_pct: 7.7
+    movement: "up"                         # "up" | "down" | "flat" (|delta_pct| < 2%)
+
+trend:                                     # null when include_trend=false
+  prior_interval: "..."
+  largest_movers:                          # top 5 by absolute delta_pct
+    - {name: "Callback Requested", delta_pct: 61.5, movement: "up"}
+    - {name: "Wrong Number",       delta_pct: -45.2, movement: "down"}
+  new_codes_this_period: ["..."]
+  retired_codes:        ["..."]
+```
+
+### Implementation notes
+
+- **Endpoint**: `POST /api/v2/analytics/conversations/aggregates/query` with `groupBy: ["wrapUpCode"]` and metric `tHandle.count` (count of handled conversations carrying each wrap-up code). One API call returns the whole distribution.
+- **Trend**: when `include_trend=True`, a second parallel call against the immediately-prior interval (same length) feeds delta / movement / largest-movers / new + retired-codes detection. `ThreadPoolExecutor(max_workers=2)` — wall time is the slower of the two calls, not the sum.
+- **Filter shape**: the canonical outer-`and` of `or` clauses (queue / user / media), matching `agent_performance` / `queue_performance` so wrap-code counts reconcile with the Genesys UI.
+- **Code-name resolution**: process-lifetime cache of `RoutingApi.get_routing_wrapupcodes`. First call hits Genesys; subsequent calls hit the cache. Restart the MCP server to refresh after an admin rename. Same pattern as `directory.list_org_presences` (v1.3) and `wfm_activity_codes` (v1.7).
+- **Top-N cap**: distribution truncates to `top_n` rows with an `Other (truncated)` rollup row carrying the residual count + prior + delta.
+
+### Tests
+
+`tests/test_wrap_up_distribution.py` — 16 tests covering request body shape, prior-interval computation, distribution sort + percentages, code-name resolution from catalogue, top-N truncation + "Other" rollup, trend (delta_pct + movement classification, largest movers sorted by `|delta_pct|`, new/retired-codes detection), v1.5 envelope contract, and empty-result safety.
+
+**482 tests passing, 50 tools** (was 466 / 49 in v1.8; v1.9 was the relicensing release — no tool changes).
+
+### Skill wiring — coming in v1.11
+
+The full v1.10 plan included wiring this into `cc-monthly-report` (replace the "Not available" placeholder with the new table + chart + largest-movers callout) and `cc-daily-brief` (mini-card with top 5 codes + single largest mover). That landed as a follow-on (**v1.11**) to keep this release scoped to the foundational MCP tool. The skill wiring is independent and can ship without re-touching the tool — the skill build_report.py files just need to add the new fetch + section render.
+
+### OAuth scope
+
+Needs `analytics:conversationAggregate:view` (typically bundled into `analytics:readonly`) plus `routing:wrapupCode:view` for the catalogue resolution.
+
+### Upgrading
+
+`uv sync` for fresh deps. No required config changes. The tool is ready to query ad-hoc against any tenant — the "Not available" message in skills will go away in v1.11 once the build scripts wire it in.
+
+---
+
 ## v1.9.0 — 24 June 2026
 
 **Relicensed: MIT → PolyForm Noncommercial 1.0.0.** The project moves to a source-available, dual-licensed model. Noncommercial use — personal projects, research, evaluation, education, and use by nonprofits/public-research/government — remains free. **Commercial use now requires a separate licence from the maintainer**, including building a product or service on the MCP or offering it as a hosted/managed service.
