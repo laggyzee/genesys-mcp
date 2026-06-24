@@ -1,5 +1,19 @@
 # Release Notes
 
+## v1.9.0 — 24 June 2026
+
+**Relicensed: MIT → PolyForm Noncommercial 1.0.0.** The project moves to a source-available, dual-licensed model. Noncommercial use — personal projects, research, evaluation, education, and use by nonprofits/public-research/government — remains free. **Commercial use now requires a separate licence from the maintainer**, including building a product or service on the MCP or offering it as a hosted/managed service.
+
+No functional changes: the tool surface, behaviour, and read-only-by-design posture are identical to v1.8.0.
+
+### Licence
+- `LICENSE` is now PolyForm Noncommercial 1.0.0.
+- Releases up to and including **v1.8.0 remain available under MIT** — rights already granted are not revoked. v1.9.0 and later are under PolyForm Noncommercial 1.0.0.
+- Commercial licensing enquiries: <designsbylwd@gmail.com>, or open a GitHub issue labelled `commercial-license`.
+
+### Contributing
+- New `CONTRIBUTING.md` and `DCO`. Contributions now require a Developer Certificate of Origin sign-off (`git commit -s`) **plus a contribution licence grant**, so contributions can be included in commercially licensed versions while contributors keep their copyright.
+
 ## v1.8.0 — 24 June 2026
 
 **Conversation attribute search + NPS auto-detection.** Closes a reporting gap surfaced by *"can you tell me what the NPS is today?"* and *"how many conversations had outcome = Resolved?"* Pre-v1.8 the MCP had **zero** path to question conversations by participant attribute — `search_conversations` only filtered by ANI / queue / agent / direction, and the async-jobs predicate dimensions don't target `participants[].attributes`. The dedicated Genesys "search by participant attribute" endpoint was completely unwrapped.
