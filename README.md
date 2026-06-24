@@ -374,7 +374,9 @@ Pair with the [`platform-api`](https://github.com/MakingChatbots/genesys-cloud-s
 
 ## Contributing
 
-PRs welcome. Things on the roadmap that someone might want to take a swing at:
+PRs welcome — please read [`CONTRIBUTING.md`](CONTRIBUTING.md) first. In short: sign off your commits under the [DCO](DCO) (`git commit -s`), and note that contributing also grants the maintainer the right to license your contribution under the project's commercial licence (so the project can stay dual-licensed). You keep copyright in your work.
+
+Things on the roadmap that someone might want to take a swing at:
 - Web messaging transcript wrapper (the `/api/v2/conversations/messages/{id}/messages/bulk` flow, which currently needs the `call_genesys_api` escape hatch)
 - Half-hourly intra-day staffing in `wfm_schedule` (currently rolls up to daily; the v0.9 hour-of-day heatmap covers the *demand* side, but scheduled-capacity bucketing is still daily)
 - Skill-based routing analysis (which agents have which skills × queue requirements)
@@ -384,4 +386,11 @@ Explicitly removed from the backlog: **outbound campaign coverage** (deferred ac
 
 ## Licence
 
-MIT — see `LICENSE`.
+**Source-available, not open source.** This project is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE) — see [`LICENSE`](LICENSE).
+
+- **Noncommercial use is free.** Personal projects, research, evaluation, education, and use by nonprofits, public-research, and government bodies are all permitted at no cost.
+- **Commercial use requires a separate licence.** You may not use this software — or build a product or service on it — for commercial advantage or monetary compensation without a commercial licence from the maintainer. This includes selling it, offering it as a hosted/managed service, or bundling it into a commercial offering.
+
+**Commercial licensing:** email <designsbylwd@gmail.com>, or open a GitHub issue labelled `commercial-license` to start a conversation.
+
+**History:** all releases published before this licence change were under the MIT Licence and remain available under MIT for those versions — MIT rights already granted cannot be revoked. This and all future versions are licensed under PolyForm Noncommercial 1.0.0.
