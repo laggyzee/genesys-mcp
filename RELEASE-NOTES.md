@@ -1,5 +1,36 @@
 # Release Notes
 
+## v1.13.1 — 24 June 2026
+
+**Bug fix: `list_org_presences` crashed with "unexpected keyword argument 'page_size'".**
+
+### What was wrong
+
+Both `list_org_presences` (the v1.3 user-facing tool) and `_load_presence_label_cache` (the internal cache loader used by `presence_sessions` and others) were calling `PresenceApi.get_presence_definitions(page_size=…, page_number=…, …)`. The SDK method's strict allowlist is `{deactivated, division_id, locale_code}` — `page_size` and `page_number` raise `TypeError: Got an unexpected keyword argument 'page_size' to method get_presence_definitions`. The underlying endpoint (`GET /api/v2/presence/definitions`) returns all definitions in one response; there's never been any pagination on that endpoint.
+
+The cache loader was wrapped in `try/except Exception` so its crash was silently swallowed (existing comment at the catch: *"Mark loaded anyway — don't retry every call"*). The bug was invisible until `list_org_presences` was invoked directly, at which point it crashed user-visibly.
+
+### Fix
+
+Removed `page_size` / `page_number` kwargs and the surrounding while-loop in both call sites. The endpoint returns the full list in one response so no looping is needed. `list_org_presences` still accepts `deactivated` and `name_contains`; response shape unchanged for callers that didn't hit the crash.
+
+### Regression test
+
+`tests/test_envelopes_v13.py::TestListOrgPresences::test_does_not_pass_pagination_kwargs_to_sdk` — uses a strict fake SDK that mirrors the real allowlist (`{deactivated, division_id, locale_code}`) and raises `TypeError` if any forbidden kwarg arrives. Re-introducing pagination kwargs hard-fails this test.
+
+**564 tests** (563 → 564). All passing.
+
+### Files changed
+
+- `src/genesys_mcp/tools/directory.py` — both call sites patched.
+- `tests/test_envelopes_v13.py` — regression test added.
+
+### Hat tip
+
+User-reported. Reproducible against any tenant with active presence definitions once `list_org_presences` was invoked.
+
+---
+
 ## v1.13.0 — 24 June 2026
 
 **cc-workforce-history skill.** Wraps the v1.12 `user_activity_history` tool with a multi-year HTML report so the *"who was on the floor over the last 3 years?"* class of question stops being a manual Excel pivot job.
