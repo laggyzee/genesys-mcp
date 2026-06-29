@@ -20,6 +20,7 @@ Two tools:
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timezone
 from typing import Any
 
@@ -284,7 +285,19 @@ def register(mcp: FastMCP) -> None:
     def wfm_time_off_requests(
         business_unit_id: str = Field(
             description=(
-                "Business unit id. Use `list_management_units` to find the BU id."
+                "Business unit id. Required for resolving activity-code "
+                "names (the catalogue lives under "
+                "`/businessunits/{id}/activitycodes`). Use "
+                "`list_management_units` to find the BU id."
+            ),
+        ),
+        management_unit_ids: list[str] = Field(
+            description=(
+                "Management unit ids to query. Time-off requests in "
+                "Genesys are stored per-MU — the API has no BU-wide "
+                "query endpoint. Pass every MU you want covered; the "
+                "tool fans out concurrently and merges the results. "
+                "Use `list_management_units` to discover them."
             ),
         ),
         interval: str | None = Field(
@@ -353,12 +366,21 @@ def register(mcp: FastMCP) -> None:
         windows, call ``compute_interval(period="last_28_days")`` first
         and pass its ``interval`` field.
 
-        Endpoint: ``POST /api/v2/workforcemanagement/businessunits/{businessUnitId}/timeoffrequests/query``.
-        Needs ``workforce-management:readonly``.
+        Endpoint: ``POST /api/v2/workforcemanagement/managementunits/{managementUnitId}/timeoffrequests/query``
+        — invoked once per MU in ``management_unit_ids`` (concurrent fan-out).
+        Needs ``wfm:timeOffRequest:view``. The BU-scoped path used pre-v1.13.2
+        does not exist in the Genesys schema and crashed 404 on every call.
         """
         if mode not in ("summary", "full"):
             raise ValueError(
                 f"wfm_time_off_requests.mode must be 'summary' or 'full', got {mode!r}"
+            )
+        if not management_unit_ids:
+            raise ValueError(
+                "wfm_time_off_requests.management_unit_ids must contain at "
+                "least one MU id. The Genesys time-off-request endpoint is "
+                "MU-scoped — there is no BU-wide query. Discover MUs via "
+                "list_management_units(business_unit_id=...)."
             )
 
         resolved_interval = interval or _default_interval(28)
@@ -371,36 +393,50 @@ def register(mcp: FastMCP) -> None:
 
         resolved_statuses = list(statuses) if statuses else ["APPROVED", "PENDING"]
 
-        body: dict[str, Any] = {
-            "dateRange": {"startDate": start_date, "endDate": end_date},
-            "statuses": resolved_statuses,
-            "pageSize": 100,
-            "pageNumber": 1,
-        }
-        if user_ids:
-            body["userIds"] = list(user_ids)
+        def _base_body() -> dict[str, Any]:
+            body: dict[str, Any] = {
+                "dateRange": {"startDate": start_date, "endDate": end_date},
+                "statuses": resolved_statuses,
+                "pageSize": 100,
+                "pageNumber": 1,
+            }
+            if user_ids:
+                body["userIds"] = list(user_ids)
+            return body
 
-        # Paginate. The endpoint caps pageSize at 100; 10 pages = 1000
-        # requests, comfortable upper bound for any realistic interval ×
-        # org size.
         api_client = get_api()
+
+        def _fetch_one_mu(mu_id: str) -> list[dict]:
+            """Paginate one MU's time-off queue (cap 10 pages = 1000 rows)."""
+            mu_entities: list[dict] = []
+            body = _base_body()
+            for page_number in range(1, 11):
+                body["pageNumber"] = page_number
+                resp = with_retry(api_client.call_api)(
+                    resource_path=(
+                        f"/api/v2/workforcemanagement/managementunits/"
+                        f"{mu_id}/timeoffrequests/query"
+                    ),
+                    method="POST",
+                    body=body,
+                    auth_settings=["PureCloud OAuth"],
+                    response_type="object",
+                ) or {}
+                entities = resp.get("entities") or []
+                mu_entities.extend(entities)
+                if len(entities) < body["pageSize"]:
+                    break
+            return mu_entities
+
+        # Fan out per MU. Cap concurrency at 4 — each call may itself
+        # paginate (10 page-fetches max). At ~6 MUs × 4 workers wall-clock
+        # stays under 5s for realistic orgs.
         all_entities: list[dict] = []
-        for page_number in range(1, 11):
-            body["pageNumber"] = page_number
-            resp = with_retry(api_client.call_api)(
-                resource_path=(
-                    f"/api/v2/workforcemanagement/businessunits/"
-                    f"{business_unit_id}/timeoffrequests/query"
-                ),
-                method="POST",
-                body=body,
-                auth_settings=["PureCloud OAuth"],
-                response_type="object",
-            ) or {}
-            entities = resp.get("entities") or []
-            all_entities.extend(entities)
-            if len(entities) < body["pageSize"]:
-                break
+        max_workers = max(1, min(4, len(management_unit_ids)))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(_fetch_one_mu, mu) for mu in management_unit_ids]
+            for fut in futures:
+                all_entities.extend(fut.result())
 
         activity_codes = _fetch_activity_codes(business_unit_id)
         unique_user_ids = sorted({
@@ -419,6 +455,7 @@ def register(mcp: FastMCP) -> None:
             "interval": resolved_interval,
             "as_of_utc": _now_utc().isoformat().replace("+00:00", "Z"),
             "business_unit_id": business_unit_id,
+            "management_unit_ids": list(management_unit_ids),
             "statuses_queried": resolved_statuses,
             "mode": mode,
             "totals": totals,
