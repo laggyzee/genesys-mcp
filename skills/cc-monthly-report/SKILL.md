@@ -138,6 +138,8 @@ search_conversations_by_attribute(attribute_key=cfg.survey.experience_score_attr
 
 **Important:** do not split these across multiple turns or wait for one to return before issuing the next. All are independent — no dependencies between them, so they all go in one batch. The aggregation logic in `build_report.py` doesn't care about the order results come back in.
 
+**Soft-fail handling (v1.12.1):** If any of these tools returns a canonical soft-fail envelope (`status >= 400`, e.g. `{"status": 403, "kind": "wrap_up_code_distribution", "message": "... grant 'analytics:conversationAggregate:view' ..."}`), **save the envelope to the data file as-is**. Do NOT write narrative paragraphs in the report explaining the gap — the build script renders a visible "⚠️ data not retrieved" callout automatically. Narrative paragraphs that pre-empt the renderer produce LLM-fabricated explanations instead of sourced remediation steps.
+
 **v1.11 gating rules:** Each v1.11 addition is *individually* optional. Skip a tool entirely (don't write a file with `null`) when its precondition isn't met — the build script gates each section on file presence, so an omitted file = section silently absent. Specifically:
 - The three `search_conversations_by_attribute` calls each require the matching `cfg.survey.*_attribute_key` to be set. If `nps_attribute_key` is `None`, skip the NPS call.
 - `wfm_time_off_requests` requires `cfg.business_unit.id` to be set (or auto-discovered earlier).

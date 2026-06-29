@@ -1,5 +1,48 @@
 # Release Notes
 
+## v1.12.1 — 24 June 2026
+
+**Wrap-up soft-fail envelope + visible "data not retrieved" callout.** Closes a silent-failure → LLM-narrative bug class that surfaced shortly after v1.11.0 shipped.
+
+### What was happening
+
+A user re-ran `cc-monthly-report` against v1.11.0 and got this paragraph in the report:
+
+> *"Wrap-code dataset could not be retrieved for this preview run … those values are shown as Unavailable below. Re-running the report once full Genesys analytics access is available will populate every section."*
+
+That text exists nowhere in the codebase. The `wrap_up_code_distribution` tool errored (likely 403 — `analytics:conversationAggregate:view` missing from the OAuth role), the SDK exception propagated unhandled, and the agent — finding no real wrap-up data to render — *invented narrative* to explain the gap. The build script renders no fallback text; it either shows real data or silently omits the section, leaving a section-shaped hole the agent felt obliged to fill.
+
+### What changed
+
+1. **Tool now returns a canonical soft-fail envelope on `ApiException`** (`src/genesys_mcp/tools/wrapup.py`). Mirrors the v1.3 pattern already used by `qa_evaluations`, `voice_call_quality`, etc. Aggregates 403 → `{"status": 403, "kind": "wrap_up_code_distribution", "message": "... grant 'analytics:conversationAggregate:view' (typically bundled into 'analytics:readonly') ...", "interval": "<echo>"}`. Catalogue 403 (`routing:wrapupCode:view`) → logged warning, falls back to `<unknown {cid[:8]}>` labels but aggregates still render.
+
+2. **Skill renderers detect the envelope and show a visible callout.** `aggregate_wrap_up_section` (monthly) and `aggregate_wrap_up_mini` (daily) recognise `status >= 400` and return a tagged `{_soft_fail: True, status, kind, message}` dict. The render functions then emit a visible "⚠️ Wrap-up data not retrieved (status 403). <message>" callout in the HTML instead of returning empty string.
+
+3. **SKILL.md instructions tightened** in both `cc-monthly-report/SKILL.md` and `cc-daily-brief/SKILL.md`: *"If the tool returns a canonical soft-fail envelope, save it to the data file as-is. Do NOT write narrative paragraphs explaining the gap — the build script renders a visible callout automatically."*
+
+### Result
+
+Every "wrap-up data didn't come back" outcome now produces sourced, visible, remediation-aware text in the report — naming the missing scope, echoing the failing interval. No more LLM-narrative fallback because there's no longer a gap for the narrative to fill.
+
+### Tests
+
+- `tests/test_wrap_up_distribution.py` — +1 test (`TestSoftFailEnvelope`): simulates `ApiException(status=403)` from the SDK, verifies the tool returns the canonical envelope shape.
+- `tests/test_render.py` — +1 test: soft-fail envelope into `aggregate_wrap_up_section` → visible callout HTML with status + message + scope name.
+- `tests/test_daily_brief.py` — +1 test: same for `aggregate_wrap_up_mini` / `render_wrap_up_mini_card`.
+
+**552 tests** total (549 → 552). All passing.
+
+### Backwards compatibility
+
+Successful-call response shape is unchanged. Skills not yet updated to the v1.12.1 build scripts will see the envelope as input and (per the v1.11 `aggregate_wrap_up_section` behaviour) silently omit the section — same as the v1.11 outcome, just no more LLM-narrative pollution. Updated skills get the visible callout.
+
+### Reserved for v1.13.0
+
+- New `cc-workforce-history` skill wrapping the v1.12.0 `user_activity_history` tool — shipping next.
+- Audit other v1.11 tools (NPS attribute search, agent_utilization, wfm_time_off_requests) for the same silent-failure class. They're all read-scope only and may have similar gaps.
+
+---
+
 ## v1.12.0 — 24 June 2026
 
 **Workforce history.** New `user_activity_history` tool answers the long-standing *"who was on the floor in Q3 2023, who joined / left each quarter, and what's the tenure trend over the last 3 years?"* class of question — questions that previously required Excel-pivots over per-user `agent_performance` runs spanning every month.

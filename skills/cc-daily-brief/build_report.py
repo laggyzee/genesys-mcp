@@ -537,9 +537,21 @@ def aggregate_wrap_up_mini(wrap_up: dict | None, top_n: int = 5) -> dict | None:
     """Reduce v1.10 ``wrap_up_code_distribution`` output to the top-N codes
     plus the single largest mover. Returns ``None`` when the tool wasn't
     called or returned zero conversations.
+
+    v1.12.1: detect the canonical soft-fail envelope ``{status: >=400, ...}``
+    and return a tagged dict so the renderer can show a visible missing-scope
+    callout instead of silently omitting the card.
     """
     if not wrap_up:
         return None
+    status = wrap_up.get("status")
+    if isinstance(status, int) and status >= 400:
+        return {
+            "_soft_fail": True,
+            "status": status,
+            "kind": wrap_up.get("kind") or "wrap_up_code_distribution",
+            "message": wrap_up.get("message") or "Wrap-up data not available.",
+        }
     totals = wrap_up.get("totals") or {}
     total_convs = totals.get("conversation_count") or 0
     if total_convs <= 0:
@@ -584,9 +596,23 @@ def render_nps_card(nps: dict | None) -> str:
 
 
 def render_wrap_up_mini_card(wrap_mini: dict | None) -> str:
-    """Render the wrap-up mini-card. Returns empty string when ``wrap_mini`` is None."""
+    """Render the wrap-up mini-card.
+
+    Three states:
+    - ``None`` → empty string (silent omit)
+    - ``{_soft_fail: True, ...}`` (v1.12.1) → visible missing-scope callout
+    - normal payload → render the top-N table + largest-mover callout
+    """
     if wrap_mini is None:
         return ""
+    if wrap_mini.get("_soft_fail"):
+        return (
+            '<div class="callout bad">'
+            '<strong>⚠️ Wrap-up data not retrieved</strong> '
+            f'(status {wrap_mini.get("status")}). '
+            f'{escape(str(wrap_mini.get("message") or ""))}'
+            '</div>'
+        )
     rows = "".join(
         f'<tr><td>{escape(c["name"])}</td>'
         f'<td class="num">{fmt_int(c["count"])}</td>'

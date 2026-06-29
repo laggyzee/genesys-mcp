@@ -261,6 +261,21 @@ class TestWrapUpMiniCardRender:
     def test_none_renders_empty(self, build_report_daily):
         assert build_report_daily.render_wrap_up_mini_card(None) == ""
 
+    def test_soft_fail_envelope_renders_visible_callout(self, build_report_daily):
+        # v1.12.1: soft-fail envelope from wrap-up tool → visible callout
+        envelope = {
+            "status": 403,
+            "kind": "wrap_up_code_distribution",
+            "message": "Grant analytics:conversationAggregate:view.",
+        }
+        agg = build_report_daily.aggregate_wrap_up_mini(envelope)
+        assert agg is not None
+        assert agg["_soft_fail"] is True
+        html = build_report_daily.render_wrap_up_mini_card(agg)
+        assert "data not retrieved" in html
+        assert "403" in html
+        assert "analytics:conversationAggregate:view" in html
+
     def test_renders_table_and_mover_callout(self, build_report_daily):
         from bs4 import BeautifulSoup
         wrap = {
