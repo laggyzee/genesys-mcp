@@ -130,7 +130,7 @@ wfm_schedule(business_unit_id=BU_ID, management_unit_ids=MU_IDS, user_ids=USER_I
 # v1.11 additions — each one optional and gated, see notes below
 agent_utilization(user_ids=USER_IDS, interval=INTERVAL)                             # occupancy column
 wrap_up_code_distribution(interval=INTERVAL, include_trend=True, top_n=20)          # wrap-up section
-wfm_time_off_requests(business_unit_id=BU_ID, interval=INTERVAL)                    # leave summary (only if BU_ID set)
+wfm_time_off_requests(business_unit_id=BU_ID, management_unit_ids=MU_IDS, interval=INTERVAL)  # leave summary (only if BU_ID + MU_IDS set; v1.13.2+ requires both)
 search_conversations_by_attribute(attribute_key=cfg.survey.nps_attribute_key,              interval=INTERVAL)  # NPS tile — only if cfg.survey.nps_attribute_key set
 search_conversations_by_attribute(attribute_key=cfg.survey.agent_score_attribute_key,      interval=INTERVAL)  # Agent Score tile — only if set
 search_conversations_by_attribute(attribute_key=cfg.survey.experience_score_attribute_key, interval=INTERVAL)  # Experience Score tile — only if set
@@ -142,7 +142,7 @@ search_conversations_by_attribute(attribute_key=cfg.survey.experience_score_attr
 
 **v1.11 gating rules:** Each v1.11 addition is *individually* optional. Skip a tool entirely (don't write a file with `null`) when its precondition isn't met — the build script gates each section on file presence, so an omitted file = section silently absent. Specifically:
 - The three `search_conversations_by_attribute` calls each require the matching `cfg.survey.*_attribute_key` to be set. If `nps_attribute_key` is `None`, skip the NPS call.
-- `wfm_time_off_requests` requires `cfg.business_unit.id` to be set (or auto-discovered earlier).
+- `wfm_time_off_requests` (v1.13.2+) requires BOTH `cfg.business_unit.id` AND `cfg.management_units.ids` to be set. The MU list is the actual query scope — Genesys' time-off-request endpoint is MU-scoped, not BU-scoped. The BU id is still needed for activity-code-name resolution.
 - `agent_utilization` and `wrap_up_code_distribution` always run when the OAuth client has the read scopes — no tenant.yaml gating beyond that.
 
 If a tool call errors (e.g. WFM scope missing), let it fail — `build_report.py` treats missing `wfm_schedule.json` as "no WFM section in the output", and the other sections still render. Don't retry, don't try to work around — just note it and continue.

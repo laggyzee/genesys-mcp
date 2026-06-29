@@ -81,6 +81,7 @@ def _call_tool(tool_name, args, monkeypatch, *, fake_api):
 
 
 _BU = "bu-1"
+_MU_IDS = ["mu-1"]
 _INTERVAL = "2026-05-25T14:00:00.000Z/2026-06-22T14:00:00.000Z"
 
 
@@ -163,7 +164,7 @@ class TestRequestBodyShape:
         FakeApi, captured = _make_fake_api(activity_codes_resp=_activity_codes_response())
         _call_tool(
             "wfm_time_off_requests",
-            {"business_unit_id": _BU, "interval": _INTERVAL},
+            {"business_unit_id": _BU, "management_unit_ids": _MU_IDS, "interval": _INTERVAL},
             monkeypatch, fake_api=FakeApi(),
         )
         body = captured["timeoff_calls"][0]
@@ -176,7 +177,7 @@ class TestRequestBodyShape:
         FakeApi, captured = _make_fake_api(activity_codes_resp=_activity_codes_response())
         _call_tool(
             "wfm_time_off_requests",
-            {"business_unit_id": _BU, "interval": _INTERVAL},
+            {"business_unit_id": _BU, "management_unit_ids": _MU_IDS, "interval": _INTERVAL},
             monkeypatch, fake_api=FakeApi(),
         )
         body = captured["timeoff_calls"][0]
@@ -186,7 +187,7 @@ class TestRequestBodyShape:
         FakeApi, captured = _make_fake_api(activity_codes_resp=_activity_codes_response())
         _call_tool(
             "wfm_time_off_requests",
-            {"business_unit_id": _BU, "interval": _INTERVAL,
+            {"business_unit_id": _BU, "management_unit_ids": _MU_IDS, "interval": _INTERVAL,
              "user_ids": ["u1", "u2"]},
             monkeypatch, fake_api=FakeApi(),
         )
@@ -197,7 +198,7 @@ class TestRequestBodyShape:
         FakeApi, captured = _make_fake_api(activity_codes_resp=_activity_codes_response())
         _call_tool(
             "wfm_time_off_requests",
-            {"business_unit_id": _BU, "interval": _INTERVAL},
+            {"business_unit_id": _BU, "management_unit_ids": _MU_IDS, "interval": _INTERVAL},
             monkeypatch, fake_api=FakeApi(),
         )
         body = captured["timeoff_calls"][0]
@@ -207,7 +208,7 @@ class TestRequestBodyShape:
         FakeApi, captured = _make_fake_api(activity_codes_resp=_activity_codes_response())
         _call_tool(
             "wfm_time_off_requests",
-            {"business_unit_id": _BU, "interval": _INTERVAL,
+            {"business_unit_id": _BU, "management_unit_ids": _MU_IDS, "interval": _INTERVAL,
              "statuses": ["APPROVED"]},
             monkeypatch, fake_api=FakeApi(),
         )
@@ -233,7 +234,7 @@ class TestNormalisation:
         )
         out = _call_tool(
             "wfm_time_off_requests",
-            {"business_unit_id": _BU, "interval": _INTERVAL},
+            {"business_unit_id": _BU, "management_unit_ids": _MU_IDS, "interval": _INTERVAL},
             monkeypatch, fake_api=FakeApi(),
         )
         row = out["requests"][0]
@@ -258,7 +259,7 @@ class TestNormalisation:
         )
         out = _call_tool(
             "wfm_time_off_requests",
-            {"business_unit_id": _BU, "interval": _INTERVAL},
+            {"business_unit_id": _BU, "management_unit_ids": _MU_IDS, "interval": _INTERVAL},
             monkeypatch, fake_api=FakeApi(),
         )
         row = out["requests"][0]
@@ -280,7 +281,7 @@ class TestNormalisation:
         )
         out = _call_tool(
             "wfm_time_off_requests",
-            {"business_unit_id": _BU, "interval": _INTERVAL},
+            {"business_unit_id": _BU, "management_unit_ids": _MU_IDS, "interval": _INTERVAL},
             monkeypatch, fake_api=FakeApi(),
         )
         row = out["requests"][0]
@@ -318,7 +319,7 @@ class TestRollups:
         )
         out = _call_tool(
             "wfm_time_off_requests",
-            {"business_unit_id": _BU, "interval": _INTERVAL},
+            {"business_unit_id": _BU, "management_unit_ids": _MU_IDS, "interval": _INTERVAL},
             monkeypatch, fake_api=FakeApi(),
         )
         t = out["totals"]
@@ -335,7 +336,7 @@ class TestRollups:
         )
         out = _call_tool(
             "wfm_time_off_requests",
-            {"business_unit_id": _BU, "interval": _INTERVAL},
+            {"business_unit_id": _BU, "management_unit_ids": _MU_IDS, "interval": _INTERVAL},
             monkeypatch, fake_api=FakeApi(),
         )
         by_act = out["by_activity"]
@@ -352,7 +353,7 @@ class TestRollups:
         )
         out = _call_tool(
             "wfm_time_off_requests",
-            {"business_unit_id": _BU, "interval": _INTERVAL},
+            {"business_unit_id": _BU, "management_unit_ids": _MU_IDS, "interval": _INTERVAL},
             monkeypatch, fake_api=FakeApi(),
         )
         users = out["by_user"]
@@ -370,7 +371,7 @@ class TestEnvelopeAndEdges:
         FakeApi, _ = _make_fake_api(activity_codes_resp=_activity_codes_response())
         out = _call_tool(
             "wfm_time_off_requests",
-            {"business_unit_id": _BU, "interval": _INTERVAL},
+            {"business_unit_id": _BU, "management_unit_ids": _MU_IDS, "interval": _INTERVAL},
             monkeypatch, fake_api=FakeApi(),
         )
         assert out["interval"] == _INTERVAL
@@ -386,7 +387,7 @@ class TestEnvelopeAndEdges:
         )
         out = _call_tool(
             "wfm_time_off_requests",
-            {"business_unit_id": _BU, "interval": _INTERVAL},
+            {"business_unit_id": _BU, "management_unit_ids": _MU_IDS, "interval": _INTERVAL},
             monkeypatch, fake_api=FakeApi(),
         )
         assert out["totals"]["request_count"] == 0
@@ -403,10 +404,10 @@ class TestEnvelopeAndEdges:
         )
         api = FakeApi()
         _call_tool("wfm_time_off_requests",
-                   {"business_unit_id": _BU, "interval": _INTERVAL},
+                   {"business_unit_id": _BU, "management_unit_ids": _MU_IDS, "interval": _INTERVAL},
                    monkeypatch, fake_api=api)
         _call_tool("wfm_time_off_requests",
-                   {"business_unit_id": _BU, "interval": _INTERVAL},
+                   {"business_unit_id": _BU, "management_unit_ids": _MU_IDS, "interval": _INTERVAL},
                    monkeypatch, fake_api=api)
         assert len(captured["activitycodes_calls"]) == 1
         assert len(captured["timeoff_calls"]) == 2
@@ -416,6 +417,93 @@ class TestEnvelopeAndEdges:
         with pytest.raises(Exception, match="mode must be 'summary' or 'full'"):
             _call_tool(
                 "wfm_time_off_requests",
-                {"business_unit_id": _BU, "interval": _INTERVAL, "mode": "bogus"},
+                {"business_unit_id": _BU, "management_unit_ids": _MU_IDS, "interval": _INTERVAL, "mode": "bogus"},
                 monkeypatch, fake_api=FakeApi(),
             )
+
+
+# ── v1.13.2 regression: MU-scoped endpoint path + per-MU fan-out ──
+
+class TestMuScopedEndpoint:
+    """Pins the v1.13.2 fix.
+
+    Pre-v1.13.2 the tool called ``POST /businessunits/{id}/timeoffrequests/query``,
+    which does not exist in the Genesys Platform API schema (verified via the
+    platform-api skill). Every call 404'd. The real endpoint is
+    ``POST /managementunits/{muId}/timeoffrequests/query`` and is invoked
+    once per MU in ``management_unit_ids``.
+    """
+
+    def _capture_paths(self, monkeypatch, mu_ids):
+        captured: dict[str, list[str]] = {"timeoff_paths": []}
+
+        class FakeApi:
+            def call_api(self, **kwargs):
+                path = kwargs.get("resource_path", "")
+                if path.endswith("/activitycodes"):
+                    return _activity_codes_response()
+                if path.endswith("/timeoffrequests/query"):
+                    captured["timeoff_paths"].append(path)
+                    return {"entities": []}
+                raise RuntimeError(f"unexpected path: {path}")
+
+        _call_tool(
+            "wfm_time_off_requests",
+            {
+                "business_unit_id": _BU,
+                "management_unit_ids": mu_ids,
+                "interval": _INTERVAL,
+            },
+            monkeypatch,
+            fake_api=FakeApi(),
+        )
+        return captured["timeoff_paths"]
+
+    def test_calls_mu_scoped_path_not_bu_scoped(self, monkeypatch):
+        paths = self._capture_paths(monkeypatch, ["mu-aaa"])
+        assert len(paths) == 1
+        # Regression: must be MU-scoped, never BU-scoped.
+        assert "/managementunits/mu-aaa/timeoffrequests/query" in paths[0]
+        assert "/businessunits/" not in paths[0]
+
+    def test_fans_out_one_call_per_mu(self, monkeypatch):
+        paths = self._capture_paths(monkeypatch, ["mu-aaa", "mu-bbb", "mu-ccc"])
+        # One path per MU; each must be MU-scoped.
+        assert len(paths) == 3
+        assert all("/managementunits/" in p for p in paths)
+        # Every requested MU id appears exactly once.
+        for mu in ("mu-aaa", "mu-bbb", "mu-ccc"):
+            assert sum(1 for p in paths if f"/{mu}/" in p) == 1
+
+    def test_empty_mu_list_raises_with_remediation(self, monkeypatch):
+        FakeApi, _ = _make_fake_api(activity_codes_resp=_activity_codes_response())
+        with pytest.raises(Exception, match="management_unit_ids must contain at least one"):
+            _call_tool(
+                "wfm_time_off_requests",
+                {
+                    "business_unit_id": _BU,
+                    "management_unit_ids": [],
+                    "interval": _INTERVAL,
+                },
+                monkeypatch,
+                fake_api=FakeApi(),
+            )
+
+    def test_response_echoes_management_unit_ids(self, monkeypatch):
+        FakeApi, _ = _make_fake_api(
+            activity_codes_resp=_activity_codes_response(),
+            timeoff_pages={1: {"entities": []}},
+        )
+        out = _call_tool(
+            "wfm_time_off_requests",
+            {
+                "business_unit_id": _BU,
+                "management_unit_ids": ["mu-x", "mu-y"],
+                "interval": _INTERVAL,
+            },
+            monkeypatch,
+            fake_api=FakeApi(),
+        )
+        assert out["management_unit_ids"] == ["mu-x", "mu-y"]
+        # business_unit_id still echoed for activity-code-resolution provenance.
+        assert out["business_unit_id"] == _BU

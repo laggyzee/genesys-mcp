@@ -1,5 +1,58 @@
 # Release Notes
 
+## v1.13.2 — 30 June 2026
+
+**Bug fix: `wfm_time_off_requests` was calling a non-existent endpoint.**
+
+### What was wrong
+
+The tool issued `POST /api/v2/workforcemanagement/businessunits/{businessUnitId}/timeoffrequests/query` — **this endpoint does not exist in the Genesys Platform API schema.** Every call 404'd. Surfaced as *"unplanned leave not found"* / empty results in reports that should have returned data.
+
+User validated against the schema: the real endpoint is MU-scoped at `POST /api/v2/workforcemanagement/managementunits/{managementUnitId}/timeoffrequests/query` (permission `wfm:timeOffRequest:view`). There is no BU-wide query endpoint; time-off requests in Genesys are partitioned per management unit.
+
+### Fix
+
+`src/genesys_mcp/tools/timeoff.py`:
+
+- **Signature change** — added required `management_unit_ids: list[str]` parameter. `business_unit_id` stays required (still used for the legitimately-BU-scoped activity-codes catalogue at `/businessunits/{id}/activitycodes`).
+- **Per-MU fan-out** — one `POST /managementunits/{muId}/timeoffrequests/query` per MU, concurrent via `ThreadPoolExecutor` (capped at 4 workers). Each MU's results paginate as before.
+- **Response shape** — adds `management_unit_ids` echo field. All existing fields (`totals`, `by_activity`, `by_user`, `requests`, etc.) unchanged.
+- **Hard-fail on empty MU list** — raises with explicit remediation pointing to `list_management_units(business_unit_id=...)` rather than silently returning nothing.
+
+### Skill update
+
+`skills/cc-monthly-report/SKILL.md` Step 3 now passes both `business_unit_id` AND `management_unit_ids` to the call. The v1.11 gating note updated to require both fields in tenant.yaml.
+
+### Regression tests
+
+`tests/test_timeoff.py::TestMuScopedEndpoint` pins:
+
+- The resource path goes to `/managementunits/{mu_id}/timeoffrequests/query`, never `/businessunits/`.
+- One outbound call per MU (3 MUs in → 3 paths captured, each MU appears exactly once).
+- Empty `management_unit_ids` raises with the remediation message.
+- Response echoes `management_unit_ids`.
+
+All 17 pre-existing tests passed after the args-shape update — the fake API matched on `.endswith("/timeoffrequests/query")` so didn't catch the path bug. The new tests pin the path explicitly.
+
+**568 tests** total (564 → 568, +4). All passing.
+
+### Breaking change note
+
+`management_unit_ids` is now a required argument. Any caller that was already using `wfm_time_off_requests` was crashing (404 path), so in practice no working caller is affected — but skills + scripts that pass the old signature will now raise a clear `ValueError` instead of crashing on the SDK call.
+
+### Files changed
+
+- `src/genesys_mcp/tools/timeoff.py` — signature + endpoint + fan-out
+- `tests/test_timeoff.py` — args updates + new `TestMuScopedEndpoint` class (+4 tests)
+- `skills/cc-monthly-report/SKILL.md` — Step 3 call site + gating note
+- `pyproject.toml`, `README.md`, `RELEASE-NOTES.md`
+
+### Hat tip
+
+User-reported, validated against the Platform API schema (confirmed via the platform-api skill jq queries).
+
+---
+
 ## v1.13.1 — 24 June 2026
 
 **Bug fix: `list_org_presences` crashed with "unexpected keyword argument 'page_size'".**
