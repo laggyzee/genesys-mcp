@@ -1,5 +1,81 @@
 # Release Notes
 
+## v1.12.0 — 24 June 2026
+
+**Workforce history.** New `user_activity_history` tool answers the long-standing *"who was on the floor in Q3 2023, who joined / left each quarter, and what's the tenure trend over the last 3 years?"* class of question — questions that previously required Excel-pivots over per-user `agent_performance` runs spanning every month.
+
+### Why this matters
+
+Two existing tools got you close but not all the way:
+
+- `list_users(state="active"|"inactive"|"deleted")` returned users one state at a time.
+- `agent_performance(user_ids, interval=...)` showed activity for *the interval you asked about*, with no way to surface "first ever handled interaction" without N×M probing.
+
+Neither supported the dominant workforce-history shape: *"per-quarter active-agent count + joiners + leavers + tenure trend over a multi-year window across every user who's ever worked here, whether they're still active or not."*
+
+### What `user_activity_history` does
+
+```python
+user_activity_history(
+    user_ids: list[str] | None = None,    # default: all users state=any
+    interval: str | None = None,          # default: last 3 years
+    bucket: str = "quarter",              # "quarter" | "month"
+    tz_name: str = "Australia/Sydney",
+    include_inactive: bool = True,
+    include_deleted: bool = True,
+    max_workers: int = 4,
+)
+```
+
+Returns three surfaces in one call:
+
+- **`per_user`** — one row per user: `{user_id, name, email, state, first_active_month, last_active_month, first_active_date, last_active_date, total_handled, active_buckets, is_joiner_in_window, is_leaver_in_window}` sorted by total_handled desc.
+- **`headcount_by_bucket`** — per quarter (or month): `{bucket, active_agents, joiners, leavers}`. Joiner = first_active_month falls in the bucket. Leaver = last_active_month falls in the bucket AND it's not the final bucket (final-bucket users are still active).
+- **`tenure_trend`** — per bucket: `{bucket, mean_tenure_months, median_tenure_months, n}` where `n` is the active-agent count and tenure is measured from each agent's first_active_month to the bucket start.
+
+### How it works under the hood
+
+- **Directory:** one paginated `GET /api/v2/users?state=any&pageSize=200` call returns every user — active, inactive, and deleted — in one round-trip. No three-pass merging.
+- **Activity:** long intervals are chunked into ~yearly slices and the user list into ≤50-id batches (the Genesys OR-clause safe bound). Chunks fire concurrently via `ThreadPoolExecutor`. Each chunk uses `POST /api/v2/analytics/conversations/aggregates/query` with `groupBy=["userId"]`, `granularity="P1M"`, `metric="tAnswered"` and a media-type filter mirroring `cc-monthly-report` (voice + message + callback; email excluded). Three years = three concurrent calls.
+- **Reduce:** server-side, find first and last non-zero month per user; map months → quarter buckets in the configured timezone; compute joiner/leaver/tenure in pure Python.
+
+### Retention caveat (surfaced as `data_starts_at`)
+
+Genesys conversations/aggregates retention is typically ~13 months for most regions. Older months come back as zero results without erroring. The tool surfaces `data_starts_at` (earliest YYYY-MM with any activity across any user) so the caller can distinguish *"no agents handled interactions in Q3 2023"* from *"Q3 2023 is past Genesys retention and we couldn't tell"*. Reports should treat anything before `data_starts_at` as unknown.
+
+### Permissions
+
+- `users:user:view`
+- `analytics:conversationAggregate:view` (typically bundled into `analytics:readonly`)
+
+If you're using the same OAuth role as the rest of the MCP, no scope changes needed.
+
+### Tests
+
+- `tests/test_workforce_history.py` — 25 new tests covering bucket-key enumeration (quarterly + monthly), month-to-quarter mapping, months-between math, interval chunking, bucket start derivation, joiner/leaver math against synthetic month-count fixtures, and the default-interval resolver.
+
+**549 tests** total (524 → 549). All passing.
+
+### Example use
+
+```python
+user_activity_history(
+    interval="2023-07-01T00:00:00.000Z/2026-07-01T00:00:00.000Z",
+    bucket="quarter",
+    tz_name="Australia/Sydney",
+)
+```
+
+Returns the full Jul 2023 → Jun 2026 workforce-history dataset in one call, with per-person first/last-active rows + quarterly rollups ready to drop into Excel or a dashboard.
+
+### Out of scope (for v1.13+)
+
+- **Skill wiring** — no skill (cc-monthly-report / cc-daily-brief) calls this yet. Currently ad-hoc via direct MCP calls. A `cc-workforce-history` skill or an additional section in `cc-monthly-report` is the natural next step.
+- **`dateHired` reconciliation** — Genesys stores a `dateHired` field on user records; the tool surfaces it as `date_created` per-user but doesn't use it to override the activity-derived `first_active_date`. For agents hired but not yet active, `dateHired` is the truer first-day signal.
+- **Wrap-up tool soft-fail envelope** — still deferred (separate from this release).
+
+---
+
 ## v1.11.0 — 24 June 2026
 
 **Skill wiring catch-up.** Four MCP tools shipped between v1.6 and v1.10 (`agent_utilization`, `wfm_time_off_requests`, `search_conversations_by_attribute`, `wrap_up_code_distribution`) but were never wired into the three reporting skills — each release deferred the integration to "the next one" and the deferral kept compounding. v1.11 closes every deferred wiring in one focused sweep. **No new MCP tools.** Tool count stays at 50.

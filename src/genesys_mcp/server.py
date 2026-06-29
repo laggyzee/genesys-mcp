@@ -27,6 +27,7 @@ from genesys_mcp.tools import (
     timeoff,
     utilization,
     wfm,
+    workforce_history,
     wrapup,
 )
 
@@ -77,6 +78,7 @@ attribute_search.register(mcp)
 timeoff.register(mcp)
 utilization.register(mcp)
 wrapup.register(mcp)
+workforce_history.register(mcp)
 health.register(mcp)
 raw.register(mcp)
 
