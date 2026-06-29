@@ -1,5 +1,59 @@
 # Release Notes
 
+## v1.13.0 — 24 June 2026
+
+**cc-workforce-history skill.** Wraps the v1.12 `user_activity_history` tool with a multi-year HTML report so the *"who was on the floor over the last 3 years?"* class of question stops being a manual Excel pivot job.
+
+### What it produces
+
+Single-file HTML with three sections:
+
+1. **Active agents per quarter** — table + horizontal bar trend visualisation. Columns: quarter, active count, trend bar, joiners (green pill), leavers (red pill).
+2. **Tenure trend** — mean + median tenure (months) per quarter with sample size `n`. Measured from each agent's first-active month to the bucket start.
+3. **Per-person first/last active table** — every user in scope (active + inactive + deleted). Columns: name, state pill, first active, last active, total handled, joiner/leaver flag pills. Sorted by total_handled desc.
+
+Plus a **data-coverage callout** at the top showing `data_starts_at` when it's later than the requested interval start — distinguishes "no agents handled interactions in Q3 2023" from "Q3 2023 is past Genesys analytics retention" so callers don't read missing data as empty headcount.
+
+### Soft-fail handling (v1.12.1 integration)
+
+If the underlying `user_activity_history` tool returns a canonical soft-fail envelope (`status >= 400`), the build script renders a single-callout page naming the missing scope and the exact remediation — same pattern as the v1.12.1 wrap-up fix. No silent omission, no LLM-narrative fallback.
+
+### Skill flow
+
+1. Confirm tenant config.
+2. Resolve the period (default: last 3 years, Australia/Sydney).
+3. **One** MCP call: `user_activity_history(interval=..., bucket="quarter", tz_name=...)`.
+4. Save result JSON to `/tmp/cc-workforce-history-{period-slug}/result.json`.
+5. Run `python skills/cc-workforce-history/build_report.py --data ... --period ... --output ...`.
+6. Confirm + brief in chat (headcount, joiners/leavers, tenure direction, `data_starts_at`).
+
+### Files
+
+- `skills/cc-workforce-history/SKILL.md` — runtime prompt + procedure
+- `skills/cc-workforce-history/build_report.py` — pure-Python renderer with 4 sections + soft-fail page
+
+### Tests
+
+- `tests/test_workforce_history_skill.py` — 11 new tests covering each section renderer, the data-coverage callout (3 paths: after-window-start warn, at-window-start clean, no-data bad), an end-to-end success render, and the soft-fail render path.
+
+Plus a new `build_report_workforce_history` session-scoped fixture in `tests/conftest.py` following the existing `build_report_*` pattern.
+
+**563 tests** total (552 → 563). All passing.
+
+### Example use
+
+User asks: *"Workforce history report for all users (active, inactive, deleted), reconstruct first/last handled-interaction date, build (a) quarterly active-agent headcount, (b) average tenure trend, (c) per-person first/last active table with joiner/leaver flags. Jul 2023 → Jun 2026, Australia/Sydney."*
+
+Skill makes one MCP call, runs one build script, hands back an HTML file with all three sections plus the `data_starts_at` callout naming the actual retention floor.
+
+### Out of scope
+
+- **Embedding the workforce-history section inside `cc-monthly-report`** — different cadence (multi-year vs single-month) and audience (HR-flavoured vs ops-flavoured). Kept as a separate skill.
+- **`dateHired` reconciliation** — Genesys stores `dateHired` on user records; surfaced as `date_created` per-user but not used to override the activity-derived `first_active_date`. For users hired but never active, `dateHired` is the truer signal.
+- **Cross-quarter retention rate** — the per-quarter joiner/leaver counts are there but the report doesn't compute "of N joiners in Q3 2024, M were still active in Q3 2025". Easy follow-up.
+
+---
+
 ## v1.12.1 — 24 June 2026
 
 **Wrap-up soft-fail envelope + visible "data not retrieved" callout.** Closes a silent-failure → LLM-narrative bug class that surfaced shortly after v1.11.0 shipped.

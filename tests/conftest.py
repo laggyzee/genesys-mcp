@@ -70,6 +70,15 @@ def build_report_daily() -> ModuleType:
 
 
 @pytest.fixture(scope="session")
+def build_report_workforce_history() -> ModuleType:
+    """The cc-workforce-history build_report.py module (v1.13.0)."""
+    return _load_module_by_path(
+        "br_workforce_history",
+        _REPO_ROOT / "skills/cc-workforce-history/build_report.py",
+    )
+
+
+@pytest.fixture(scope="session")
 def build_checklist_reconcile() -> ModuleType:
     """The mcp-reconcile build_checklist.py module."""
     return _load_module_by_path(
