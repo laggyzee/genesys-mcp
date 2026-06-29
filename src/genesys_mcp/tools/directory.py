@@ -38,23 +38,21 @@ def _load_presence_label_cache() -> None:
         return
     try:
         api = gc.PresenceApi(get_api())
-        page_number = 1
-        while True:
-            resp = with_retry(api.get_presence_definitions)(
-                page_size=200, page_number=page_number, deactivated="any",
-            )
-            entities = getattr(resp, "entities", None) or []
-            for e in entities:
-                pid = getattr(e, "id", None)
-                labels = getattr(e, "language_labels", None) or {}
-                label = next(iter(labels.values())) if labels else None
-                if pid and label:
-                    _PRESENCE_LABEL_CACHE[pid] = label
-            if not entities or len(entities) < 200:
-                break
-            page_number += 1
-            if page_number > 10:
-                break
+        # v1.13.1: ``get_presence_definitions`` (GET /api/v2/presence/definitions)
+        # accepts only ``deactivated`` / ``divisionId`` / ``localeCode`` query
+        # params — there's no pagination. Pre-fix this call passed
+        # ``page_size`` + ``page_number`` and crashed with "unexpected keyword
+        # argument" — silently swallowed by the try/except below, which made
+        # the bug invisible until the v1.3 public list_org_presences tool
+        # surfaced the same call shape and crashed user-visibly.
+        resp = with_retry(api.get_presence_definitions)()
+        entities = getattr(resp, "entities", None) or []
+        for e in entities:
+            pid = getattr(e, "id", None)
+            labels = getattr(e, "language_labels", None) or {}
+            label = next(iter(labels.values())) if labels else None
+            if pid and label:
+                _PRESENCE_LABEL_CACHE[pid] = label
         _PRESENCE_CACHE_LOADED = True
         logger.info(
             "presence label cache loaded with %d entries",
@@ -415,35 +413,30 @@ def register(mcp: FastMCP) -> None:
         ``presence:definition:view`` (typically bundled into ``presence:view``).
         """
         api = gc.PresenceApi(get_api())
-        page_size = 200
-        page_number = 1
+        # v1.13.1: ``get_presence_definitions`` accepts only ``deactivated``
+        # / ``divisionId`` / ``localeCode``. Pre-fix this passed
+        # ``page_size`` + ``page_number`` and crashed with "unexpected
+        # keyword argument". The endpoint returns the full list in one
+        # response — no pagination needed.
+        resp = with_retry(api.get_presence_definitions)(
+            deactivated=str(bool(deactivated)).lower(),
+        )
+        entities = getattr(resp, "entities", None) or []
         out: list[dict] = []
-        while True:
-            resp = with_retry(api.get_presence_definitions)(
-                page_size=page_size,
-                page_number=page_number,
-                deactivated=str(bool(deactivated)).lower(),
-            )
-            entities = getattr(resp, "entities", None) or []
-            for e in entities:
-                # Each definition has languageLabels: {"en": "Pre Break", ...}
-                labels = getattr(e, "language_labels", None) or {}
-                # Prefer the first label; tenant primary language usually wins
-                label = next(iter(labels.values())) if labels else None
-                if name_contains and label and name_contains.lower() not in label.lower():
-                    continue
-                out.append({
-                    "id": getattr(e, "id", None),
-                    "system_presence": getattr(e, "system_presence", None),
-                    "label": label,
-                    "language_labels": labels,
-                    "deactivated": getattr(e, "deactivated", False),
-                })
-            if not entities or len(entities) < page_size:
-                break
-            page_number += 1
-            if page_number > 10:  # safety cap (org would need 2000+ presences)
-                break
+        for e in entities:
+            # Each definition has languageLabels: {"en": "Pre Break", ...}
+            labels = getattr(e, "language_labels", None) or {}
+            # Prefer the first label; tenant primary language usually wins
+            label = next(iter(labels.values())) if labels else None
+            if name_contains and label and name_contains.lower() not in label.lower():
+                continue
+            out.append({
+                "id": getattr(e, "id", None),
+                "system_presence": getattr(e, "system_presence", None),
+                "label": label,
+                "language_labels": labels,
+                "deactivated": getattr(e, "deactivated", False),
+            })
         return {"count": len(out), "presences": out}
 
     @mcp.tool()

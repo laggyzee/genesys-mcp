@@ -311,6 +311,54 @@ class TestListOrgPresences:
         labels = [p["label"] for p in payload["presences"]]
         assert labels == ["Pre Break", "Coaching", "Training"]
 
+    def test_does_not_pass_pagination_kwargs_to_sdk(self, monkeypatch):
+        """Regression for v1.13.1: ``get_presence_definitions`` (the underlying
+        SDK method) accepts only ``deactivated``, ``division_id``,
+        ``locale_code`` — passing ``page_size`` / ``page_number`` raises
+        TypeError. Pre-fix list_org_presences passed both and crashed
+        user-visibly. This test pins that those kwargs never leak through."""
+        import PureCloudPlatformClientV2 as gc
+        from genesys_mcp import client as gen_client
+        from genesys_mcp.tools import directory as dir_mod
+        from mcp.server.fastmcp import FastMCP
+        import asyncio
+        import json
+
+        captured: dict = {"kwargs_seen": []}
+
+        class FakeResp:
+            entities: list = []
+
+        class StrictFakePresenceApi:
+            """Mimics the SDK's strict allowlist — raises if forbidden kwargs
+            arrive, so a regression that re-introduces page_size hard-fails."""
+            _ALLOWED = {"deactivated", "division_id", "locale_code"}
+            def __init__(self, *args, **kwargs): pass
+            def get_presence_definitions(self, **kwargs):
+                captured["kwargs_seen"].append(dict(kwargs))
+                forbidden = set(kwargs) - self._ALLOWED
+                if forbidden:
+                    raise TypeError(
+                        "Got an unexpected keyword argument "
+                        f"{sorted(forbidden)[0]!r} to method get_presence_definitions"
+                    )
+                return FakeResp()
+
+        monkeypatch.setattr(dir_mod.gc, "PresenceApi", StrictFakePresenceApi)
+        monkeypatch.setattr(gen_client, "_api_client", gc.ApiClient())
+
+        app = FastMCP(name="t")
+        dir_mod.register(app)
+        result = asyncio.run(app.call_tool("list_org_presences", {}))
+        text = getattr(result[0], "text", None) or result[0].get("text")
+        payload = json.loads(text)
+        assert payload["count"] == 0  # empty entities → empty result, no crash
+        # Critical: every call must have ONLY allowed kwargs.
+        assert len(captured["kwargs_seen"]) >= 1
+        for kw in captured["kwargs_seen"]:
+            assert "page_size" not in kw, f"page_size leaked: {kw}"
+            assert "page_number" not in kw, f"page_number leaked: {kw}"
+
     def test_name_contains_filter(self, monkeypatch):
         import PureCloudPlatformClientV2 as gc
         from genesys_mcp import client as gen_client

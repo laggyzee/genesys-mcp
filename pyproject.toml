@@ -1,6 +1,6 @@
 [project]
 name = "genesys-mcp"
-version = "1.13.0"
+version = "1.13.1"
 description = "Local stdio MCP server exposing read-only Genesys Cloud access to Claude Code and other MCP clients"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
