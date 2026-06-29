@@ -471,6 +471,22 @@ class TestWrapUpSection:
         empty = {"totals": {"conversation_count": 0}, "distribution": [], "trend": None}
         assert build_report_monthly.aggregate_wrap_up_section(empty) is None
 
+    def test_soft_fail_envelope_renders_visible_callout(self, build_report_monthly):
+        # v1.12.1: a soft-fail envelope from the wrap-up tool must produce
+        # a visible "data not retrieved" callout, not silent omission.
+        envelope = {
+            "status": 403,
+            "kind": "wrap_up_code_distribution",
+            "message": "Grant analytics:conversationAggregate:view.",
+        }
+        agg = build_report_monthly.aggregate_wrap_up_section(envelope)
+        assert agg is not None
+        assert agg["_soft_fail"] is True
+        html = build_report_monthly.render_wrap_up_section(agg)
+        assert "data not retrieved" in html
+        assert "403" in html
+        assert "analytics:conversationAggregate:view" in html
+
     def test_table_columns_and_trend_callout(self, build_report_monthly):
         wrap = {
             "totals": {"conversation_count": 1000, "distinct_code_count": 4},

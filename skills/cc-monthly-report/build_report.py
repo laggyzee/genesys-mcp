@@ -1095,9 +1095,22 @@ def aggregate_cx(nps_raw: dict | None, agent_raw: dict | None,
 
 def aggregate_wrap_up_section(wrap_up: dict | None) -> dict | None:
     """Pass through the v1.10 wrap_up_code_distribution payload, normalising
-    None when the tool wasn't called or returned zero conversations."""
+    None when the tool wasn't called or returned zero conversations.
+
+    v1.12.1: detect the canonical soft-fail envelope ``{status: >=400, ...}``
+    and return a tagged dict so the renderer can show a visible missing-scope
+    callout instead of silently omitting the section.
+    """
     if not wrap_up:
         return None
+    status = wrap_up.get("status")
+    if isinstance(status, int) and status >= 400:
+        return {
+            "_soft_fail": True,
+            "status": status,
+            "kind": wrap_up.get("kind") or "wrap_up_code_distribution",
+            "message": wrap_up.get("message") or "Wrap-up data not available.",
+        }
     totals = wrap_up.get("totals") or {}
     if (totals.get("conversation_count") or 0) <= 0:
         return None
@@ -1212,9 +1225,28 @@ def render_cx_section(cx: dict | None) -> str:
 
 
 def render_wrap_up_section(wrap_up: dict | None) -> str:
-    """Render the full Wrap-up Codes section. Empty string when wrap_up is None."""
+    """Render the full Wrap-up Codes section.
+
+    Three states:
+    - ``None`` → empty string (silent omit; tenant didn't call the tool)
+    - ``{_soft_fail: True, ...}`` (v1.12.1) → visible missing-scope callout
+      so the report makes the gap visible and the agent has no reason to
+      invent narrative
+    - normal payload → render the full distribution + trend table
+    """
     if wrap_up is None:
         return ""
+    if wrap_up.get("_soft_fail"):
+        return (
+            '<section id="wrapup">'
+            '<h2>3a. Wrap-up codes — distribution &amp; trend</h2>'
+            '<div class="callout bad">'
+            '<strong>⚠️ Wrap-up data not retrieved</strong> '
+            f'(status {wrap_up.get("status")}). '
+            f'{escape(str(wrap_up.get("message") or ""))}'
+            '</div>'
+            '</section>'
+        )
     distribution = wrap_up.get("distribution") or []
     if not distribution:
         return ""

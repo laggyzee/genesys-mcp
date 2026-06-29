@@ -25,9 +25,11 @@ from datetime import timezone
 from typing import Any
 
 import PureCloudPlatformClientV2 as gc
+from PureCloudPlatformClientV2.rest import ApiException
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from genesys_mcp._envelopes import soft_fail_envelope
 from genesys_mcp._intervals import INTERVAL_HELP_STRING
 from genesys_mcp._intervals import default_interval as _default_interval
 from genesys_mcp._intervals import now_utc as _now_utc
@@ -381,18 +383,48 @@ def register(mcp: FastMCP) -> None:
             resp = with_retry(api.post_analytics_conversations_aggregates_query)(body_prior)
             result_holder["prior"] = to_dict(resp) or {}
 
-        if include_trend:
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                futures = [pool.submit(_fetch_current), pool.submit(_fetch_prior)]
-                for fut in futures:
-                    fut.result()
-        else:
-            _fetch_current()
-            result_holder["prior"] = {"results": []}
+        # v1.12.1: catch ApiException from the aggregates calls and return a
+        # canonical soft-fail envelope so the skill can render a visible
+        # missing-scope callout instead of leaving the wrap-up section blank
+        # and inviting an LLM-narrative fallback.
+        try:
+            if include_trend:
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    futures = [pool.submit(_fetch_current), pool.submit(_fetch_prior)]
+                    for fut in futures:
+                        fut.result()
+            else:
+                _fetch_current()
+                result_holder["prior"] = {"results": []}
+        except ApiException as exc:
+            return soft_fail_envelope(
+                status=int(getattr(exc, "status", 0) or 500),
+                kind="wrap_up_code_distribution",
+                message=(
+                    "Wrap-up aggregates query failed: "
+                    f"{getattr(exc, 'reason', None) or type(exc).__name__}. "
+                    "If the status is 403, grant the OAuth client "
+                    "'analytics:conversationAggregate:view' (typically bundled "
+                    "into 'analytics:readonly')."
+                ),
+                interval=resolved_interval,
+                http_body=(getattr(exc, "body", None) or "")[:500] if getattr(exc, "body", None) else None,
+            )
 
         current_counts = _parse_counts(result_holder["current"])
         prior_counts = _parse_counts(result_holder["prior"]) if include_trend else {}
-        codes = _load_wrapup_code_cache()
+        # v1.12.1: catalogue load may itself 403 on routing:wrapupCode:view.
+        # Treat that as a *partial* success — we still have the aggregates,
+        # we just can't resolve UUIDs to names. The distribution rows fall
+        # back to "<unknown {cid[:8]}>" labels (existing behaviour).
+        try:
+            codes = _load_wrapup_code_cache()
+        except ApiException as exc:
+            logger.warning(
+                "wrap-up code catalogue 403'd (need 'routing:wrapupCode:view'): %s",
+                getattr(exc, "reason", None) or type(exc).__name__,
+            )
+            codes = {}
 
         rows, truncated, new_codes, retired_codes = _build_distribution(
             current_counts=current_counts,

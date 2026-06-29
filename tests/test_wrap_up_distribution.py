@@ -402,3 +402,61 @@ class TestEnvelopeCacheAndEdges:
                 current_resp={"results": []},
                 catalogue={},
             )
+
+
+# ── v1.12.1: soft-fail envelope on 403 ──
+
+class TestSoftFailEnvelope:
+    """When the aggregates call 403s, the tool must return a canonical
+    soft-fail envelope (status / kind / message) so the skill renders a
+    visible 'missing scope' callout instead of inviting LLM-narrative."""
+
+    def _call_with_aggregates_403(self, monkeypatch):
+        import asyncio
+        import json as _json
+        import PureCloudPlatformClientV2 as gc
+        from PureCloudPlatformClientV2.rest import ApiException
+        from genesys_mcp import client as gen_client
+        from genesys_mcp.tools import wrapup
+        from mcp.server.fastmcp import FastMCP
+
+        monkeypatch.setattr(wrapup, "to_dict", _fake_to_dict)
+
+        class FakeAnalyticsApi:
+            def __init__(self, *a, **k): pass
+            def post_analytics_conversations_aggregates_query(self, body):
+                raise ApiException(
+                    status=403,
+                    reason="Forbidden — missing analytics:conversationAggregate:view",
+                )
+
+        class FakeRoutingApi:
+            def __init__(self, *a, **k): pass
+            def get_routing_wrapupcodes(self, **k):
+                class _Empty:
+                    entities = []
+                return _Empty()
+
+        monkeypatch.setattr(wrapup.gc, "AnalyticsApi", FakeAnalyticsApi)
+        monkeypatch.setattr(wrapup.gc, "RoutingApi", FakeRoutingApi)
+        monkeypatch.setattr(gen_client, "_api_client", gc.ApiClient())
+
+        app = FastMCP(name="t")
+        wrapup.register(app)
+        result = asyncio.run(app.call_tool(
+            "wrap_up_code_distribution",
+            {"interval": _INTERVAL, "include_trend": True},
+        ))
+        text = getattr(result[0], "text", None) or result[0].get("text")
+        return _json.loads(text)
+
+    def test_403_returns_canonical_envelope(self, monkeypatch):
+        out = self._call_with_aggregates_403(monkeypatch)
+        # Must match the v1.3 canonical envelope shape exactly.
+        assert out["status"] == 403
+        assert out["kind"] == "wrap_up_code_distribution"
+        assert "analytics:conversationAggregate:view" in out["message"]
+        # No distribution field — soft-fail short-circuits the success path.
+        assert "distribution" not in out
+        # Interval echoed so callers know what query failed.
+        assert out["interval"] == _INTERVAL

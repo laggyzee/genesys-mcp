@@ -84,6 +84,8 @@ Make all of these calls in parallel — they're independent. Save each result's 
 
 The skill's pattern matches `cc-monthly-report` Step 3: parallel tool calls, save raw JSON, then a single Python build script does aggregation + HTML rendering.
 
+**Soft-fail handling (v1.12.1):** If `wrap_up_code_distribution` (or any other v1.11 sidecar tool) returns a canonical soft-fail envelope (`status >= 400`), save it to the file as-is. The build script renders a visible "⚠️ data not retrieved" callout automatically — do NOT write narrative paragraphs explaining the gap in chat.
+
 ### Step 3 — Run the build script
 
 Resolve the output path from the tenant config and run `build_report.py`:
