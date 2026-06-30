@@ -233,6 +233,12 @@ def register(mcp: FastMCP) -> None:
     ) -> dict:
         """Search conversations by customer/agent participant attribute.
 
+        USE THIS for NPS and other per-conversation survey/participant attributes
+        (e.g. "NPS for Acme last week"): when ``attribute_value`` is omitted it
+        defaults to the NPS 0–10 enumeration and auto-computes the NPS score +
+        promoter/passive/detractor split. Each returned row carries queue_id and
+        agent_user_id so the caller can roll NPS up by brand/queue/agent.
+
         v1.8+. Wraps the dedicated Genesys endpoint:
         ``POST /api/v2/conversations/participants/attributes/search``.
         Returns matching conversations plus three pre-computed views so

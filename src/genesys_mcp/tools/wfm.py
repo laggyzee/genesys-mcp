@@ -10,11 +10,15 @@ import logging
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import httpx
 import PureCloudPlatformClientV2 as gc
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from genesys_mcp._aggregates import run_chunked_query
+from genesys_mcp._envelopes import soft_fail_envelope
 from genesys_mcp._intervals import INTERVAL_HELP_STRING
 from genesys_mcp._intervals import default_interval as _default_interval
 from genesys_mcp._intervals import parse_iso as _parse_iso
@@ -35,6 +39,79 @@ def _bucket_key(dt: datetime, bucket_seconds: int) -> str:
     epoch = int(dt.timestamp())
     floored = epoch - (epoch % bucket_seconds)
     return datetime.fromtimestamp(floored, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _resolve_business_unit_tz(api_client: Any, business_unit_id: str) -> str | None:
+    """Best-effort fetch of a business unit's WFM timezone (IANA name).
+
+    WFM schedules and the headcount-forecast ``requiredPerInterval`` series are
+    expressed in the BU's own timezone, so day boundaries must be computed in
+    that zone — not UTC. Returns the IANA name (e.g. ``"Australia/Sydney"``) or
+    ``None`` if it can't be resolved (the caller then falls back to UTC).
+    """
+    try:
+        resp = with_retry(api_client.call_api)(
+            resource_path=f"/api/v2/workforcemanagement/businessunits/{business_unit_id}",
+            method="GET",
+            query_params={"expand": "settings.timeZone"},
+            auth_settings=["PureCloud OAuth"],
+            response_type="object",
+        ) or {}
+    except Exception as exc:  # pragma: no cover - network/permission edge
+        logger.warning("could not resolve BU %s timezone: %s", business_unit_id, exc)
+        return None
+    return ((resp.get("settings") or {}).get("timeZone")) or resp.get("timeZone")
+
+
+def _safe_zoneinfo(tz_name: str | None) -> tuple[ZoneInfo, str]:
+    """Resolve ``tz_name`` to a ``ZoneInfo``; fall back to UTC on miss.
+
+    Returns ``(zoneinfo, resolved_name)`` so the response can report which zone
+    was actually used for day bucketing.
+    """
+    if tz_name:
+        try:
+            return ZoneInfo(tz_name), tz_name
+        except (ZoneInfoNotFoundError, ValueError):
+            logger.warning("unknown timezone %r; bucketing schedule by UTC", tz_name)
+    return ZoneInfo("UTC"), "UTC"
+
+
+# Poll budget for the async historical-adherence download (linear backoff 1→5s).
+_ADHERENCE_POLL_ATTEMPTS = 15
+
+
+def _fetch_adherence_download(urls: list[str]) -> list[dict] | None:
+    """Fetch + concatenate ``data`` rows from one or more presigned result URLs.
+
+    Genesys historical-adherence results are written to a presigned download
+    URL that 404/403s until the async job finishes, then serves the JSON
+    ``WfmHistoricalAdherenceResultWrapper`` ({entityId, data:[...]}). Returns the
+    concatenated ``data`` rows, or ``None`` if no URL served a result (still
+    processing / not ready).
+    """
+    rows: list[dict] = []
+    served = False
+    for url in urls:
+        if not url:
+            continue
+        try:
+            resp = httpx.get(url, timeout=30.0)
+        except Exception as exc:  # pragma: no cover - network edge
+            logger.warning("adherence download GET failed: %s", exc)
+            continue
+        if resp.status_code != 200:
+            continue
+        try:
+            payload = resp.json()
+        except Exception:  # pragma: no cover - malformed body
+            continue
+        served = True
+        if isinstance(payload, dict):
+            rows.extend(payload.get("data") or [])
+        elif isinstance(payload, list):
+            rows.extend(payload)
+    return rows if served else None
 
 
 def register(mcp: FastMCP) -> None:
@@ -323,6 +400,192 @@ def register(mcp: FastMCP) -> None:
         }
 
     @mcp.tool()
+    def agent_adherence_history(
+        management_unit_id: str = Field(
+            description=(
+                "Management unit id to query (use list_management_units or "
+                "get_user_management_unit). Historical adherence is MU-scoped."
+            ),
+        ),
+        interval: str | None = Field(
+            default=None,
+            description=INTERVAL_HELP_STRING,
+        ),
+        user_ids: list[str] | None = Field(
+            default=None,
+            description=(
+                "Optional user ids to limit the query. Omit for ALL agents in "
+                "the management unit."
+            ),
+        ),
+        time_zone: str = Field(
+            default="UTC",
+            description=(
+                "IANA timezone the adherence day boundaries are computed in "
+                "(e.g. 'Australia/Sydney'). Pass the tenant reporting timezone."
+            ),
+        ),
+        include_exceptions: bool = Field(
+            default=False,
+            description=(
+                "Include per-exception detail (off-schedule segments). When "
+                "true the Genesys span cap drops from 31 days to 7 days."
+            ),
+        ),
+    ) -> dict:
+        """Actual-vs-scheduled **historical adherence %** + conformance %, returned in-session.
+
+        THE tool for *"what was each agent's adherence / conformance last week?"* —
+        the scheduled-vs-actual percentages that ``agent_adherence_review`` and
+        ``query_agent_adherence_explanations`` deliberately do NOT compute.
+
+        Genesys historical adherence is an async query: this tool submits it,
+        then polls the result download until it's ready, so you get the numbers
+        back here rather than having to open the WFM Adherence/Reports area.
+
+        Returns one row per user with ``adherence_pct``, ``conformance_pct``,
+        ``impact``, ``exception_count`` and (when ``include_exceptions``) the
+        exception detail, plus a roll-up mean adherence/conformance.
+
+        Span caps (Genesys): max 31 days, or 7 days when ``include_exceptions``
+        is true. Soft-fails (never throws) if the OAuth client lacks
+        ``wfm:historicalAdherence:view``, or if the async result isn't ready
+        within the poll budget (it returns the query id + a note so you can
+        retry or narrow the range).
+        """
+        interval = interval or _default_interval(7)
+        try:
+            start_iso, end_iso = interval.split("/", 1)
+            i_start = _parse_iso(start_iso)
+            i_end = _parse_iso(end_iso)
+        except Exception as exc:
+            raise ValueError(f"Invalid interval {interval!r}") from exc
+
+        span_days = (i_end - i_start).total_seconds() / 86400.0
+        max_days = 7 if include_exceptions else 31
+        if span_days > max_days + 1e-9:
+            raise ValueError(
+                f"Historical adherence span is {span_days:.1f} days; Genesys caps it "
+                f"at {max_days} days{' when include_exceptions=true' if include_exceptions else ''}. "
+                "Narrow the interval (or set include_exceptions=false for up to 31 days)."
+            )
+
+        body: dict[str, Any] = {
+            "startDate": start_iso,
+            "endDate": end_iso,
+            "timeZone": time_zone,
+            "includeExceptions": include_exceptions,
+        }
+        if user_ids:
+            body["userIds"] = user_ids
+
+        api_client = get_api()
+        try:
+            submit = with_retry(api_client.call_api)(
+                resource_path=(
+                    f"/api/v2/workforcemanagement/managementunits/"
+                    f"{management_unit_id}/historicaladherencequery"
+                ),
+                method="POST", body=body,
+                auth_settings=["PureCloud OAuth"], response_type="object",
+            ) or {}
+        except Exception as exc:
+            if getattr(exc, "status", None) == 403:
+                return soft_fail_envelope(
+                    status=403,
+                    kind="historical adherence",
+                    message=(
+                        "OAuth client lacks wfm:historicalAdherence:view — grant it "
+                        "to the QueueIQ OAuth client to retrieve adherence percentages. "
+                        "This is a missing scope, not a tenant restriction."
+                    ),
+                    management_unit_id=management_unit_id,
+                    interval=interval,
+                )
+            raise
+
+        query_id = submit.get("id")
+        # The result may be inline (small/fast queries) or behind a presigned
+        # downloadUrl that 404s until the async job writes it. Poll the URL(s).
+        rows: list[dict] | None = None
+        inline = submit.get("downloadResult")
+        # Presence check, NOT truthiness: an empty ``data: []`` is a VALID result
+        # (zero agents matched / zero in scope) and must not fall through to the
+        # poll branch and report "not ready".
+        if isinstance(inline, dict) and inline.get("data") is not None:
+            rows = inline.get("data") or []
+        else:
+            urls = list(submit.get("downloadUrls") or [])
+            if submit.get("downloadUrl"):
+                urls.append(submit["downloadUrl"])
+            # Historical adherence for a large MU + wide window can take up to a
+            # minute. Linear backoff (1→5s) over ~15 attempts ≈ 60s budget; if it
+            # still isn't ready we soft-fail with the query id so the caller can
+            # retry or narrow the range.
+            delay = 1.0
+            for _ in range(_ADHERENCE_POLL_ATTEMPTS):
+                rows = _fetch_adherence_download(urls)
+                if rows is not None:
+                    break
+                time.sleep(delay)
+                delay = min(delay + 1.0, 5.0)
+
+        if rows is None:
+            return soft_fail_envelope(
+                status=202,
+                kind="historical adherence (processing)",
+                message=(
+                    "Adherence query submitted but the async result was not ready "
+                    "within the poll budget. Retry shortly, or narrow the interval. "
+                    f"query_id={query_id}."
+                ),
+                management_unit_id=management_unit_id,
+                interval=interval,
+                query_id=query_id,
+            )
+
+        users_out: list[dict] = []
+        adh_vals: list[float] = []
+        conf_vals: list[float] = []
+        for row in rows:
+            adh = row.get("adherencePercentage")
+            conf = row.get("conformancePercentage")
+            if isinstance(adh, (int, float)):
+                adh_vals.append(float(adh))
+            if isinstance(conf, (int, float)):
+                conf_vals.append(float(conf))
+            entry = {
+                "user_id": row.get("userId"),
+                "adherence_pct": adh,
+                "conformance_pct": conf,
+                "impact": row.get("impact"),
+                "exception_count": len(row.get("exceptionInfo") or []),
+            }
+            if include_exceptions:
+                entry["exceptions"] = row.get("exceptionInfo") or []
+            users_out.append(entry)
+
+        # Resolve names + sort worst-adherence first (the actionable order).
+        ids = [u["user_id"] for u in users_out if u["user_id"]]
+        names = resolver.user_names(ids) if ids else {}
+        for u in users_out:
+            u["user_name"] = names.get(u["user_id"])
+        users_out.sort(key=lambda r: (r["adherence_pct"] is None, r["adherence_pct"] or 0.0))
+
+        return {
+            "interval": interval,
+            "as_of_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "management_unit_id": management_unit_id,
+            "time_zone": time_zone,
+            "include_exceptions": include_exceptions,
+            "query_id": query_id,
+            "user_count": len(users_out),
+            "mean_adherence_pct": round(sum(adh_vals) / len(adh_vals), 1) if adh_vals else None,
+            "mean_conformance_pct": round(sum(conf_vals) / len(conf_vals), 1) if conf_vals else None,
+            "users": users_out,
+        }
+
+    @mcp.tool()
     def wfm_schedule(
         business_unit_id: str = Field(
             description="Business unit id (use list_management_units → look at the businessUnit field)."
@@ -337,16 +600,34 @@ def register(mcp: FastMCP) -> None:
             default=None,
             description=INTERVAL_HELP_STRING,
         ),
+        time_zone: str | None = Field(
+            default=None,
+            description=(
+                "IANA timezone for day boundaries (e.g. 'Australia/Sydney'). "
+                "Scheduled shift hours are bucketed into calendar days IN THIS "
+                "ZONE so they line up with the locally-bucketed required hours. "
+                "Pass the tenant reporting timezone. If omitted, the tool reads "
+                "the business unit's WFM timezone; if that can't be resolved it "
+                "falls back to UTC (which will mis-attribute evening shifts in "
+                "non-UTC tenants), and ``time_zone_source`` reports which was used."
+            ),
+        ),
     ) -> dict:
         """Per-day WFM scheduled hours + headcount-forecast required hours.
 
-        Pulls published schedules from the business unit, identifies the schedule(s)
-        covering the requested interval, then for each schedule:
+        Identifies the **published** schedule(s) covering the requested interval
+        (drafts are ignored), then for each schedule:
 
           * fetches the headcount forecast (per-MU, 15-minute granularity 'requiredPerInterval')
             and rolls it up to required FTE-hours per day
           * fetches per-user shifts via /managementunits/{muId}/schedules/search and rolls
             them up to scheduled FTE-hours per day
+
+        Both the required and scheduled series are bucketed into calendar days in
+        the business-unit/tenant timezone (see ``time_zone``), so a Friday-evening
+        shift in Australia/Sydney lands on Friday — not on Saturday UTC. Shift
+        activities are de-duplicated by (user, start, length) so overlapping
+        published schedules can't double-count a day's hours.
 
         The result is a daily series suitable for capacity-vs-demand analysis. Compare
         ``scheduled_hours`` against ``required_hours`` to spot understaffed days.
@@ -362,6 +643,25 @@ def register(mcp: FastMCP) -> None:
             raise ValueError(f"Invalid interval {interval!r}") from exc
 
         api_client = get_api()
+
+        # Day boundaries must be computed in the schedule's own timezone, not UTC.
+        # Prefer the caller-supplied tenant tz; else read the BU's WFM timezone.
+        resolved_tz_name = time_zone or _resolve_business_unit_tz(api_client, business_unit_id)
+        sched_tz, tz_used = _safe_zoneinfo(resolved_tz_name)
+
+        def _local_day(dt: datetime) -> "date":
+            """Calendar date of ``dt`` in the schedule timezone (UTC-safe input)."""
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(sched_tz).date()
+
+        # Local-day window bounds, shared by BOTH the required-hours filter and
+        # the scheduled-hours filter so the two series use the same day-boundary
+        # convention (the forecast requiredPerInterval is already indexed in the
+        # schedule's local time off weekDate, so local bounds align it with the
+        # locally-bucketed shift hours).
+        win_start = _local_day(i_start)
+        win_end = _local_day(i_end)
 
         # 1. List published schedules in the BU; keep ones that overlap the interval.
         sched_paths = []
@@ -403,6 +703,16 @@ def register(mcp: FastMCP) -> None:
         if not schedules:
             return {"interval": interval, "schedules": [], "daily": [], "note": "no schedules found"}
 
+        # 1b. Prefer PUBLISHED schedules. The list endpoint returns drafts and
+        # published schedules alike; counting both double-counts hours (and a
+        # draft can carry stale/wrong shifts). If any schedule is published,
+        # drop the unpublished ones. If none are published (BU only has drafts),
+        # keep them all but flag it so the caller knows the numbers are provisional.
+        published = [s for s in schedules if s.get("published")]
+        published_only = bool(published)
+        if published_only:
+            schedules = published
+
         # 2. Headcount forecast per schedule per MU — gives required FTE per 15-min interval.
         # If management_unit_ids is empty, we'll discover the MUs covered by each schedule.
         per_day_required_fte_15min: dict[str, float] = {}
@@ -431,8 +741,11 @@ def register(mcp: FastMCP) -> None:
                     day_offset = minutes_in // (24 * 60)
                     day = sch_start + td(days=day_offset)
                     day_iso = day.isoformat()
-                    # Only count days within the requested interval
-                    if day < i_start.date() or day > i_end.date():
+                    # Only count days within the requested interval. Use the
+                    # local-day window so this aligns with the scheduled-hours
+                    # side (both local) — avoids phantom boundary rows where one
+                    # series has data and the other doesn't.
+                    if day < win_start or day > win_end:
                         continue
                     per_day_required_fte_15min[day_iso] = (
                         per_day_required_fte_15min.get(day_iso, 0.0) + float(val or 0)
@@ -459,8 +772,14 @@ def register(mcp: FastMCP) -> None:
 
         per_day_scheduled_seconds: dict[str, float] = {}
         per_day_users: dict[str, set[str]] = {}
-        # The schedule covers a 4-week (or weekCount-week) span; iterate per schedule, send
-        # per-MU search with the user list, sum shift durations per day.
+        # De-dup paid-time activities across (overlapping) schedules and MUs.
+        # The schedules/search endpoint is date-range scoped, not schedule-id
+        # scoped, so iterating per schedule can return the SAME shift twice when
+        # two schedules overlap a week. Key each activity by (user, start, length)
+        # so it counts exactly once. Reuses the shared local-day window bounds
+        # (win_start/win_end) so a shift on the local boundary day isn't dropped
+        # by a UTC-vs-local mismatch.
+        seen_activities: set[tuple[str, str, int]] = set()
         for sch in schedules:
             sch_start = datetime.fromisoformat(sch["weekDate"]).date()
             sch_end = sch_start + td(days=7 * sch.get("weekCount", 1))
@@ -485,26 +804,29 @@ def register(mcp: FastMCP) -> None:
                         st_raw = shift.get("startDate")
                         if not st_raw:
                             continue
-                        try:
-                            st = _parse_iso(st_raw)
-                        except Exception:
-                            continue
-                        # Sum paid-time activities (excludes unpaid lunch). Each activity
-                        # is attributed to the day its startDate falls on (so a shift
-                        # that crosses midnight UTC is split across two days correctly).
+                        # Sum paid-time activities (excludes unpaid lunch). Each
+                        # activity is attributed to its LOCAL calendar day (in the
+                        # schedule timezone) so evening shifts in a non-UTC tenant
+                        # don't spill onto the next UTC day.
                         for act in shift.get("activities") or []:
                             if not act.get("countsAsPaidTime"):
                                 continue
+                            act_start_raw = act.get("startDate")
                             try:
-                                act_st = _parse_iso(act.get("startDate"))
+                                act_st = _parse_iso(act_start_raw)
                             except Exception:
                                 continue
                             mins = int(act.get("lengthInMinutes", 0) or 0)
                             if mins <= 0:
                                 continue
-                            day_iso = act_st.date().isoformat()
-                            if act_st.date() < i_start.date() or act_st.date() > i_end.date():
+                            dedup_key = (uid, str(act_start_raw), mins)
+                            if dedup_key in seen_activities:
                                 continue
+                            seen_activities.add(dedup_key)
+                            local_day = _local_day(act_st)
+                            if local_day < win_start or local_day > win_end:
+                                continue
+                            day_iso = local_day.isoformat()
                             per_day_scheduled_seconds[day_iso] = (
                                 per_day_scheduled_seconds.get(day_iso, 0.0) + mins * 60
                             )
@@ -530,6 +852,12 @@ def register(mcp: FastMCP) -> None:
             "interval": interval,
             "business_unit_id": business_unit_id,
             "management_unit_ids": target_mus,
+            "time_zone": tz_used,
+            "time_zone_source": (
+                "caller" if time_zone else
+                ("business_unit" if resolved_tz_name else "utc_fallback")
+            ),
+            "published_only": published_only,
             "schedules": schedules,
             "user_count_queried": len(user_ids),
             "daily": daily,
@@ -703,14 +1031,19 @@ def register(mcp: FastMCP) -> None:
                             b["aht_n"] += float(off_val)
 
         # 3. Pull actual analytics conversations aggregates for the interval.
+        # Chunk multi-year spans into ≤12-month sub-queries and merge the
+        # granularity buckets; normal windows pass through as a single call.
         aapi = gc.AnalyticsApi(api_client)
-        actual_resp = to_dict(
-            with_retry(aapi.post_analytics_conversations_aggregates_query)({
-                "interval": interval,
-                "granularity": genesys_granularity,
-                "metrics": ["tAnswered", "tHandle"],
-            })
-        )
+
+        def _actual_q(iv: str) -> dict:
+            return to_dict(
+                with_retry(aapi.post_analytics_conversations_aggregates_query)({
+                    "interval": iv,
+                    "granularity": genesys_granularity,
+                    "metrics": ["tAnswered", "tHandle"],
+                })
+            ) or {}
+        actual_resp = run_chunked_query(_actual_q, interval)
         actual_buckets: dict[str, dict[str, float]] = {}
         for r in actual_resp.get("results") or []:
             for bucket in r.get("data") or []:

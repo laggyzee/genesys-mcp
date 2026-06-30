@@ -1,5 +1,46 @@
 # Release Notes
 
+## v1.14.0 — 30 June 2026
+
+**WFM accuracy fixes + historical-adherence coverage + multi-year chunking.**
+
+Driven by a diagnostic of real degraded analyst answers: schedule hours landing on the wrong day, "adherence can't come back to chat", and "on-queue is blocked". Each is addressed at the tool layer.
+
+### 1. `wfm_schedule` — timezone-correct days + published-only + de-dup (`tools/wfm.py`)
+
+**What was wrong:** scheduled shift hours were bucketed into calendar days by the **UTC** `.date()` of each activity (`act_st.date()`), while the required-hours side was bucketed in the schedule's local time. In a non-UTC tenant (Australia/Sydney = UTC+10) the two never lined up — a Saturday-morning Sydney shift whose UTC timestamp is still Friday landed on the wrong day, producing impossible figures (the user's "11.5h Saturday" when only ~9–10 agents worked). Separately, the `schedules/search` endpoint is **date-range** scoped, not schedule scoped, so iterating once per schedule **double-counted** shifts when schedules overlapped, and **draft** schedules were summed alongside published ones.
+
+**Fix:**
+- New `time_zone` parameter (IANA). Shift activities are bucketed into calendar days in that zone. If omitted, the tool reads the **business unit's WFM timezone** (`GET /businessunits/{id}?expand=settings.timeZone`); if that can't be resolved it falls back to UTC and reports `time_zone_source: "utc_fallback"`.
+- **Published-only**: if any returned schedule is published, drafts are dropped (`published_only: true`). If none are published, drafts are kept but flagged.
+- **De-dup**: shift activities are keyed by `(user, start, length)` so overlapping/repeated schedules count once.
+- Response gains `time_zone`, `time_zone_source`, `published_only`.
+
+### 2. New tool: `agent_adherence_history` (`tools/wfm.py`)
+
+Returns **actual-vs-scheduled adherence % and conformance %** in-session — the numbers `agent_adherence_review` and `query_agent_adherence_explanations` deliberately do **not** compute. Submits the async `POST /api/v2/workforcemanagement/managementunits/{muId}/historicaladherencequery` (perm `wfm:historicalAdherence:view`), then resolves the result inline (`downloadResult`) or by polling the presigned `downloadUrl(s)` until they serve. Honours the Genesys span cap (31 days; 7 days when `include_exceptions=true`) and accepts a `time_zone`. Returns one row per user (`adherence_pct`, `conformance_pct`, `impact`, `exception_count`) sorted worst-first, plus mean roll-ups. Soft-fails (never throws) on missing scope or a result that isn't ready within the poll budget.
+
+### 3. Multi-year interval chunking (`_aggregates.py` + `tools/analytics.py`, `tools/utilization.py`, `tools/wfm.py`)
+
+Genesys analytics-aggregate queries reject/cap very long spans. New `split_interval_by_months` / `merge_aggregate_results` / `run_chunked_query` helpers split a long interval into ≤12-month sub-queries, fire them concurrently, and concatenate the per-group `data` buckets (the existing parsers already sum across buckets, so totals are unchanged). Wired into `queue_performance`, `agent_performance`, `agent_utilization`, and `volume_vs_forecast`. Normal windows pass through as a single call with zero behaviour change.
+
+### 4. Clearer scope messaging + tool-selection guidance
+
+- `agent_utilization`'s 403 soft-degrade note now states the on-queue gap is a **missing `analytics:agentRouting:view` scope**, explicitly *"not a tenant block or a broken query"*, with the remediation — so the agent stops reporting it as "blocked".
+- Docstring guidance added: `user_activity_history` ("use for multi-year / long-range trends"), `search_conversations_by_attribute` ("use for NPS / per-conversation survey attributes").
+
+### Tests
+
+New: `tests/test_wfm_schedule.py` (tz bucketing, published filter, overlap de-dup), `tests/test_adherence_history.py` (MU-scoped path, inline + download-poll result, span caps, 403 soft-fail), `tests/test_aggregate_chunking.py` (split/merge/run helpers). Extended `tests/test_agent_utilization.py` (reworded scope note).
+
+**592 tests** total (568 → 592, +24). All passing. **52 tools** (51 → 52).
+
+### Permissions note
+
+The two WFM-accuracy features depend on OAuth scopes the client may not yet have: `analytics:agentRouting:view` (on-queue/utilization) and `wfm:historicalAdherence:view` (the new adherence tool). Both soft-fail with a clear scope message rather than returning wrong data.
+
+---
+
 ## v1.13.2 — 30 June 2026
 
 **Bug fix: `wfm_time_off_requests` was calling a non-existent endpoint.**
