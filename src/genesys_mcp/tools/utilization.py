@@ -23,6 +23,7 @@ import PureCloudPlatformClientV2 as gc
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from genesys_mcp._aggregates import run_chunked_query
 from genesys_mcp._intervals import INTERVAL_HELP_STRING
 from genesys_mcp._intervals import default_interval as _default_interval
 from genesys_mcp._intervals import now_utc as _now_utc
@@ -293,19 +294,21 @@ def register(mcp: FastMCP) -> None:
         resolved_interval = interval or _default_interval(7)
         api = gc.AnalyticsApi(get_api())
 
-        routing_body = _routing_status_body(user_ids, resolved_interval)
-        conv_body = _conversation_aggregates_body(user_ids, resolved_interval)
-
         # Capture exceptions per call so we can apply different policies:
         # routing-status 403 → soft-fail (degraded but useful response);
-        # conversation hard-fail → propagate.
+        # conversation hard-fail → propagate. Both queries chunk long intervals
+        # (multi-year staffing trends) into ≤12-month sub-queries and merge.
         routing_result: dict[str, Any] = {"scope_available": True}
         conv_result: dict[str, Any] = {}
 
         def _fetch_routing() -> None:
+            def q(iv: str) -> dict:
+                resp = with_retry(api.post_analytics_users_aggregates_query)(
+                    _routing_status_body(user_ids, iv)
+                )
+                return to_dict(resp) or {}
             try:
-                resp = with_retry(api.post_analytics_users_aggregates_query)(routing_body)
-                routing_result["raw"] = to_dict(resp) or {}
+                routing_result["raw"] = run_chunked_query(q, resolved_interval)
             except Exception as exc:
                 if getattr(exc, "status", None) == 403:
                     logger.info(
@@ -319,8 +322,12 @@ def register(mcp: FastMCP) -> None:
                 raise
 
         def _fetch_conversations() -> None:
-            resp = with_retry(api.post_analytics_conversations_aggregates_query)(conv_body)
-            conv_result["raw"] = to_dict(resp) or {}
+            def q(iv: str) -> dict:
+                resp = with_retry(api.post_analytics_conversations_aggregates_query)(
+                    _conversation_aggregates_body(user_ids, iv)
+                )
+                return to_dict(resp) or {}
+            conv_result["raw"] = run_chunked_query(q, resolved_interval)
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = [pool.submit(_fetch_routing), pool.submit(_fetch_conversations)]
@@ -353,9 +360,12 @@ def register(mcp: FastMCP) -> None:
         }
         if not routing_result["scope_available"]:
             out["routing_status_unavailable_note"] = (
-                "OAuth client lacks analytics:agentRouting:view; routing-"
-                "status seconds and derived ratios degraded to null/0. "
-                "Answered counts still reflect actual data."
+                "On-queue/routing-status time is unavailable because the OAuth "
+                "client lacks the analytics:agentRouting:view scope — this is a "
+                "MISSING SCOPE, not a tenant block or a broken query. Ask the "
+                "Genesys admin to grant analytics:agentRouting:view to the "
+                "QueueIQ OAuth client; routing-status seconds and the derived "
+                "ratios then populate. Answered counts already reflect actual data."
             )
             for r in rows:
                 r["interactions_per_on_queue_hour"] = None

@@ -10,6 +10,7 @@ import PureCloudPlatformClientV2 as gc
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from genesys_mcp._aggregates import run_chunked_query
 from genesys_mcp._envelopes import soft_fail_envelope
 from genesys_mcp._intervals import INTERVAL_HELP_STRING
 from genesys_mcp._intervals import default_interval as _default_interval
@@ -276,8 +277,13 @@ def register(mcp: FastMCP) -> None:
                 "tShortAbandon",
             ],
         }
-        resp = with_retry(api.post_analytics_conversations_aggregates_query)(body)
-        out = to_dict(resp)
+        def _q(iv: str) -> dict:
+            b = dict(body)
+            b["interval"] = iv
+            return to_dict(with_retry(api.post_analytics_conversations_aggregates_query)(b)) or {}
+        # Chunk multi-year spans into ≤12-month sub-queries and merge; normal
+        # windows pass through unchanged.
+        out = run_chunked_query(_q, body["interval"])
         _attach_derived_metrics(out)
         if mode == "summary":
             _slim_queue_response(out)
@@ -420,8 +426,12 @@ def register(mcp: FastMCP) -> None:
                 "nConsultTransferred",
             ],
         }
-        resp = with_retry(api.post_analytics_conversations_aggregates_query)(body)
-        raw = to_dict(resp) or {}
+        def _q(iv: str) -> dict:
+            b = dict(body)
+            b["interval"] = iv
+            return to_dict(with_retry(api.post_analytics_conversations_aggregates_query)(b)) or {}
+        # Chunk multi-year spans into ≤12-month sub-queries and merge.
+        raw = run_chunked_query(_q, resolved_interval)
 
         # Genesys returns one result group per (userId, mediaType) pairing.
         # tAnswered.count is the canonical "Answer" count (matches UI exactly);

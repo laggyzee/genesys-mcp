@@ -356,3 +356,18 @@ class TestRoutingStatusSoftFail:
         assert row["occupancy_pct"] is None
         assert row["voice_answered"] == 10
         assert row["total_answered"] == 10
+
+    def test_403_note_names_scope_and_denies_tenant_block_misread(self, monkeypatch):
+        # v1.14 P3: the note must make clear this is a MISSING SCOPE, not a
+        # tenant block / broken query, so the agent stops saying "blocked".
+        out, _ = _call_utilization(
+            {"user_ids": ["u1"]},
+            monkeypatch,
+            routing_resp=None,
+            routing_status=403,
+            conv_resp=_conv_response({"u1": {"voice": (10, 1200)}}),
+        )
+        note = out["routing_status_unavailable_note"]
+        assert "analytics:agentRouting:view" in note
+        assert "MISSING SCOPE" in note
+        assert "not a tenant block" in note

@@ -272,6 +272,12 @@ def register(mcp: FastMCP) -> None:
         """Reconstruct first/last handled-interaction date per user and roll
         up to quarterly headcount + tenure trend + joiner/leaver flags.
 
+        USE THIS for multi-year / long-range staffing, headcount and agent-trend
+        questions (e.g. "staffing trend since 2023"). It chunks the long span
+        into yearly slices internally, so it's the right tool when the window
+        exceeds a year — do not try to force a multi-year span through the
+        per-interval analytics tools.
+
         Three surfaces in one call:
 
         - ``per_user`` — one row per user with state, first_active_date,
