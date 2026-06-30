@@ -1,5 +1,33 @@
 # Release Notes
 
+## v1.14.1 — 30 June 2026
+
+**Bug fix: `agent_adherence_history` used the wrong (notification-only) endpoint and always returned "still processing".**
+
+### What was wrong
+
+v1.14.0's `agent_adherence_history` POSTed `/api/v2/workforcemanagement/managementunits/{mu}/historicaladherencequery` and tried to poll the `downloadUrl(s)` from that response. **Verified against the live tenant:** that endpoint returns `{ "id": …, "downloadUrls": [], "queryState": "Processing" }` — the URL list is *always empty* and a new `id` is minted on every POST. Its result is delivered via a **notification topic**, not a pollable HTTP response, so the poll loop had nothing to fetch and the tool soft-failed "not ready" for every query — even a single day.
+
+### Fix
+
+Switched to the Genesys **bulk historical-adherence jobs** API, which is genuinely synchronous-pollable (confirmed end-to-end on the live tenant — completes in seconds):
+
+- `POST /api/v2/workforcemanagement/adherence/historical/bulk` with `{ items: [{ managementUnitId, startDate, endDate, userIds?, includeExceptions, includeActuals:false }], timeZone }` → `{ job: { id, status }, downloadUrls: [] }`.
+- Poll `GET /api/v2/workforcemanagement/adherence/historical/bulk/jobs/{jobId}` until `job.status == "Complete"` → `downloadUrls` populated with a presigned URL (signature-authed; no Bearer header needed).
+- Fetch each URL → parse `userResults[]` (`adherencePercentage`, `conformancePercentage`, `impact`, `exceptionInfo`, …).
+
+### Other changes
+
+- **Signature:** `management_unit_id: str` → `management_unit_ids: list[str]` — one bulk item per MU, so a single call covers every agent unit; output rows are tagged with `management_unit_id`. Top-level `query_id` → `job_id`.
+- **Scope:** the bulk endpoint works under `workforce-management:readonly` (verified), so no extra scope grant is needed for adherence. The 401/403 soft-fail message is updated accordingly.
+- Soft-fails preserved: failed job → 502 envelope; not-Complete-within-budget → 202 envelope with `job_id`; span cap (31d / 7d with exceptions) unchanged.
+
+### Tests
+
+`tests/test_adherence_history.py` rewritten for the bulk flow (request shape, Processing→Complete poll, immediate-complete skip, multi-MU tagging, job-failed + never-complete soft-fails, span caps, 403). **593 tests**, all passing.
+
+---
+
 ## v1.14.0 — 30 June 2026
 
 **WFM accuracy fixes + historical-adherence coverage + multi-year chunking.**

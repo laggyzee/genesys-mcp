@@ -81,37 +81,37 @@ def _safe_zoneinfo(tz_name: str | None) -> tuple[ZoneInfo, str]:
 _ADHERENCE_POLL_ATTEMPTS = 15
 
 
-def _fetch_adherence_download(urls: list[str]) -> list[dict] | None:
-    """Fetch + concatenate ``data`` rows from one or more presigned result URLs.
+def _fetch_adherence_download(urls: list[str]) -> list[dict]:
+    """Fetch + concatenate per-user adherence rows from the presigned result URL(s).
 
-    Genesys historical-adherence results are written to a presigned download
-    URL that 404/403s until the async job finishes, then serves the JSON
-    ``WfmHistoricalAdherenceResultWrapper`` ({entityId, data:[...]}). Returns the
-    concatenated ``data`` rows, or ``None`` if no URL served a result (still
-    processing / not ready).
+    Each bulk-job result file has the shape ``{managementUnitId, startDate,
+    endDate, userResults: [...], lookupIdToSecondaryPresenceId}``. Returns the
+    concatenated ``userResults``, each tagged with its file's
+    ``managementUnitId`` so multi-MU results stay attributable. The URLs are
+    presigned (the signature is the auth — no Bearer header needed) and are only
+    handed back once the job is ``Complete``.
     """
     rows: list[dict] = []
-    served = False
     for url in urls:
         if not url:
             continue
         try:
             resp = httpx.get(url, timeout=30.0)
-        except Exception as exc:  # pragma: no cover - network edge
-            logger.warning("adherence download GET failed: %s", exc)
-            continue
-        if resp.status_code != 200:
-            continue
-        try:
+            resp.raise_for_status()
             payload = resp.json()
-        except Exception:  # pragma: no cover - malformed body
+        except Exception as exc:  # pragma: no cover - network edge
+            logger.warning("adherence download failed: %s", exc)
             continue
-        served = True
         if isinstance(payload, dict):
-            rows.extend(payload.get("data") or [])
-        elif isinstance(payload, list):
-            rows.extend(payload)
-    return rows if served else None
+            mu = payload.get("managementUnitId")
+            results = payload.get("userResults") or payload.get("data") or []
+        else:
+            mu, results = None, (payload or [])
+        for row in results:
+            if mu and isinstance(row, dict) and "managementUnitId" not in row:
+                row = {**row, "managementUnitId": mu}
+            rows.append(row)
+    return rows
 
 
 def register(mcp: FastMCP) -> None:
@@ -401,10 +401,11 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool()
     def agent_adherence_history(
-        management_unit_id: str = Field(
+        management_unit_ids: list[str] = Field(
             description=(
-                "Management unit id to query (use list_management_units or "
-                "get_user_management_unit). Historical adherence is MU-scoped."
+                "Management unit ids to query (use list_management_units). One "
+                "bulk item is submitted per MU, so pass every agent MU you want "
+                "(e.g. both Agents_* units). Required."
             ),
         ),
         interval: str | None = Field(
@@ -415,7 +416,7 @@ def register(mcp: FastMCP) -> None:
             default=None,
             description=(
                 "Optional user ids to limit the query. Omit for ALL agents in "
-                "the management unit."
+                "each management unit."
             ),
         ),
         time_zone: str = Field(
@@ -439,20 +440,25 @@ def register(mcp: FastMCP) -> None:
         the scheduled-vs-actual percentages that ``agent_adherence_review`` and
         ``query_agent_adherence_explanations`` deliberately do NOT compute.
 
-        Genesys historical adherence is an async query: this tool submits it,
-        then polls the result download until it's ready, so you get the numbers
-        back here rather than having to open the WFM Adherence/Reports area.
+        Uses the Genesys **bulk historical-adherence jobs** API: submits one job
+        (one item per management unit), polls the job by id until it's
+        ``Complete``, then fetches the presigned result download(s) — so the
+        finished numbers come back here rather than only into the WFM
+        Adherence/Reports area. (The per-MU ``historicaladherencequery`` endpoint
+        is notification-only and never returns a pollable result; the bulk jobs
+        endpoint is the synchronous-pollable one.)
 
         Returns one row per user with ``adherence_pct``, ``conformance_pct``,
         ``impact``, ``exception_count`` and (when ``include_exceptions``) the
         exception detail, plus a roll-up mean adherence/conformance.
 
         Span caps (Genesys): max 31 days, or 7 days when ``include_exceptions``
-        is true. Soft-fails (never throws) if the OAuth client lacks
-        ``wfm:historicalAdherence:view``, or if the async result isn't ready
-        within the poll budget (it returns the query id + a note so you can
-        retry or narrow the range).
+        is true. Soft-fails (never throws) if the OAuth client lacks WFM read
+        access, or if the job isn't ``Complete`` within the poll budget (it
+        returns the job id + a note so you can retry or narrow the range).
         """
+        if not management_unit_ids:
+            raise ValueError("management_unit_ids must contain at least one id (use list_management_units).")
         interval = interval or _default_interval(7)
         try:
             start_iso, end_iso = interval.split("/", 1)
@@ -470,79 +476,95 @@ def register(mcp: FastMCP) -> None:
                 "Narrow the interval (or set include_exceptions=false for up to 31 days)."
             )
 
-        body: dict[str, Any] = {
+        # Bulk historical-adherence job: one item per MU. Submit → poll the job
+        # by id until Complete → fetch the presigned result download(s).
+        item_base: dict[str, Any] = {
             "startDate": start_iso,
             "endDate": end_iso,
-            "timeZone": time_zone,
             "includeExceptions": include_exceptions,
+            "includeActuals": False,
         }
         if user_ids:
-            body["userIds"] = user_ids
+            item_base["userIds"] = user_ids
+        body = {
+            "items": [{**item_base, "managementUnitId": mu} for mu in management_unit_ids],
+            "timeZone": time_zone,
+        }
 
         api_client = get_api()
         try:
             submit = with_retry(api_client.call_api)(
-                resource_path=(
-                    f"/api/v2/workforcemanagement/managementunits/"
-                    f"{management_unit_id}/historicaladherencequery"
-                ),
+                resource_path="/api/v2/workforcemanagement/adherence/historical/bulk",
                 method="POST", body=body,
                 auth_settings=["PureCloud OAuth"], response_type="object",
             ) or {}
         except Exception as exc:
-            if getattr(exc, "status", None) == 403:
+            if getattr(exc, "status", None) in (401, 403):
                 return soft_fail_envelope(
-                    status=403,
+                    status=getattr(exc, "status", 403),
                     kind="historical adherence",
                     message=(
-                        "OAuth client lacks wfm:historicalAdherence:view — grant it "
-                        "to the QueueIQ OAuth client to retrieve adherence percentages. "
+                        "OAuth client lacks workforce-management read access for "
+                        "historical adherence — grant the QueueIQ client "
+                        "workforce-management:readonly (or wfm:historicalAdherence:view). "
                         "This is a missing scope, not a tenant restriction."
                     ),
-                    management_unit_id=management_unit_id,
+                    management_unit_ids=management_unit_ids,
                     interval=interval,
                 )
             raise
 
-        query_id = submit.get("id")
-        # The result may be inline (small/fast queries) or behind a presigned
-        # downloadUrl that 404s until the async job writes it. Poll the URL(s).
-        rows: list[dict] | None = None
-        inline = submit.get("downloadResult")
-        # Presence check, NOT truthiness: an empty ``data: []`` is a VALID result
-        # (zero agents matched / zero in scope) and must not fall through to the
-        # poll branch and report "not ready".
-        if isinstance(inline, dict) and inline.get("data") is not None:
-            rows = inline.get("data") or []
-        else:
-            urls = list(submit.get("downloadUrls") or [])
-            if submit.get("downloadUrl"):
-                urls.append(submit["downloadUrl"])
-            # Historical adherence for a large MU + wide window can take up to a
-            # minute. Linear backoff (1→5s) over ~15 attempts ≈ 60s budget; if it
-            # still isn't ready we soft-fail with the query id so the caller can
-            # retry or narrow the range.
-            delay = 1.0
-            for _ in range(_ADHERENCE_POLL_ATTEMPTS):
-                rows = _fetch_adherence_download(urls)
-                if rows is not None:
-                    break
-                time.sleep(delay)
-                delay = min(delay + 1.0, 5.0)
+        def _job_fields(resp: dict) -> tuple[str | None, str | None, list[str]]:
+            job = resp.get("job") or {}
+            return job.get("id"), job.get("status"), list(resp.get("downloadUrls") or [])
 
-        if rows is None:
+        job_id, status, download_urls = _job_fields(submit)
+
+        # Poll the job until terminal. The bulk calc usually finishes in a few
+        # seconds; linear backoff (1→5s) over ~15 attempts is a ~60s budget. If
+        # it isn't Complete by then we soft-fail with the job id so the caller
+        # can retry (Genesys keeps computing it) or narrow the range.
+        delay = 1.0
+        for _ in range(_ADHERENCE_POLL_ATTEMPTS):
+            if status == "Complete":
+                break
+            if status and any(bad in status for bad in ("Error", "Failed", "Cancel")):
+                return soft_fail_envelope(
+                    status=502,
+                    kind="historical adherence (job failed)",
+                    message=f"Genesys historical-adherence job ended in state {status!r}. job_id={job_id}.",
+                    management_unit_ids=management_unit_ids,
+                    interval=interval,
+                    job_id=job_id,
+                )
+            if not job_id:
+                break
+            time.sleep(delay)
+            delay = min(delay + 1.0, 5.0)
+            poll = with_retry(api_client.call_api)(
+                resource_path=f"/api/v2/workforcemanagement/adherence/historical/bulk/jobs/{job_id}",
+                method="GET",
+                auth_settings=["PureCloud OAuth"], response_type="object",
+            ) or {}
+            job_id, status, urls = _job_fields(poll)
+            if urls:
+                download_urls = urls
+
+        if status != "Complete":
             return soft_fail_envelope(
                 status=202,
                 kind="historical adherence (processing)",
                 message=(
-                    "Adherence query submitted but the async result was not ready "
-                    "within the poll budget. Retry shortly, or narrow the interval. "
-                    f"query_id={query_id}."
+                    "Historical-adherence job submitted but wasn't Complete within the "
+                    "poll budget. Retry shortly (Genesys keeps computing it), or narrow "
+                    f"the interval. job_id={job_id}."
                 ),
-                management_unit_id=management_unit_id,
+                management_unit_ids=management_unit_ids,
                 interval=interval,
-                query_id=query_id,
+                job_id=job_id,
             )
+
+        rows = _fetch_adherence_download(download_urls)
 
         users_out: list[dict] = []
         adh_vals: list[float] = []
@@ -556,6 +578,7 @@ def register(mcp: FastMCP) -> None:
                 conf_vals.append(float(conf))
             entry = {
                 "user_id": row.get("userId"),
+                "management_unit_id": row.get("managementUnitId"),
                 "adherence_pct": adh,
                 "conformance_pct": conf,
                 "impact": row.get("impact"),
@@ -575,10 +598,10 @@ def register(mcp: FastMCP) -> None:
         return {
             "interval": interval,
             "as_of_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "management_unit_id": management_unit_id,
+            "management_unit_ids": management_unit_ids,
             "time_zone": time_zone,
             "include_exceptions": include_exceptions,
-            "query_id": query_id,
+            "job_id": job_id,
             "user_count": len(users_out),
             "mean_adherence_pct": round(sum(adh_vals) / len(adh_vals), 1) if adh_vals else None,
             "mean_conformance_pct": round(sum(conf_vals) / len(conf_vals), 1) if conf_vals else None,
