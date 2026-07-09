@@ -279,7 +279,7 @@ def register(mcp: FastMCP) -> None:
         see the window immediately.
 
         Soft-fails on 403 against the routing-status endpoint (some tenants
-        restrict ``analytics:agentRouting:view``): the routing-status seconds
+        restrict ``analytics:userAggregate:view``): the routing-status seconds
         all degrade to 0 with a top-level ``routing_status_scope_available:
         false`` flag, and the conversation-side answered counts still
         populate so the response is still partially useful.
@@ -361,9 +361,9 @@ def register(mcp: FastMCP) -> None:
         if not routing_result["scope_available"]:
             out["routing_status_unavailable_note"] = (
                 "On-queue/routing-status time is unavailable because the OAuth "
-                "client lacks the analytics:agentRouting:view scope — this is a "
+                "client lacks the analytics:userAggregate:view scope — this is a "
                 "MISSING SCOPE, not a tenant block or a broken query. Ask the "
-                "Genesys admin to grant analytics:agentRouting:view to the "
+                "Genesys admin to grant analytics:userAggregate:view to the "
                 "QueueIQ OAuth client; routing-status seconds and the derived "
                 "ratios then populate. Answered counts already reflect actual data."
             )

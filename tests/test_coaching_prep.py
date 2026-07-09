@@ -57,7 +57,7 @@ class TestAhtClass:
 
     def test_over_twenty_pct_is_bad(self, build_report_coaching):
         assert build_report_coaching._aht_class(21) == "bad"
-        assert build_report_coaching._aht_class(330) == "bad"  # Redacted 007 case
+        assert build_report_coaching._aht_class(330) == "bad"  # Person 007 case
 
     def test_none_returns_empty_class(self, build_report_coaching):
         assert build_report_coaching._aht_class(None) == ""

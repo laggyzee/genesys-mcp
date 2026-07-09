@@ -368,6 +368,6 @@ class TestRoutingStatusSoftFail:
             conv_resp=_conv_response({"u1": {"voice": (10, 1200)}}),
         )
         note = out["routing_status_unavailable_note"]
-        assert "analytics:agentRouting:view" in note
+        assert "analytics:userAggregate:view" in note
         assert "MISSING SCOPE" in note
         assert "not a tenant block" in note

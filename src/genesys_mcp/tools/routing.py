@@ -62,92 +62,140 @@ def _fetch_queue(queue_id: str) -> dict | None:
         raise
 
 
+_QUEUE_MEMBERS_PAGE_SIZE = 100  # server max for GET /routing/queues/{id}/members
+
+
 def _fetch_queue_members(queue_id: str, max_pages: int = 5) -> list[dict]:
-    """Pull all members of a queue with their joined/active state."""
+    """Pull all members of a queue with their joined/active state.
+
+    ``pageSize`` for this endpoint is capped at 100 server-side; requesting
+    more silently clamps (or 400s), and looping on ``< requested_page_size``
+    with an unclamped request size would then never terminate correctly.
+    """
     api = gc.RoutingApi(get_api())
     out: list[dict] = []
     for pg in range(1, max_pages + 1):
         resp = to_dict(
             with_retry(api.get_routing_queue_members)(
-                queue_id=queue_id, page_size=200, page_number=pg, joined=True,
+                queue_id=queue_id, page_size=_QUEUE_MEMBERS_PAGE_SIZE,
+                page_number=pg, joined=True,
                 expand=["routingStatus", "skills"],
             )
         )
         entities = resp.get("entities") or []
         out.extend(entities)
-        if len(entities) < 200:
+        if len(entities) < _QUEUE_MEMBERS_PAGE_SIZE:
             break
     return out
+
+
+# disconnectType values that indicate a transfer. segmentType has NO
+# 'transfer'/'ininternaltransfer' value in the Genesys schema (see
+# AnalyticsConversationSegment.segmentType) — transfers are indicated by
+# AnalyticsConversationSegment.disconnectType instead. Every disconnectType
+# enum member whose name denotes a transfer is included; 'dndEndpoint' is
+# excluded (it's a DND decline, not a transfer).
+_TRANSFER_DISCONNECT_TYPES = frozenset({
+    "transfer",
+    "conferenceTransfer",
+    "consultTransfer",
+    "forwardTransfer",
+    "noAnswerTransfer",
+    "notAvailableTransfer",
+    "dndTransfer",
+})
+
+
+def _has_agent_interact_segment(conv: dict) -> bool:
+    """True if any agent-purpose participant has an 'interact' segment.
+
+    This is the "was the call actually answered by an agent" signal used
+    by both the per-call and aggregate outcome classifiers — see
+    ``routing_diagnostic_aggregate._matches_outcome`` below, which this
+    helper was extracted from (it originally reused
+    ``session.flaggedReason``, a field that doesn't exist on AnalyticsSession
+    and made the 'abandoned' verdict unreachable).
+    """
+    for p in conv.get("participants") or []:
+        if p.get("purpose") != "agent":
+            continue
+        for s in p.get("sessions") or []:
+            for seg in s.get("segments") or []:
+                if seg.get("segmentType") == "interact":
+                    return True
+    return False
+
+
+def _count_transfer_segments(conv: dict) -> int:
+    """Count segments whose ``disconnectType`` indicates a transfer.
+
+    Shared by ``_classify_outcome`` (per-call) and
+    ``routing_diagnostic_aggregate._matches_outcome`` (aggregate) so both
+    tools agree on what counts as a transfer.
+    """
+    count = 0
+    for p in conv.get("participants") or []:
+        for s in p.get("sessions") or []:
+            for seg in s.get("segments") or []:
+                if seg.get("disconnectType") in _TRANSFER_DISCONNECT_TYPES:
+                    count += 1
+    return count
 
 
 def _classify_outcome(conv: dict) -> dict[str, Any]:
     """Reduce the analytics conversation shape into a clear outcome verdict.
 
-    Looks at participants → sessions → segments. ``segmentType=='interact'``
-    on an ``agent``-purpose participant means the call was answered;
-    ``flaggedReason`` or ``disconnectType=='client'`` on a customer session
-    pre-answer means abandoned.
+    Answered: any agent-purpose participant has an 'interact' segment
+    (:func:`_has_agent_interact_segment`). Abandoned: no such segment exists
+    — the customer disconnected before any agent picked up. This mirrors
+    ``routing_diagnostic_aggregate._matches_outcome``'s abandon logic (both
+    now call the same shared helper) rather than the pre-v1.14 code, which
+    read a nonexistent ``session.flaggedReason`` field and could never
+    actually reach the 'abandoned' verdict.
+
+    Transfers are counted via ``disconnectType`` (:func:`_count_transfer_segments`)
+    — ``segmentType`` has no transfer value in the Genesys schema.
     """
-    outcome = {
-        "verdict": "unknown",
-        "explanation": "",
-        "first_answer_at": None,
-        "abandoned_at": None,
-        "abandon_reason": None,
-        "transfer_count": 0,
-    }
-    answered = False
-    abandoned = False
-    transfers = 0
+    answered = _has_agent_interact_segment(conv)
+    transfers = _count_transfer_segments(conv)
+
     first_answer_at: str | None = None
-    abandon_at: str | None = None
-    abandon_reason: str | None = None
-
-    for p in conv.get("participants") or []:
-        purpose = p.get("purpose")
-        for s in p.get("sessions") or []:
-            flagged = s.get("flaggedReason")
-            for seg in s.get("segments") or []:
-                st = seg.get("segmentType")
-                # Answered: agent-purpose participant has an 'interact' segment.
-                if st == "interact" and purpose == "agent":
-                    if not first_answer_at:
-                        first_answer_at = seg.get("segmentStart")
-                        answered = True
-                # Transfer: explicit transfer-segments on any session.
-                if st in ("transfer", "ininternaltransfer"):
-                    transfers += 1
-            # Abandon: customer session disconnect-without-answer.
-            if (
-                purpose == "customer"
-                and flagged in ("abandon", "short", "transferred")
-            ):
-                abandon_at = s.get("segmentEnd")
-                abandon_reason = flagged
-                if flagged == "abandon":
-                    abandoned = True
-
-    outcome["first_answer_at"] = first_answer_at
-    outcome["abandoned_at"] = abandon_at
-    outcome["abandon_reason"] = abandon_reason
-    outcome["transfer_count"] = transfers
-
     if answered:
-        outcome["verdict"] = "answered"
+        for p in conv.get("participants") or []:
+            if p.get("purpose") != "agent":
+                continue
+            for s in p.get("sessions") or []:
+                for seg in s.get("segments") or []:
+                    if seg.get("segmentType") == "interact":
+                        if not first_answer_at:
+                            first_answer_at = seg.get("segmentStart")
+
+    abandoned_at: str | None = None
+    if not answered:
+        for p in conv.get("participants") or []:
+            if p.get("purpose") != "customer":
+                continue
+            for s in p.get("sessions") or []:
+                segs = s.get("segments") or []
+                if segs:
+                    abandoned_at = segs[-1].get("segmentEnd")
+
+    outcome: dict[str, Any] = {
+        "verdict": "answered" if answered else "abandoned",
+        "explanation": "",
+        "first_answer_at": first_answer_at,
+        "abandoned_at": abandoned_at if not answered else None,
+        "transfer_count": transfers,
+    }
+    if answered:
         outcome["explanation"] = "Call connected to an agent and was answered."
-    elif abandoned:
-        outcome["verdict"] = "abandoned"
-        outcome["explanation"] = (
-            f"Customer disconnected before answer (flag: {abandon_reason})."
-        )
     else:
-        outcome["verdict"] = "other"
         outcome["explanation"] = (
-            "No agent answer and no customer-abandon flag detected — check "
-            "transfer/timeout/voicemail segments."
+            "Customer disconnected before any agent picked up "
+            "(no agent-purpose interact segment found)."
         )
-    if transfers > 1:
-        outcome["explanation"] += f" Call was transferred {transfers} times."
+    if transfers:
+        outcome["explanation"] += f" Call was transferred {transfers} time(s)."
     return outcome
 
 
@@ -189,14 +237,6 @@ def _trace_path(conv: dict) -> list[dict]:
                         "active_skill_ids": session_active_skills,
                         "requested_routings": requested_routings,
                     })
-                elif st in ("transfer", "ininternaltransfer"):
-                    events.append({
-                        "kind": "transfer",
-                        "started_at": seg.get("segmentStart"),
-                        "ended_at": seg.get("segmentEnd"),
-                        "duration_s": round(_seg_dur_s(seg), 1),
-                        "queue_id": seg.get("queueId"),
-                    })
                 elif st in ("hold",):
                     events.append({
                         "kind": "hold",
@@ -204,49 +244,90 @@ def _trace_path(conv: dict) -> list[dict]:
                         "ended_at": seg.get("segmentEnd"),
                         "duration_s": round(_seg_dur_s(seg), 1),
                     })
+                # Transfer is a disconnectType, not a segmentType — it can
+                # co-occur with any of the segments above, so it's checked
+                # independently rather than as another segmentType branch.
+                if seg.get("disconnectType") in _TRANSFER_DISCONNECT_TYPES:
+                    events.append({
+                        "kind": "transfer",
+                        "started_at": seg.get("segmentStart"),
+                        "ended_at": seg.get("segmentEnd"),
+                        "duration_s": round(_seg_dur_s(seg), 1),
+                        "queue_id": seg.get("queueId"),
+                        "disconnect_type": seg.get("disconnectType"),
+                    })
     events.sort(key=lambda e: e.get("started_at") or "")
     return events
 
 
-def _eligible_member_count(queue: dict, members: list[dict]) -> dict[str, Any]:
-    """How many current queue members have all the queue's required skills?
+def _eligible_member_count(
+    members: list[dict], active_skill_ids: list[str] | None,
+) -> dict[str, Any]:
+    """How many current queue members are eligible for THIS call's skill set?
 
-    'Current' state — not historical. We can't easily reconstruct agent skills
-    at the moment of the call, so we report the current eligibility as a proxy.
-    For very old calls this is less informative; for recent failures it answers
-    "is the queue under-staffed for the skill set we require?"
+    Queue has no required-skills field in the Genesys schema (no
+    ``memberGroups[].skills`` or top-level ``skills``) — there is no
+    queue-level "required skills" to read. QueueMember itself carries no
+    skills either; they live under ``member.user.skills`` (populated when
+    the members call is expanded with ``expand=["skills"]``, as
+    ``_fetch_queue_members`` does).
+
+    When the analytics conversation exposes ``activeSkillIds`` for this
+    queue-session, we treat that as the actual skill requirement for THIS
+    call and compute eligibility against it. Without that signal there is
+    no queue-level fallback to compute eligibility from, so we report
+    membership honestly (total/idle counts) and leave eligibility unset
+    rather than fabricate a requirement.
+
+    'Current' state — not historical. We can't reconstruct which skills an
+    agent held at the moment of the call, so this is a current-state proxy;
+    most informative for recent failures.
     """
-    required_skill_ids: set[str] = set()
-    for sgrp in queue.get("memberGroups") or []:
-        # memberGroups is rarely populated in the way we want; use skillGroups.
-        for sk in sgrp.get("skills") or []:
-            if sk.get("id"):
-                required_skill_ids.add(sk["id"])
-    # Some queues encode skill requirements via skillEvaluationMethod + skill list
-    # on conditional routing — pull at top level if present.
-    for sk in queue.get("skills") or []:
-        if isinstance(sk, dict) and sk.get("id"):
-            required_skill_ids.add(sk["id"])
+    total_members = len(members)
+    idle_members = sum(
+        1 for m in members
+        if (m.get("routingStatus") or {}).get("status") == "IDLE"
+    )
 
+    if not active_skill_ids:
+        return {
+            "total_members": total_members,
+            "idle_now": idle_members,
+            "eligible_now": None,
+            "idle_eligible_now": None,
+            "sample_eligible_idle": [],
+            "eligibility_note": (
+                "No activeSkillIds on this conversation's queue session — "
+                "eligibility isn't computed (Queue has no required-skills "
+                "field to fall back on). total_members/idle_now are "
+                "unfiltered membership counts."
+            ),
+        }
+
+    required = set(active_skill_ids)
     eligible: list[dict] = []
-    on_queue_eligible: list[dict] = []
+    idle_eligible: list[dict] = []
     for m in members:
         user = m.get("user") or {}
-        m_skills = {s.get("id") for s in (m.get("skills") or []) if s.get("id")}
-        if not required_skill_ids or required_skill_ids.issubset(m_skills):
-            eligible.append({
+        user_skill_ids = {
+            s.get("id") for s in (user.get("skills") or []) if s.get("id")
+        }
+        if required.issubset(user_skill_ids):
+            row = {
                 "user_id": user.get("id"),
                 "user_name": user.get("name"),
                 "routing_status": (m.get("routingStatus") or {}).get("status"),
-            })
-            if (m.get("routingStatus") or {}).get("status") == "IDLE":
-                on_queue_eligible.append(eligible[-1])
+            }
+            eligible.append(row)
+            if row["routing_status"] == "IDLE":
+                idle_eligible.append(row)
     return {
-        "required_skill_ids": sorted(required_skill_ids),
-        "total_members": len(members),
+        "total_members": total_members,
+        "idle_now": idle_members,
         "eligible_now": len(eligible),
-        "idle_now": len(on_queue_eligible),
-        "sample_eligible_idle": on_queue_eligible[:5],
+        "idle_eligible_now": len(idle_eligible),
+        "sample_eligible_idle": idle_eligible[:5],
+        "required_skill_ids": sorted(required),
     }
 
 
@@ -265,11 +346,13 @@ def register(mcp: FastMCP) -> None:
 
         Returns:
 
-        - **outcome**: answered / abandoned (+ reason) / other, with explanation
+        - **outcome**: answered / abandoned, with explanation and transfer count
         - **path**: chronological IVR → queue → agent path with durations
-        - **queues_visited**: each unique queue with its routing config (skills
-          required, routing method, ACW timeout), plus current eligible-agent
-          counts (members with all required skills, broken down by IDLE state)
+        - **queues_visited**: each unique queue, plus current membership
+          (total members / idle members). Skill-based eligibility is only
+          computed when the conversation exposes ``activeSkillIds`` for
+          that queue-session — Queue has no required-skills field to read,
+          so eligibility is never fabricated when that signal is absent.
         - **timing**: total time-in-queue, time-to-first-offer, transfer count
 
         Limitations (v0.5):
@@ -307,7 +390,15 @@ def register(mcp: FastMCP) -> None:
                 queues_visited.append({"queue_id": qid, "found": False})
                 continue
             members = _fetch_queue_members(qid)
-            eligibility = _eligible_member_count(q, members)
+            # activeSkillIds is a session-level field on THIS conversation's
+            # queue-wait event — it's the closest thing to a real skill
+            # requirement for this specific call (Queue itself has none).
+            active_skill_ids: list[str] = []
+            for ev in path:
+                if ev.get("queue_id") == qid and ev.get("active_skill_ids"):
+                    active_skill_ids = ev["active_skill_ids"]
+                    break
+            eligibility = _eligible_member_count(members, active_skill_ids)
             queues_visited.append({
                 "queue_id": qid,
                 "queue_name": q.get("name"),
@@ -422,11 +513,11 @@ def register(mcp: FastMCP) -> None:
           down via routing_diagnostic per-call mode)
 
         Limitations: failure-mode classification is heuristic — uses the
-        session-level eligibleAgentCounts + flaggedReason to bucket. A "0
-        eligible" count at the moment of arrival could be either "nobody
-        scheduled" or "every scheduled agent on a call". The v0.9
-        classification doesn't distinguish those without WFM joins; v0.10
-        could refine via cross-ref against wfm_schedule data.
+        session-level eligibleAgentCounts to bucket. A "0 eligible" count at
+        the moment of arrival could be either "nobody scheduled" or "every
+        scheduled agent on a call". The v0.9 classification doesn't
+        distinguish those without WFM joins; v0.10 could refine via
+        cross-ref against wfm_schedule data.
         """
         if outcome_filter not in ("abandoned", "long_wait", "transferred"):
             return {
@@ -440,10 +531,10 @@ def register(mcp: FastMCP) -> None:
             }
         bucket_seconds = {"15min": 900, "30min": 1800, "1h": 3600}[bucket_size]
 
-        # Pull every conversation that touched this queue in the interval.
-        # `flaggedReason` is a session-level attribute, not a segment dimension —
-        # the conv-details filter API doesn't accept it directly. So we filter
-        # by queueId here and classify the outcome post-hoc in Python.
+        # Pull every conversation that touched this queue in the interval,
+        # then classify the outcome post-hoc in Python (see _matches_outcome
+        # below) — the conv-details filter API has no outcome/abandon
+        # dimension to filter on directly.
         body = {
             "interval": interval,
             "order": "desc",
@@ -459,37 +550,35 @@ def register(mcp: FastMCP) -> None:
         convs = _run_conv_details_job(body, max_pages=20)
 
         # Pre-filter to the requested outcome class so the failure-mode
-        # rollup is scoped to the right population. We detect abandons by
-        # the absence of an agent-purpose interact segment rather than
-        # session.flaggedReason — that field is empty in many tenants and
-        # the segment-presence heuristic reconciles cleanly against the
-        # nOffered - nAnswered counts from queue_performance.
+        # rollup is scoped to the right population. Abandon/transfer detection
+        # is shared with _classify_outcome via _has_agent_interact_segment /
+        # _count_transfer_segments — both tools now agree on what "answered"
+        # and "transferred" mean. had_acd_interact_on_queue / queue_wait_s stay
+        # local here since they're queue-scoped (this tool cares about time
+        # spent on THIS queue specifically, not the whole conversation).
         def _matches_outcome(conv: dict) -> bool:
             had_acd_interact_on_queue = False
-            had_agent_interact = False
-            transfer_count = 0
             queue_wait_s = 0.0
             for p in conv.get("participants") or []:
-                purpose = p.get("purpose")
+                if p.get("purpose") != "acd":
+                    continue
                 for s in p.get("sessions") or []:
                     for seg in s.get("segments") or []:
-                        st = seg.get("segmentType")
-                        if st == "interact":
-                            if purpose == "acd" and seg.get("queueId") == queue_id:
-                                had_acd_interact_on_queue = True
-                                queue_wait_s += _seg_dur_s(seg)
-                            elif purpose == "agent":
-                                had_agent_interact = True
-                        elif st in ("transfer", "ininternaltransfer"):
-                            transfer_count += 1
+                        if (
+                            seg.get("segmentType") == "interact"
+                            and seg.get("queueId") == queue_id
+                        ):
+                            had_acd_interact_on_queue = True
+                            queue_wait_s += _seg_dur_s(seg)
             if not had_acd_interact_on_queue:
                 # Conversation matched the queue filter via a non-interact
                 # segment (e.g. a quick re-queue) but never sat on this queue.
                 return False
+            had_agent_interact = _has_agent_interact_segment(conv)
             if outcome_filter == "abandoned":
                 return not had_agent_interact
             if outcome_filter == "transferred":
-                return transfer_count > 0
+                return _count_transfer_segments(conv) > 0
             if outcome_filter == "long_wait":
                 return had_agent_interact and queue_wait_s > 30
             return False
@@ -497,7 +586,7 @@ def register(mcp: FastMCP) -> None:
         convs = [c for c in convs if _matches_outcome(c)]
 
         # Classify each conv into a failure mode based on eligibleAgentCounts
-        # at arrival + flaggedReason + IVR-only marker.
+        # at arrival + whether it ever reached the queue (IVR-only marker).
         from collections import Counter
         failure_counts: Counter = Counter()
         bucket_counts: dict[str, int] = {}

@@ -106,8 +106,8 @@ def _full_day_request(*, request_id, user_id, activity_id, dates,
         "isFullDayRequest": True,
         "fullDayManagementUnitDates": dates,
         "notes": notes,
-        "modifiedBy": {"id": "sup-1", "name": "Supervisor X"},
-        "modifiedDate": "2026-06-01T12:00:00.000Z",
+        "reviewedBy": {"id": "sup-1", "name": "Supervisor X"},
+        "reviewedDate": "2026-06-01T12:00:00.000Z",
         "submittedDate": "2026-05-20T09:00:00.000Z",
     }
 
@@ -122,8 +122,8 @@ def _partial_day_request(*, request_id, user_id, activity_id,
         "isFullDayRequest": False,
         "partialDayStartDateTimes": partial_starts,
         "dailyDurationMinutes": daily_minutes,
-        "modifiedBy": {"id": "sup-1", "name": "Supervisor X"},
-        "modifiedDate": "2026-06-01T12:00:00.000Z",
+        "reviewedBy": {"id": "sup-1", "name": "Supervisor X"},
+        "reviewedDate": "2026-06-01T12:00:00.000Z",
     }
 
 

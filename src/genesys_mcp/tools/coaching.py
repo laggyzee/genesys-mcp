@@ -343,8 +343,11 @@ def _walk_calls_for_signals(
             total_with_wrapup += 1
             if wrap.get("notes"):
                 own_note_count += 1
-            for d_label in wrap.get("dispositions") or []:
-                disposition_counter[d_label] += 1
+            # _fetch_wrapup returns a single "disposition" string, not a
+            # "dispositions" list — the plural key never existed on the
+            # wrap-up helper's return shape, so this counter was always empty.
+            if wrap.get("disposition"):
+                disposition_counter[wrap["disposition"]] += 1
         if first_seg_queue:
             queue_counter[first_seg_queue] += 1
 
