@@ -150,7 +150,9 @@ def _normalise_request(
 
     user = raw.get("user") or {}
     user_id = user.get("id")
-    modified_by = raw.get("modifiedBy") or {}
+    # TimeOffRequest has no modifiedBy/modifiedDate — the review record is
+    # reviewedBy/reviewedDate (id may be 'System' for automated approvals).
+    reviewed_by = raw.get("reviewedBy") or {}
 
     return {
         "id": raw.get("id"),
@@ -169,9 +171,9 @@ def _normalise_request(
         "daily_duration_minutes": daily_min,
         "partial_day_start_times": partial_starts if partial_starts else None,
         "notes": raw.get("notes"),
-        "modified_by_id": modified_by.get("id"),
-        "modified_by_name": modified_by.get("name"),
-        "modified_at": raw.get("modifiedDate"),
+        "reviewed_by": reviewed_by.get("id"),
+        "reviewed_by_name": reviewed_by.get("name"),
+        "reviewed_at": raw.get("reviewedDate"),
         "submitted_at": raw.get("submittedDate"),
     }
 

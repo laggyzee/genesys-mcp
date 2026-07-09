@@ -16,6 +16,35 @@ from genesys_mcp.client import get_api, to_dict, with_retry
 
 logger = logging.getLogger(__name__)
 
+# ContactIdentifier.type valid values (Genesys schema). "Sms" has no
+# equivalent in this enum and is dropped rather than mapped.
+_VALID_IDENTIFIER_TYPES = frozenset({
+    "Phone", "Email", "SocialTwitter", "SocialFacebook", "SocialLine",
+    "SocialWhatsapp", "SocialInstagram", "AppleOpaqueId", "Cookie",
+    "ExternalId",
+})
+
+# Friendly short names accepted on input and mapped to the schema's
+# SocialX-prefixed values.
+_IDENTIFIER_TYPE_ALIASES = {
+    "twitter": "SocialTwitter",
+    "facebook": "SocialFacebook",
+    "line": "SocialLine",
+    "whatsapp": "SocialWhatsapp",
+}
+
+
+def _resolve_identifier_type(identifier_type: str) -> str:
+    alias = _IDENTIFIER_TYPE_ALIASES.get(identifier_type.lower())
+    resolved = alias or identifier_type
+    if resolved not in _VALID_IDENTIFIER_TYPES:
+        raise ValueError(
+            f"identifier_type must be one of {sorted(_VALID_IDENTIFIER_TYPES)} "
+            f"(or a friendly alias: {sorted(_IDENTIFIER_TYPE_ALIASES)}); "
+            f"got {identifier_type!r}"
+        )
+    return resolved
+
 
 def register(mcp: FastMCP) -> None:
     @mcp.tool()
@@ -25,7 +54,14 @@ def register(mcp: FastMCP) -> None:
         ),
         identifier_type: str = Field(
             default="Phone",
-            description="Identifier kind: 'Phone' (default), 'Email', 'Twitter', 'Facebook', 'Line', 'WhatsApp', 'Sms'.",
+            description=(
+                "Identifier kind: 'Phone' (default), 'Email', 'SocialTwitter', "
+                "'SocialFacebook', 'SocialLine', 'SocialWhatsapp', "
+                "'SocialInstagram', 'AppleOpaqueId', 'Cookie', 'ExternalId'. "
+                "Friendly aliases accepted: 'Twitter', 'Facebook', 'Line', "
+                "'WhatsApp' (mapped to their SocialX form). No SMS identifier "
+                "type exists in Genesys."
+            ),
         ),
     ) -> dict:
         """Look up a customer in the external CRM by phone, email, or social handle.
@@ -40,7 +76,8 @@ def register(mcp: FastMCP) -> None:
         new prospects or numbers not in the CRM yet).
         """
         api = gc.ExternalContactsApi(get_api())
-        body = {"value": value, "type": identifier_type}
+        resolved_type = _resolve_identifier_type(identifier_type)
+        body = {"value": value, "type": resolved_type}
         try:
             resp = with_retry(api.post_externalcontacts_identifierlookup_contacts)(identifier=body)
             return to_dict(resp)
@@ -53,7 +90,7 @@ def register(mcp: FastMCP) -> None:
                     kind="external contact",
                     message="no contact found for identifier",
                     value=value,
-                    type=identifier_type,
+                    type=resolved_type,
                     match=None,
                 )
             raise

@@ -1,5 +1,47 @@
 # Release Notes
 
+## v1.15.0 — 9 July 2026
+
+**Endpoint-correctness pass.** A batch of fixes to request/response shapes that were verified against the Genesys Platform API schema and were silently wrong — wrong field routing, wrong field names, a call to an endpoint that doesn't exist, and a broken pagination style. None of these crashed outright; each one degraded a response (empty filters, truncated pages, false negatives) without raising, which is why they went unnoticed.
+
+### Must-fix: requests silently not doing what they claimed
+
+- **`search_conversations`** — `ani` / `queue_id` / `user_id` / `direction` were placed in `conversationFilters`, which only accepts conversation-level dimensions (`conversationStart`, etc.). Those four are segment-level dimensions and belong in `segmentFilters`; the API silently ignored them in the wrong bucket, so every filtered search actually returned an unfiltered page. Moved to `segmentFilters` with the dimension/operator/value predicate shape used elsewhere in the codebase.
+- **`routing_diagnostic` / `routing_diagnostic_aggregate`** — outcome classification read a `flaggedReason` field that doesn't exist on `AnalyticsSession`, so the "abandoned" verdict was unreachable, and tested `segmentType in ("transfer", "ininternaltransfer")` — neither is a valid `segmentType` value, so transfers were never counted. Refactored both tools onto one shared pair of helpers: "answered" is now derived from the presence of an agent-purpose `interact` segment (absence = abandoned), and transfers are counted from `disconnectType` (`transfer`, `conferenceTransfer`, `consultTransfer`, `forwardTransfer`, `noAnswerTransfer`, `notAvailableTransfer`, `dndTransfer`) — the field that actually carries this signal. Queue-member skill eligibility also read `queue.skills` / `memberGroups[].skills`, neither of which exists on `Queue`; eligibility is now computed from the conversation's own `activeSkillIds` against `member.user.skills` when that signal is present, and reported as membership-only (not a fabricated skill match) when it isn't.
+- **`routing_diagnostic`'s queue-member fetch** — requested `pageSize=200` against an endpoint whose server-side max is 100, and looped on `< 200`, which either clamps and truncates the member list or 400s. Capped at 100 with the loop terminating correctly on a short page.
+- **`agent_adherence_review`** — read `entities` off the top level of the adherence-explanations response; the real shape is `{job, result, downloadUrl}` with entities under `result`. The endpoint can also return 202-async (no `result` yet), and a fetch error was silently degrading to an empty list — both cases were making real, explained overruns look "unexplained." Now reads `result.entities`, and every user block carries an `explanations_available` flag so a caller can tell "no explanation exists" apart from "couldn't fetch one" instead of treating them the same.
+- **`wfm_schedule`'s management-unit auto-discovery** — called `GET /api/v2/workforcemanagement/users/{userId}`, which isn't a real endpoint (404 on every call, swallowed by a bare `except`), leaving the MU list empty and `scheduled_hours` stuck at 0. Switched to the same SDK call `get_user_management_unit` already uses.
+- **`search_conversations_by_attribute`** — the underlying search endpoint is cursor-paginated (request takes `cursor`, response returns `cursor`, neither has `pageSize`/`pageNumber`/`pageCount`), but the tool sent `pageSize`/`pageNumber` and looped on `pageCount`, which never advances — every call silently truncated to page 1 while reporting `truncated: false`, corrupting NPS/value-distribution/total counts for anything past the first page. Rewrote the loop to advance via the returned `cursor`, capped at 20 iterations, with `truncated: true` only when the cap is hit and a cursor is still pending.
+
+### Should-fix: field names that don't exist
+
+- **`utilization.py`** — the degraded-scope note referenced permission `analytics:agentRouting:view`, which isn't a real permission name; corrected to `analytics:userAggregate:view` (the query shape itself is unchanged — it was already correct).
+- **`coaching.py`** — read `wrap.get("dispositions")` (plural list) from the wrap-up helper, which only ever returns a singular `disposition` string; `top_dispositions` was always empty. Now counts the singular field.
+- **`workforce_history.py`** — read `dateHired` off the top-level user object; `User` has no such field — hire date lives at `employerInfo.dateHire` and only populates with `expand=["employerInfo"]`. Added the expand and read the nested field (output field renamed `date_hired` to match).
+- **`timeoff.py`** — read `modifiedBy`/`modifiedDate`, neither of which exists on `TimeOffRequest`; the real fields are `reviewedBy`/`reviewedDate`. Output fields renamed to `reviewed_by` / `reviewed_by_name` / `reviewed_at`.
+- **`external_contacts.py`** — the identifier-type docstring and accepted values didn't match the schema's `ContactIdentifier.type` enum (`Phone`, `Email`, `SocialTwitter`, `SocialFacebook`, `SocialLine`, `SocialWhatsapp`, `SocialInstagram`, `AppleOpaqueId`, `Cookie`, `ExternalId`). Friendly short names (`Twitter`, `Facebook`, `Line`, `WhatsApp`) are now mapped to their `SocialX` form; `Sms` is dropped (no equivalent identifier type exists).
+- **`conversations.py`** — `get_recording_url`/`list_recordings` read a `duration` field (the real field is `outputDurationMs`) and a `region` field that only exists on the separate `RecordingMetadata` resource, not on `Recording` (what these endpoints actually return). Fixed the duration field; `region` now returns `null` with the claim removed rather than reading a nonexistent attribute.
+
+### Hardening
+
+- **`client.init_api`** — the 401-refresh path built a *new* `ApiClient` and reassigned the module-level singleton, but every tool module already held a reference to the *old* client object (captured at call time), so the refresh was a no-op from their perspective — the old client's stale `access_token` never updated, and client-credentials grants have no refresh_token for the SDK to fall back on. Now re-authenticates the same `ApiClient` object in place on refresh; only the very first call builds a new one.
+- **`client.with_retry_for`** — parsing a 429's `Retry-After` header as `float(...)` crashed with an uncaught `ValueError` whenever the header was a non-numeric HTTP-date string instead of a plain seconds count, escaping the `except ApiException` handler entirely. Wrapped in `try/except ValueError` with a 2.0s default.
+
+### Tests
+
+New `tests/test_v1_15_endpoint_fixes.py` pins the corrected request/response shapes directly: `search_conversations` predicates land in `segmentFilters`; queue-member paging caps at 100 and terminates on a short page; outcome/transfer classification uses the shared agent-interact/disconnectType helpers and never fabricates `required_skill_ids`; `attribute_search` advances via `cursor` and only reports `truncated` when the iteration cap is hit with a cursor still pending; `wfm_schedule` MU discovery goes through the real SDK call and never touches the nonexistent raw path; `agent_adherence_review` reads `result.entities` and sets `explanations_available` correctly across the available / async / error cases; `init_api` reuses the same `ApiClient` object across a refresh; `with_retry_for` survives a non-numeric `Retry-After` header.
+
+**616 tests; 52 tools.** All passing.
+
+### Files changed
+
+- `src/genesys_mcp/tools/conversations.py`, `routing.py`, `wfm.py`, `attribute_search.py`, `utilization.py`, `coaching.py`, `workforce_history.py`, `timeoff.py`, `external_contacts.py`
+- `src/genesys_mcp/client.py`
+- `tests/test_v1_15_endpoint_fixes.py` (new), `tests/test_timeoff.py`, `tests/test_agent_utilization.py`
+- `pyproject.toml`, `README.md`, `RELEASE-NOTES.md`
+
+---
+
 ## v1.14.1 — 30 June 2026
 
 **Bug fix: `agent_adherence_history` used the wrong (notification-only) endpoint and always returned "still processing".**

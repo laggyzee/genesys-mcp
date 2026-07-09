@@ -123,13 +123,29 @@ def assert_mcp_env_clean() -> None:
 def init_api() -> gc.ApiClient:
     """Fetch the OAuth token for the default (read-only) client and cache it.
 
+    First call builds a new ``ApiClient`` (via :func:`_build_client`). Every
+    subsequent call — notably the 401-refresh path in :func:`with_retry` —
+    re-authenticates the SAME ``ApiClient`` instance in place rather than
+    building a new one. Building a new client on refresh was a no-op bug:
+    every tool module holds a reference to the client returned by the
+    original :func:`get_api` call (many capture it at import/call time), so
+    swapping ``_api_client`` for a new object left those references pointing
+    at the OLD client with its now-stale ``access_token``. Client-credentials
+    grants have no refresh_token, so the SDK never self-refreshes either —
+    the old client would keep 401ing forever after its token expired.
+
     Does **not** check for env-var overlap — that check belongs in the MCP
     server's lifespan via :func:`assert_mcp_env_clean`. The provisioning script
     legitimately holds both credential sets, so calling this from there must
     not warn.
     """
     global _api_client
-    _api_client = _build_client("GENESYS")
+    if _api_client is None:
+        _api_client = _build_client("GENESYS")
+    else:
+        client_id, client_secret, region = _read_config("GENESYS")
+        gc.configuration.host = _REGION_HOSTS[region].get_api_host()
+        _api_client.get_client_credentials_token(client_id, client_secret)
     return _api_client
 
 
@@ -199,7 +215,15 @@ def with_retry_for(refresh: Callable[[], object] | None) -> Callable[[Callable[.
                         refresh()
                         continue
                     if exc.status == 429 and not last:
-                        retry_after = float((exc.headers or {}).get("Retry-After", "2"))
+                        raw_retry_after = (exc.headers or {}).get("Retry-After", "2")
+                        try:
+                            retry_after = float(raw_retry_after)
+                        except (TypeError, ValueError):
+                            # Some responses send an HTTP-date instead of a
+                            # numeric seconds value — fall back to a sane
+                            # default rather than letting ValueError escape
+                            # and skip the retry entirely.
+                            retry_after = 2.0
                         logger.warning(
                             "Genesys 429; sleeping %.1fs (attempt %d/%d)",
                             retry_after,

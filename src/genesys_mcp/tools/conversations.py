@@ -42,15 +42,21 @@ def register(mcp: FastMCP) -> None:
         Returns conversation summaries (id, start/end, participants, queue). Use get_conversation
         on an id for full detail.
         """
+        # ani/queueId/userId/direction are segment-level dimensions in the
+        # Genesys schema (SegmentDetailQueryPredicate), not conversation-level
+        # ones — they must go in segmentFilters, not conversationFilters.
+        # conversationFilters only accepts conversation-level dims (e.g.
+        # conversationStart); putting these four there is silently ignored
+        # by the API, so the filter never actually applied.
         predicates: list[dict[str, Any]] = []
         if ani:
-            predicates.append({"dimension": "ani", "value": ani})
+            predicates.append({"type": "dimension", "dimension": "ani", "operator": "matches", "value": ani})
         if queue_id:
-            predicates.append({"dimension": "queueId", "value": queue_id})
+            predicates.append({"type": "dimension", "dimension": "queueId", "operator": "matches", "value": queue_id})
         if user_id:
-            predicates.append({"dimension": "userId", "value": user_id})
+            predicates.append({"type": "dimension", "dimension": "userId", "operator": "matches", "value": user_id})
         if direction:
-            predicates.append({"dimension": "direction", "value": direction})
+            predicates.append({"type": "dimension", "dimension": "direction", "operator": "matches", "value": direction})
 
         body: dict[str, Any] = {
             "interval": interval or _default_interval(7),
@@ -59,7 +65,7 @@ def register(mcp: FastMCP) -> None:
             "paging": {"pageSize": page_size, "pageNumber": page_number},
         }
         if predicates:
-            body["conversationFilters"] = [{"type": "and", "predicates": predicates}]
+            body["segmentFilters"] = [{"type": "and", "predicates": predicates}]
 
         api = gc.AnalyticsApi(get_api())
         resp = with_retry(api.post_analytics_conversations_details_query)(body)
@@ -204,12 +210,13 @@ def register(mcp: FastMCP) -> None:
     def list_recordings(
         conversation_id: str = Field(description="Conversation id to list recordings for."),
     ) -> dict:
-        """Recording *metadata* only (no media). The 'region' field confirms data residency.
+        """Recording *metadata* only (no media).
 
-        Returns an array of recording records; each has ``region`` which should match
-        your tenant's home region (e.g. 'ap-southeast-2' if your tenant is in Sydney).
-        A different region means the recording was stored outside the expected jurisdiction
-        and may warrant a compliance check.
+        Returns an array of ``Recording`` records (id, media, startTime,
+        endTime, outputDurationMs, etc.). Genesys's ``Recording`` object has
+        no ``region`` field — data-residency region is only exposed on the
+        separate ``RecordingMetadata`` resource, which this endpoint doesn't
+        return — so no region claim is made here.
         """
         api = gc.RecordingApi(get_api())
         resp = with_retry(api.get_conversation_recordings)(conversation_id=conversation_id)
@@ -228,17 +235,18 @@ def register(mcp: FastMCP) -> None:
     ) -> dict:
         """Signed URL to download a single recording's media.
 
-        Returns ``media_uri`` (a signed S3 URL valid for ~1h), ``region``, and the
-        recording metadata. Use this when the user wants to actually listen to a
-        flagged call (e.g., the 'silent transcript' calls in an agent quality review).
+        Returns ``media_uri`` (a signed S3 URL valid for ~1h) and the recording
+        metadata. Use this when the user wants to actually listen to a flagged
+        call (e.g., the 'silent transcript' calls in an agent quality review).
 
         Caveats:
         - The URI may not be ready immediately for very recent calls — Genesys
           processes the recording asynchronously. If ``media_uri`` is null, retry
           in a few seconds.
-        - The ``region`` field reports where the media is stored. If it doesn't match
-          your tenant's home region, the recording was stored outside the expected
-          jurisdiction and may warrant a compliance check.
+        - ``region`` is always ``null``: Genesys's ``Recording`` object (what
+          this endpoint returns) has no region field — data residency region
+          is only exposed on the separate ``RecordingMetadata`` resource,
+          which isn't reachable from this endpoint.
         """
         api = gc.RecordingApi(get_api())
         resp = with_retry(api.get_conversation_recording)(
@@ -259,11 +267,11 @@ def register(mcp: FastMCP) -> None:
         return {
             "recording_id": recording_id,
             "conversation_id": conversation_id,
-            "region": data.get("region"),
+            "region": None,  # not present on Recording — only on RecordingMetadata
             "format": primary_format or format_id,
             "media_uri": primary_uri,
             "media_uris_by_format": media_uris,
-            "duration_ms": data.get("duration"),
+            "duration_ms": data.get("outputDurationMs"),
             "start_time": data.get("startTime"),
             "end_time": data.get("endTime"),
         }

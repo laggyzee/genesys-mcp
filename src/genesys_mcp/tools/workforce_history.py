@@ -96,8 +96,12 @@ def _list_all_users_any_state(api: gc.UsersApi, page_size: int = 200) -> list[di
     out: list[dict] = []
     page = 1
     while True:
+        # User has no top-level dateHired field — hire date lives at
+        # employerInfo.dateHire and only populates when expand=["employerInfo"]
+        # is passed.
         resp = with_retry(api.get_users)(
             page_size=page_size, page_number=page, state="any",
+            expand=["employerInfo"],
         )
         data = to_dict(resp) or {}
         entities = data.get("entities") or []
@@ -111,7 +115,7 @@ def _list_all_users_any_state(api: gc.UsersApi, page_size: int = 200) -> list[di
                 "state": u.get("state"),
                 "title": u.get("title"),
                 "department": u.get("department"),
-                "date_created": u.get("dateHired") or None,
+                "date_hired": (u.get("employerInfo") or {}).get("dateHire") or None,
             })
         if len(entities) < page_size:
             break

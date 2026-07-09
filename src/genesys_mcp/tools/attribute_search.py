@@ -66,9 +66,16 @@ def _interval_to_search_range(interval: str) -> tuple[str, str]:
 
 def _build_body(
     *, attribute_key: str, attribute_value: str | None, interval: str,
-    page_size: int, page_number: int,
+    cursor: str | None = None,
 ) -> dict:
-    """Build the search request body."""
+    """Build the search request body.
+
+    ``POST /api/v2/conversations/participants/attributes/search`` is
+    cursor-paginated (``ConversationParticipantSearchRequest`` /
+    ``JsonCursorSearchResponse`` in the Genesys schema) — it has no
+    ``pageSize``/``pageNumber``, only an opaque ``cursor`` string echoed
+    back from the previous response.
+    """
     start_iso, end_iso = _interval_to_search_range(interval)
 
     attr_criterion: dict[str, Any] = {
@@ -81,7 +88,7 @@ def _build_body(
         # Default to NPS enumeration when no specific value given.
         attr_criterion["values"] = list(_NPS_VALUES)
 
-    return {
+    body: dict[str, Any] = {
         "query": [
             {
                 "type": "DATE_RANGE",
@@ -93,9 +100,10 @@ def _build_body(
         ],
         "sortOrder": "DESC",
         "sortBy": "conversationStart",
-        "pageSize": page_size,
-        "pageNumber": page_number,
     }
+    if cursor:
+        body["cursor"] = cursor
+    return body
 
 
 def _extract_attribute_value(
@@ -273,19 +281,17 @@ def register(mcp: FastMCP) -> None:
         resolved_interval = interval or _default_interval(7)
 
         api_client = get_api()
-        page_size = 100
         all_results: list[dict] = []
         truncated = False
-        page_number = 1
-        max_pages = 100
+        cursor: str | None = None
+        max_iterations = 20  # sane bound; each page is ~100 results
 
-        while page_number <= max_pages:
+        for _ in range(max_iterations):
             body = _build_body(
                 attribute_key=attribute_key,
                 attribute_value=attribute_value,
                 interval=resolved_interval,
-                page_size=page_size,
-                page_number=page_number,
+                cursor=cursor,
             )
             resp = with_retry(api_client.call_api)(
                 resource_path="/api/v2/conversations/participants/attributes/search",
@@ -296,18 +302,19 @@ def register(mcp: FastMCP) -> None:
             ) or {}
             page = resp.get("results") or []
             all_results.extend(page)
+            cursor = resp.get("cursor") or None
+
             if len(all_results) >= max_results:
-                if len(all_results) > max_results or (resp.get("pageCount") or 1) > page_number:
-                    truncated = True
                 all_results = all_results[:max_results]
+                # Only truncated if there's still more to fetch beyond the cap.
+                truncated = bool(cursor)
                 break
-            if len(page) < page_size:
-                break  # last page
-            if page_number >= (resp.get("pageCount") or page_number):
-                break
-            page_number += 1
+            if not cursor:
+                break  # no more pages
         else:
-            truncated = True
+            # Hit the iteration cap with a cursor still present — there was
+            # more data than we walked.
+            truncated = bool(cursor)
 
         conversations: list[dict] = []
         matched_values: list[str] = []

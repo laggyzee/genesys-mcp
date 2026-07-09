@@ -223,6 +223,15 @@ def register(mcp: FastMCP) -> None:
         An overrun WITH an explanation = expected variance (training, approved time off).
         An overrun WITHOUT an explanation = the kind of pattern that needs a TL conversation.
 
+        Each user block carries ``explanations_available`` (bool): True when the
+        adherence-explanations fetch actually returned a result for that user,
+        False when it errored or came back async without a result yet. When
+        False, overrun sessions are still returned (see ``overruns_unknown``)
+        but are NOT counted toward ``unexplained_overruns`` — "couldn't fetch
+        an explanation" is not the same claim as "no explanation exists", and
+        conflating the two would falsely flag an explained overrun as a
+        coaching issue.
+
         Note: this tool does NOT compare actual vs scheduled (that requires the
         async historical-adherence flow + published schedule lookup). It surfaces
         the simpler "was this break overrun explained" signal which is usually
@@ -317,29 +326,53 @@ def register(mcp: FastMCP) -> None:
         start_iso, end_iso = interval.split("/")
         body = {"startDate": start_iso, "endDate": end_iso}
 
-        def _fetch_expls(uid: str) -> tuple[str, list[dict]]:
+        def _fetch_expls(uid: str) -> tuple[str, list[dict], bool]:
+            """Returns (uid, entities, explanations_available).
+
+            The endpoint's response shape is ``{job, result, downloadUrl}``
+            — explanation entities live under ``result.entities``, not at
+            the top level. It can also complete async (202): ``result`` is
+            absent and only ``job``/``downloadUrl`` are populated. In both
+            the async-pending and error cases we return
+            ``explanations_available=False`` so the caller doesn't treat
+            "we couldn't fetch explanations" the same as "no explanation
+            exists" (which would falsely flag a real, explained overrun as
+            unexplained).
+            """
             try:
                 resp = with_retry(
                     wfm_api.post_workforcemanagement_agent_adherence_explanations_query
                 )(agent_id=uid, body=body)
-                return uid, (to_dict(resp).get("entities") or [])
+                resp_dict = to_dict(resp) or {}
+                result = resp_dict.get("result")
+                if result is None:
+                    logger.info(
+                        "WFM adherence query for %s returned async without a "
+                        "result (job=%s); explanations unavailable this call",
+                        uid, resp_dict.get("job"),
+                    )
+                    return uid, [], False
+                return uid, (result.get("entities") or []), True
             except Exception as exc:
                 logger.warning("WFM adherence query failed for %s: %s", uid, exc)
-                return uid, []
+                return uid, [], False
 
         explanations_by_user: dict[str, list[dict]] = {}
+        explanations_available_by_user: dict[str, bool] = {}
         max_workers = min(8, len(user_ids))
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = [pool.submit(_fetch_expls, uid) for uid in user_ids]
             for fut in futures:
-                uid, expls = fut.result()
+                uid, expls, available = fut.result()
                 explanations_by_user[uid] = expls
+                explanations_available_by_user[uid] = available
 
         # 3. For each overrun session, flag whether any explanation overlaps
         names = resolver.user_names(user_ids)
         out_users = []
         for uid in user_ids:
             expls = explanations_by_user.get(uid, [])
+            explanations_available = explanations_available_by_user.get(uid, False)
             expl_intervals = []
             for e in expls:
                 try:
@@ -352,21 +385,28 @@ def register(mcp: FastMCP) -> None:
             sessions_out = []
             unexplained_overruns = 0
             explained_overruns = 0
+            overruns_unknown = 0
             for s in sessions_by_user[uid]:
                 matching_expl = None
                 if s["over_target"]:
-                    for e_start, e_end, e in expl_intervals:
-                        if s["start_utc"] < e_end and s["end_utc"] > e_start:
-                            matching_expl = {
-                                "type": e.get("type"),
-                                "status": e.get("status"),
-                                "notes": e.get("notes"),
-                            }
-                            break
-                    if matching_expl:
-                        explained_overruns += 1
+                    if not explanations_available:
+                        # Couldn't fetch/parse explanations this call — don't
+                        # claim "unexplained"; the overrun is still surfaced
+                        # but its explanation status is unknown, not absent.
+                        overruns_unknown += 1
                     else:
-                        unexplained_overruns += 1
+                        for e_start, e_end, e in expl_intervals:
+                            if s["start_utc"] < e_end and s["end_utc"] > e_start:
+                                matching_expl = {
+                                    "type": e.get("type"),
+                                    "status": e.get("status"),
+                                    "notes": e.get("notes"),
+                                }
+                                break
+                        if matching_expl:
+                            explained_overruns += 1
+                        else:
+                            unexplained_overruns += 1
                 sessions_out.append({
                     "presence": s["presence"],
                     "start_utc": s["start_utc"].isoformat().replace("+00:00", "Z"),
@@ -376,14 +416,17 @@ def register(mcp: FastMCP) -> None:
                     "over_target": s["over_target"],
                     "overrun_min": s["overrun_min"],
                     "matching_explanation": matching_expl,
+                    "explanation_status_known": explanations_available if s["over_target"] else None,
                 })
 
             out_users.append({
                 "user_id": uid,
                 "user_name": names.get(uid),
                 "session_count": len(sessions_out),
+                "explanations_available": explanations_available,
                 "explained_overruns": explained_overruns,
                 "unexplained_overruns": unexplained_overruns,
+                "overruns_unknown": overruns_unknown,
                 "explanations_logged": len(expls),
                 "sessions": sessions_out,
                 "explanations": expls,
@@ -777,14 +820,18 @@ def register(mcp: FastMCP) -> None:
         # 3. User shifts per MU. If MU list is empty, fetch each user's MU once.
         target_mus = list(management_unit_ids) if management_unit_ids else []
         if not target_mus:
-            # Fall back: fetch each user's MU
+            # Fall back: fetch each user's MU. The raw path
+            # GET /api/v2/workforcemanagement/users/{userId} does not exist
+            # in the Genesys API (404s on every call) — use the SDK method
+            # backing get_user_management_unit instead.
+            wfm_api = gc.WorkforceManagementApi(api_client)
             seen = set()
             for uid in user_ids:
                 try:
-                    r = with_retry(api_client.call_api)(
-                        resource_path=f"/api/v2/workforcemanagement/users/{uid}",
-                        method="GET", auth_settings=["PureCloud OAuth"],
-                        response_type="object",
+                    r = to_dict(
+                        with_retry(wfm_api.get_workforcemanagement_agent_managementunit)(
+                            agent_id=uid
+                        )
                     ) or {}
                     mu = (r.get("managementUnit") or {}).get("id")
                     if mu and mu not in seen:
