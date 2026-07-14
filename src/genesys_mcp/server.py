@@ -13,6 +13,7 @@ from genesys_mcp.client import assert_mcp_env_clean, init_api
 from genesys_mcp.tools import (
     analytics,
     attribute_search,
+    callbacks,
     coaching,
     conversations,
     directory,
@@ -74,6 +75,7 @@ wfm.register(mcp)
 quality.register(mcp)
 coaching.register(mcp)
 routing.register(mcp)
+callbacks.register(mcp)
 attribute_search.register(mcp)
 timeoff.register(mcp)
 utilization.register(mcp)

@@ -283,6 +283,11 @@ def register(mcp: FastMCP) -> None:
         all degrade to 0 with a top-level ``routing_status_scope_available:
         false`` flag, and the conversation-side answered counts still
         populate so the response is still partially useful.
+
+        Callback media note: under customer-first callbacks ``callback_answered``
+        is structurally ~0 for every agent — the bridged call is a voice session,
+        so callback work already sits inside voice answered/handle. Do not read
+        the callback column as "agents aren't doing callbacks".
         """
         if not user_ids:
             raise ValueError("user_ids must contain at least one id.")

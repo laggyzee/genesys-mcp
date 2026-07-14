@@ -100,8 +100,16 @@ def _attach_derived_metrics(resp: dict) -> None:
 
     nConnected in Genesys is not the same as 'answered' — the UI's 'Answer' column equals
     tAnswered.count. This helper computes the derived fields that ops users actually want.
+
+    Callback rows are special-cased: a customer-first callback's ACD session ends when
+    the dial-out starts, so tAnswered/tAbandon never populate on callback media — the
+    outcome is booked on the queue's voice row instead. Emitting answered_pct = 0 there
+    reads as "0% of callbacks connected", which is false; those fields are nulled and
+    the row carries what IS valid (scheduled count, wait-to-dial) plus a pointer to
+    the callback_outcomes tool.
     """
     for result in resp.get("results") or []:
+        media_type = (result.get("group") or {}).get("mediaType")
         for bucket in result.get("data") or []:
             stats = {m["metric"]: m.get("stats") or {} for m in bucket.get("metrics") or []}
             offered = stats.get("nOffered", {}).get("count", 0) or 0
@@ -118,6 +126,28 @@ def _attach_derived_metrics(resp: dict) -> None:
 
             def secs(s: float, c: float) -> float | None:
                 return round(s / c / 1000, 1) if c else None
+
+            if media_type == "callback":
+                bucket["derived"] = {
+                    "callbacks_scheduled": offered,
+                    "avg_wait_to_dial_s": secs(w_sum, w_cnt),
+                    "answered": None,
+                    "abandoned": None,
+                    "answered_pct": None,
+                    "abandoned_pct": None,
+                    "service_level_pct": None,
+                    "service_level_source": None,
+                    "service_level_unavailable_reason": "Service level does not apply to callback media.",
+                    "avg_wait_s": secs(w_sum, w_cnt),
+                    "avg_answer_s": None,
+                    "avg_handle_s": secs(h_sum, h_cnt),
+                    "callback_note": (
+                        "Customer-first callbacks record their outcome on this queue's voice "
+                        "row, so answered/abandoned are structurally empty here — nulls, not "
+                        "0%. Use the callback_outcomes tool for reached/bridged rates."
+                    ),
+                }
+                continue
 
             service_level_stats = stats.get("oServiceLevel", {})
             service_level_ratio = service_level_stats.get("ratio")
@@ -235,10 +265,15 @@ def register(mcp: FastMCP) -> None:
           - avg_answer_s   = tAnswered.sum / tAnswered.count / 1000  (ASA)
           - avg_handle_s   = tHandle.sum / tHandle.count / 1000
 
-        Callback media note: callbacks do not populate tAnswered/tAbandon. For callbacks,
-        nOffered = callbacks scheduled, nConnected = callbacks where customer was reached
-        and bridged to agent (customer-first flow). Derived answered/abandoned will be 0
-        on callback rows — treat nConnected / nOffered as the connect rate instead.
+        Callback media note (customer-first callbacks): a callback row only ever gets
+        nOffered (callbacks scheduled) and tWait (time until dial-out). The callback ACD
+        session ends the moment the system dials the customer, so tAnswered/tAbandon
+        never populate and nConnected is NOT a connect rate — do not derive callback
+        success from this tool at all. The dial-out, agent answer, and talk time are
+        booked on the queue's *voice* row (which therefore includes callback return
+        calls, answered in <1s). Derived answered/abandoned fields are null on callback
+        rows. For real callback outcomes (customer reached %, bridged-to-agent %, dial
+        attempts) use the callback_outcomes tool.
 
         Defaults to daily granularity, last 7 days, grouped by queue + media type.
         Use list_queues first to resolve queue ids.
@@ -399,6 +434,12 @@ def register(mcp: FastMCP) -> None:
         and groupBy=[userId, mediaType] for the auto-split. tAnswered.count is the
         canonical answered-conversation count (matches the UI's "Answer" column);
         tHandle.count matches the "Handle" column.
+
+        Callback media note: under customer-first callbacks agents never answer a
+        callback-media session — the bridged call is a voice session, so an agent's
+        callback work is already inside their VOICE answered/handle numbers and the
+        callback media row is ~0 for everyone. Do not report per-agent callback
+        counts from this tool; use callback_outcomes for queue-level callback rates.
         """
         api = gc.AnalyticsApi(get_api())
         resolved_interval = interval or _default_interval(7)

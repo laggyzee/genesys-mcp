@@ -622,6 +622,11 @@ def register(mcp: FastMCP) -> None:
         QA section soft-fails (returns ``scope_available: false``) if the
         OAuth client lacks ``quality:readonly``; sentiment soft-fails on
         per-call STA 404s; the rest of the pack always populates.
+
+        Callback media note: under customer-first callbacks, ``callback_answered``
+        and ``callback_aht_s`` are structurally ~0/null for every agent — the
+        bridged call is a voice session, so callback work already sits inside the
+        agent's voice numbers. Never coach on the callback row.
         """
         # 1. Tenant config — required since v1.0 (pre-v1.0 silently fell
         # back to tenant-specific defaults). Errors propagate with a clear

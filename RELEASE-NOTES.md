@@ -1,5 +1,27 @@
 # Release Notes
 
+## v1.16.0 — 14 July 2026
+
+**Customer-first callback correctness.** On tenants using customer-first callbacks (the system dials the customer, detects a live answer, then bridges an agent), every aggregate-based view of callback media was structurally wrong: the callback ACD session ends the instant dial-out starts, so `tAnswered`/`tAbandon` never populate, `nConnected` is meaningless (live tenant: 7 "connected" out of 143 scheduled in a week where conversation-level classification shows ~86% of customers were actually reached), and the real outcome — the dial-out, the agent answer, the talk time — is booked on the queue's **voice** row. Consumers reading `derived.answered_pct` on callback rows were reporting "~98% of callbacks not connected" for queues whose callbacks were overwhelmingly succeeding.
+
+### New tool
+
+- **`callback_outcomes`** — the correct way to measure customer-first callbacks. Classifies each callback conversation's detail record (paginated `analytics/conversations/details` query, up to 2,000 conversations per call with an explicit `truncated` flag) into a funnel: `answered_and_bridged` / `answered_not_bridged` (customer answered, dropped before an agent joined) / `dialed_not_answered` / `never_dialed`. Returns per-queue and total: scheduled count, customer-reached count/%, bridged-to-agent count/%, avg wait-to-dial seconds, a dial-attempts (retry) histogram, and up to 3 example conversation ids per outcome for `get_conversation` drill-downs. Classification details pinned by tests against live-verified session shapes: bridged = an agent session carrying `tTalk` whose interact starts at/after the first dial-out (so an agent leg from the original inbound call that scheduled the callback can't false-positive), reached = an `interact` segment on the outbound customer voice session, and queue attribution comes from the callback ACD segment's own `queueId` (the details-query segment filters can over-match across queues).
+
+### Fixed
+
+- **`queue_performance`** — the derived block is now media-aware. Callback rows no longer ship `answered: 0` / `answered_pct: 0.0` (which read as "0% of callbacks connected"); those fields are `null` on callback rows, alongside what IS valid there — `callbacks_scheduled` (= nOffered), `avg_wait_to_dial_s` (= tWait), and a `callback_note` pointing at `callback_outcomes`. Voice/message/email rows are byte-identical to v1.15. The v1.15 docstring's callback note claimed `nConnected` = "customer reached and bridged" — disproven against the live tenant and rewritten: aggregates cannot measure customer-first callbacks at all.
+- **Docstrings on `agent_performance`, `agent_coaching_pack`, `agent_utilization`** — each now states that per-agent callback rows are structurally ~0 under customer-first callbacks (the bridged call is a voice session, so callback work already sits inside voice answered/handle) and must not be read as "agents aren't doing callbacks". Numeric output shapes are unchanged — existing consumers keep parsing.
+
+### Interpretation caveats (documented in the tool)
+
+- "Customer reached" relies on Genesys live-answer detection; voicemail pickups can count as answered.
+- Bridged callbacks also appear in the queue's voice aggregates as an extra offered+answered interaction with ~0s speed of answer — don't double-count when reading voice rows alongside `callback_outcomes`, and expect voice ASA to skew slightly low on callback-heavy queues.
+
+### Tests
+
+- New `tests/test_callback_outcomes.py` (14 tests): classifier outcomes incl. retry counting, pre-dial agent-leg exclusion, cross-queue over-match filtering; funnel math; callback-aware derived block (callback nulls, voice unchanged, ungrouped legacy shape); end-to-end pagination through the FastMCP tool surface with a mocked details endpoint.
+
 ## v1.15.0 — 9 July 2026
 
 **Endpoint-correctness pass.** A batch of fixes to request/response shapes that were verified against the Genesys Platform API schema and were silently wrong — wrong field routing, wrong field names, a call to an endpoint that doesn't exist, and a broken pagination style. None of these crashed outright; each one degraded a response (empty filters, truncated pages, false negatives) without raising, which is why they went unnoticed.
