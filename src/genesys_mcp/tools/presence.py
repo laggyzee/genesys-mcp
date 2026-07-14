@@ -14,6 +14,7 @@ import PureCloudPlatformClientV2 as gc
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from genesys_mcp._availability import presence_data_availability
 from genesys_mcp._intervals import INTERVAL_HELP_STRING
 from genesys_mcp._intervals import default_interval as _default_interval
 from genesys_mcp._intervals import parse_iso as _parse_iso
@@ -72,6 +73,12 @@ def register(mcp: FastMCP) -> None:
           measure duration reliably).
         - Use the AnalyticsApi job results cursor under the hood; if the cap is hit,
           'truncated': true is set in the response.
+        - Data availability: presence detail settles asynchronously. The response
+          carries 'data_complete' (False when the interval extends past Genesys'
+          settled watermark 'data_available_until'), plus a 'data_availability_note'.
+          When data_complete is False, sessions after the watermark are MISSING —
+          do not treat the last returned session as the agent's logout, and treat
+          per-presence totals as lower bounds.
         """
         if not user_ids:
             raise ValueError("user_ids must contain at least one id.")
@@ -88,6 +95,11 @@ def register(mcp: FastMCP) -> None:
             raise ValueError(f"Invalid interval {interval!r}: {exc}") from exc
 
         api = gc.AnalyticsApi(get_api())
+        # Presence detail data settles asynchronously; a window extending past
+        # the availability watermark returns partial with no error. Check it up
+        # front so the response can flag incompleteness rather than imply the
+        # last recorded session was the agent's real logout.
+        availability = presence_data_availability(api, interval_end)
         body = {
             "interval": interval,
             "order": "asc",
@@ -208,5 +220,13 @@ def register(mcp: FastMCP) -> None:
             "interval": interval,
             "presence_filter": list(keep) if keep else None,
             "truncated": truncated,
+            # v1.17: data-availability watermark. `data_complete` is False when
+            # the interval extends past what Genesys has settled — sessions after
+            # `data_available_until` are omitted, so totals and any inferred
+            # logout time are partial. Consumers must not treat the last session
+            # as the agent's real end-of-day when this is False.
+            "data_complete": availability["complete"],
+            "data_available_until": availability["data_available_until"],
+            "data_availability_note": availability["note"],
             "users": out_users,
         }
