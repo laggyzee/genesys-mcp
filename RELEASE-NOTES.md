@@ -1,5 +1,26 @@
 # Release Notes
 
+## v1.17.0 — 14 July 2026
+
+**Presence data-availability watermark.** Genesys settles users/details (presence/routing) data asynchronously behind a `dataAvailabilityDate` watermark, and a detail query for any window extending past it returns **partial data with no error and no flag** — the async job succeeds and silently omits the not-yet-settled tail. This produced a wrong coaching brief: collected at 06:00 for the prior day, it read an agent's last recorded presence session as her "logout" (5:37pm) when she had actually worked into the evening — the watermark was ~10 hours behind the day's end, so her evening on-queue time simply didn't exist in the response. Her conversation stats (a separate, near-real-time pipeline) were complete, which is why only the presence-derived figures were wrong.
+
+### Fixed
+
+- **`presence_sessions`** and **`break_overrun_report`** now check the availability watermark (`GET /api/v2/analytics/users/details/jobs/availability`) up front and return three new top-level fields:
+  - `data_complete` — `true` when the interval is fully settled, `false` when the watermark is behind the interval end (data is partial), `null` when the watermark couldn't be read (fail-open).
+  - `data_available_until` — the settled watermark, ISO-Z.
+  - `data_availability_note` — a plain-language explanation when data is incomplete.
+
+  When `data_complete` is `false`, consumers must not treat the last returned session as the agent's logout, and must treat per-presence totals / overrun counts as lower bounds. The watermark lookup never blocks the data query — a failure degrades to `data_complete: null`.
+
+### Internal
+
+- New `genesys_mcp/_availability.py` (`presence_data_availability`) — shared, fail-open watermark helper used by both tools.
+
+### Tests
+
+- New `tests/test_availability.py` (4 tests): complete / incomplete (the Deanna incident: 07:12Z watermark vs a 14:00Z day-close) / endpoint-error / missing-field. Suite 634 passed.
+
 ## v1.16.0 — 14 July 2026
 
 **Customer-first callback correctness.** On tenants using customer-first callbacks (the system dials the customer, detects a live answer, then bridges an agent), every aggregate-based view of callback media was structurally wrong: the callback ACD session ends the instant dial-out starts, so `tAnswered`/`tAbandon` never populate, `nConnected` is meaningless (live tenant: 7 "connected" out of 143 scheduled in a week where conversation-level classification shows ~86% of customers were actually reached), and the real outcome — the dial-out, the agent answer, the talk time — is booked on the queue's **voice** row. Consumers reading `derived.answered_pct` on callback rows were reporting "~98% of callbacks not connected" for queues whose callbacks were overwhelmingly succeeding.

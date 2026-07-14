@@ -22,6 +22,7 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from genesys_mcp._aggregates import accumulate_metric_stats
+from genesys_mcp._availability import presence_data_availability
 from genesys_mcp._intervals import INTERVAL_HELP_STRING
 from genesys_mcp._intervals import default_interval as _default_interval
 from genesys_mcp._intervals import now_utc as _now_utc
@@ -966,6 +967,12 @@ def register(mcp: FastMCP) -> None:
 
         Returns per-user counts, totals, and per-instance lists so a TL can drill in.
         Sorted by overrun frequency.
+
+        Data availability: presence detail settles asynchronously. The response
+        carries 'data_complete' (False when the interval extends past Genesys'
+        settled watermark 'data_available_until') plus 'data_availability_note'.
+        When False, evening break/meal/away sessions after the watermark are
+        missing, so overrun counts and away totals understate the day.
         """
         # Reuse the presence_sessions tool's data fetching logic by calling the
         # same job pipeline directly here — keeps this tool self-contained.
@@ -980,6 +987,10 @@ def register(mcp: FastMCP) -> None:
             raise ValueError(f"Invalid interval {interval!r}") from exc
 
         api = gc.AnalyticsApi(get_api())
+        # Presence detail settles asynchronously; a window past the availability
+        # watermark returns partial with no error (an evening break/meal can be
+        # missing entirely). Surface it so overrun counts aren't read as complete.
+        availability = presence_data_availability(api, interval_end)
         body = {
             "interval": interval,
             "order": "asc",
@@ -1141,6 +1152,13 @@ def register(mcp: FastMCP) -> None:
         return {
             "interval": interval,
             "as_of_utc": _now_utc().isoformat().replace("+00:00", "Z"),
+            # v1.17: data-availability watermark. When `data_complete` is False,
+            # presence detail is only settled to `data_available_until`; evening
+            # break/meal sessions after that point are missing, so overrun counts
+            # and away totals understate the day.
+            "data_complete": availability["complete"],
+            "data_available_until": availability["data_available_until"],
+            "data_availability_note": availability["note"],
             "break_target_min": break_target_min,
             "meal_target_min": meal_target_min,
             "pre_break_target_min": pre_break_target_min,
