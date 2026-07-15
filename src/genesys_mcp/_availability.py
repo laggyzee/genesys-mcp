@@ -30,6 +30,75 @@ from genesys_mcp.client import to_dict, with_retry
 logger = logging.getLogger(__name__)
 
 
+def _details_data_availability(
+    api: gc.AnalyticsApi,
+    interval_end: Any,
+    *,
+    kind: str,
+) -> dict[str, Any]:
+    """Assess whether ``interval_end`` is fully settled in a details datalake."""
+    if kind == "users":
+        endpoint = api.get_analytics_users_details_jobs_availability
+        label = "Presence data"
+    elif kind == "conversations":
+        endpoint = api.get_analytics_conversations_details_jobs_availability
+        label = "Conversation detail data"
+    else:  # defensive: callers are internal and must choose a real API family
+        raise ValueError(f"Unsupported details availability kind: {kind!r}")
+
+    watermark = None
+    try:
+        resp = with_retry(endpoint)()
+        data = to_dict(resp) or {}
+        raw = data.get("dataAvailabilityDate") or data.get("data_availability_date")
+        if raw:
+            watermark = _parse_iso(raw)
+    except Exception as exc:  # noqa: BLE001 — fail open, never block the data query
+        logger.warning("%s/details availability watermark lookup failed: %s", kind, exc)
+
+    if watermark is None:
+        return {
+            "complete": None,
+            "data_available_until": None,
+            "lag_seconds": None,
+            "note": (
+                "Could not read the Genesys data-availability watermark; "
+                f"{label.lower()} may be incomplete for very recent windows."
+            ),
+        }
+
+    watermark_z = watermark.isoformat().replace("+00:00", "Z")
+    if watermark >= interval_end:
+        return {
+            "complete": True,
+            "data_available_until": watermark_z,
+            "lag_seconds": 0,
+            "note": None,
+        }
+
+    lag = (interval_end - watermark).total_seconds()
+    if kind == "users":
+        incomplete_note = (
+            f"Presence data is only settled up to {watermark_z}, which is before "
+            f"the end of the requested window. Sessions after that time are not "
+            f"yet available and are omitted — totals, last-recorded presence, and "
+            f"any derived logout time are incomplete for this interval."
+        )
+    else:
+        incomplete_note = (
+            f"{label} is only settled up to {watermark_z}, which is before "
+            f"the end of the requested window. Records after that time are not "
+            f"yet available and are omitted, so this interval is incomplete."
+        )
+
+    return {
+        "complete": False,
+        "data_available_until": watermark_z,
+        "lag_seconds": int(lag),
+        "note": incomplete_note,
+    }
+
+
 def presence_data_availability(api: gc.AnalyticsApi, interval_end: Any) -> dict[str, Any]:
     """Assess whether ``interval_end`` is fully settled in users/details data.
 
@@ -50,45 +119,14 @@ def presence_data_availability(api: gc.AnalyticsApi, interval_end: Any) -> dict[
     Never raises: a watermark lookup failure degrades to ``complete: None`` so
     the underlying data query still returns.
     """
-    watermark = None
-    try:
-        resp = with_retry(api.get_analytics_users_details_jobs_availability)()
-        data = to_dict(resp) or {}
-        raw = data.get("dataAvailabilityDate") or data.get("data_availability_date")
-        if raw:
-            watermark = _parse_iso(raw)
-    except Exception as exc:  # noqa: BLE001 — fail open, never block the data query
-        logger.warning("users/details availability watermark lookup failed: %s", exc)
+    return _details_data_availability(api, interval_end, kind="users")
 
-    if watermark is None:
-        return {
-            "complete": None,
-            "data_available_until": None,
-            "lag_seconds": None,
-            "note": (
-                "Could not read the Genesys data-availability watermark; "
-                "presence data may be incomplete for very recent windows."
-            ),
-        }
 
-    watermark_z = watermark.isoformat().replace("+00:00", "Z")
-    if watermark >= interval_end:
-        return {
-            "complete": True,
-            "data_available_until": watermark_z,
-            "lag_seconds": 0,
-            "note": None,
-        }
+def conversation_data_availability(api: gc.AnalyticsApi, interval_end: Any) -> dict[str, Any]:
+    """Assess whether ``interval_end`` is fully settled in conversation jobs data.
 
-    lag = (interval_end - watermark).total_seconds()
-    return {
-        "complete": False,
-        "data_available_until": watermark_z,
-        "lag_seconds": int(lag),
-        "note": (
-            f"Presence data is only settled up to {watermark_z}, which is before "
-            f"the end of the requested window. Sessions after that time are not "
-            f"yet available and are omitted — totals, last-recorded presence, and "
-            f"any derived logout time are incomplete for this interval."
-        ),
-    }
+    Conversation aggregate and synchronous detail-query APIs are separate. This
+    watermark applies specifically to tools backed by
+    ``/analytics/conversations/details/jobs``.
+    """
+    return _details_data_availability(api, interval_end, kind="conversations")

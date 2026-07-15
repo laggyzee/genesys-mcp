@@ -16,7 +16,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
 from genesys_mcp import _availability
-from genesys_mcp._availability import presence_data_availability
+from genesys_mcp._availability import conversation_data_availability, presence_data_availability
 
 
 @pytest.fixture(autouse=True)
@@ -35,6 +35,11 @@ class _FakeAvailabilityApi:
         self._raise = raise_exc
 
     def get_analytics_users_details_jobs_availability(self):
+        if self._raise:
+            raise RuntimeError("boom")
+        return {"dataAvailabilityDate": self._watermark} if self._watermark else {}
+
+    def get_analytics_conversations_details_jobs_availability(self):
         if self._raise:
             raise RuntimeError("boom")
         return {"dataAvailabilityDate": self._watermark} if self._watermark else {}
@@ -74,3 +79,10 @@ class TestPresenceDataAvailability:
         api = _FakeAvailabilityApi(watermark=None)
         out = presence_data_availability(api, _end("2026-07-13T14:00:00"))
         assert out["complete"] is None
+
+    def test_conversation_jobs_use_their_own_watermark(self):
+        api = _FakeAvailabilityApi("2026-07-13T07:12:12Z")
+        out = conversation_data_availability(api, _end("2026-07-13T14:00:00"))
+        assert out["complete"] is False
+        assert out["data_available_until"] == "2026-07-13T07:12:12Z"
+        assert "Conversation detail data" in out["note"]

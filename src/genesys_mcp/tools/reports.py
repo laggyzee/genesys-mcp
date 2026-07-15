@@ -22,7 +22,7 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from genesys_mcp._aggregates import accumulate_metric_stats
-from genesys_mcp._availability import presence_data_availability
+from genesys_mcp._availability import conversation_data_availability, presence_data_availability
 from genesys_mcp._intervals import INTERVAL_HELP_STRING
 from genesys_mcp._intervals import default_interval as _default_interval
 from genesys_mcp._intervals import now_utc as _now_utc
@@ -244,6 +244,10 @@ def _slim_deep_dive_response(resp: dict) -> dict:
 
     return {
         "interval": resp.get("interval"),
+        "as_of_utc": resp.get("as_of_utc"),
+        "data_complete": resp.get("data_complete"),
+        "data_available_until": resp.get("data_available_until"),
+        "data_availability_note": resp.get("data_availability_note"),
         "media_type": resp.get("media_type"),
         "scope": slim_scope,
         "org_rollup": resp.get("org_rollup") or {},
@@ -279,6 +283,16 @@ def _seg_dur_s(seg: dict) -> float:
         return (_parse_iso(en_raw) - _parse_iso(st_raw)).total_seconds()
     except Exception:
         return 0.0
+
+
+def _conversation_job_availability(filters_body: dict[str, Any]) -> dict[str, Any]:
+    """Return the fail-open availability contract for a conversation-job body."""
+    api = gc.AnalyticsApi(get_api())
+    try:
+        interval_end = _parse_iso(str(filters_body["interval"]).split("/", 1)[1])
+    except Exception as exc:
+        raise ValueError(f"Invalid interval {filters_body.get('interval')!r}") from exc
+    return conversation_data_availability(api, interval_end)
 
 
 def _run_conv_details_job(filters_body: dict[str, Any], max_pages: int = 20) -> list[dict]:
@@ -352,6 +366,12 @@ def register(mcp: FastMCP) -> None:
 
         Sorted by acd_offered_count desc, then total. Backed by
         /api/v2/analytics/conversations/details/jobs (async, paginated).
+
+        Data availability: the response carries ``data_complete`` (False when
+        the requested interval extends past the conversation-jobs datalake
+        watermark), ``data_available_until`` and ``data_availability_note``.
+        When incomplete, recent conversations can be absent and every funnel or
+        repeat-caller count is a lower bound.
         """
         interval = interval or _default_interval(7)
         excluded = set(exclude_anis or [])
@@ -396,6 +416,7 @@ def register(mcp: FastMCP) -> None:
             "segmentFilters": [segment_filter],
         }
 
+        availability = _conversation_job_availability(body)
         convs = _run_conv_details_job(body)
 
         # Org-wide funnel counters (across every inbound conv we pulled, not just repeaters)
@@ -480,6 +501,9 @@ def register(mcp: FastMCP) -> None:
 
         return {
             "interval": interval,
+            "data_complete": availability["complete"],
+            "data_available_until": availability["data_available_until"],
+            "data_availability_note": availability["note"],
             "media_type": media_type,
             "total_conversations": org_total,
             "unique_callers": len(by_ani),
@@ -563,6 +587,11 @@ def register(mcp: FastMCP) -> None:
         Honest about data gaps: in tenants with sparse STA coverage (short calls, non-recorded
         queues), most rows will show topics from queue_fallback only and sentiment_trend
         'insufficient_data'. The funnel data is still valid.
+
+        The top-level ``data_complete`` / ``data_available_until`` fields refer
+        to the async conversation-details jobs datalake. When False, recent
+        conversations are missing, so repeat-caller counts and recommendations
+        are provisional even if the enrichment calls themselves succeeded.
         """
         interval = interval or _default_interval(7)
         excluded = set(exclude_anis or [])
@@ -605,6 +634,7 @@ def register(mcp: FastMCP) -> None:
             ],
             "segmentFilters": [segment_filter],
         }
+        availability = _conversation_job_availability(body)
         convs = _run_conv_details_job(body)
 
         # ---- 2. Group by ANI with the canonical IVR/ACD/answered classification ----
@@ -860,6 +890,9 @@ def register(mcp: FastMCP) -> None:
         full_response = {
             "interval": interval,
             "as_of_utc": _now_utc().isoformat().replace("+00:00", "Z"),
+            "data_complete": availability["complete"],
+            "data_available_until": availability["data_available_until"],
+            "data_availability_note": availability["note"],
             "media_type": media_type,
             "scope": {
                 "max_anis": max_anis,
