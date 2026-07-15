@@ -13,13 +13,15 @@
 
   When `data_complete` is `false`, consumers must not treat the last returned session as the agent's logout, and must treat per-presence totals / overrun counts as lower bounds. The watermark lookup never blocks the data query — a failure degrades to `data_complete: null`.
 
+- **`repeat_caller_report`** and **`repeat_caller_deep_dive`** now apply the same contract to the conversation-jobs datalake via `GET /api/v2/analytics/conversations/details/jobs/availability`. Their repeat-caller counts, funnels and recommendations are explicitly provisional whenever the requested interval extends past that watermark. Summary mode preserves the availability fields.
+
 ### Internal
 
-- New `genesys_mcp/_availability.py` (`presence_data_availability`) — shared, fail-open watermark helper used by both tools.
+- `genesys_mcp/_availability.py` now provides shared fail-open helpers for both users/details and conversations/details job families.
 
 ### Tests
 
-- New `tests/test_availability.py` (4 tests): complete / incomplete (the Deanna incident: 07:12Z watermark vs a 14:00Z day-close) / endpoint-error / missing-field. Suite 634 passed.
+- `tests/test_availability.py` covers complete / incomplete (the Deanna incident: 07:12Z watermark vs a 14:00Z day-close) / endpoint-error / missing-field plus the conversation-jobs watermark family.
 
 ## v1.16.0 — 14 July 2026
 
