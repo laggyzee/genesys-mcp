@@ -97,17 +97,23 @@ def _routing_response(per_user_seconds):
     """
     results = []
     for uid, by_status in per_user_seconds.items():
+        metrics = []
         for status, seconds in by_status.items():
-            results.append({
-                "group": {"userId": uid, "routingStatus": status},
-                "data": [{
-                    "interval": _INTERVAL,
-                    "metrics": [{
-                        "metric": "tAgentRoutingStatus",
-                        "stats": {"sum": seconds * 1000, "count": 1},
-                    }],
-                }],
+            metric = (
+                "tSystemPresence"
+                if status in {"ON_QUEUE", "OFF_QUEUE"}
+                else "tAgentRoutingStatus"
+            )
+            qualifier = "AVAILABLE" if status == "OFF_QUEUE" else status
+            metrics.append({
+                "metric": metric,
+                "qualifier": qualifier,
+                "stats": {"sum": seconds * 1000, "count": 1},
             })
+        results.append({
+            "group": {"userId": uid},
+            "data": [{"interval": _INTERVAL, "metrics": metrics}],
+        })
     return {"results": results}
 
 
@@ -164,8 +170,9 @@ class TestRequestShape:
             conv_resp={"results": []},
         )
         body = captured["routing"]
-        assert body["groupBy"] == ["userId", "routingStatus"]
+        assert body["groupBy"] == ["userId"]
         assert "tAgentRoutingStatus" in body["metrics"]
+        assert "tSystemPresence" in body["metrics"]
         assert body["interval"] == _INTERVAL
         f = body["filter"]
         assert f["type"] == "and"
