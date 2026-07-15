@@ -33,14 +33,14 @@ from genesys_mcp.naming import resolver
 logger = logging.getLogger(__name__)
 
 
-# Five canonical routing-status values Genesys reports against
-# tAgentRoutingStatus. Pinned here so the per-user block has stable keys
-# (zero seconds rather than missing key) for downstream table renderers.
+# Stable output keys for downstream renderers. ON_QUEUE/OFF_QUEUE are derived
+# from tSystemPresence; the remaining values are tAgentRoutingStatus qualifiers.
 _ROUTING_STATUSES = (
     "ON_QUEUE",
     "INTERACTING",
     "IDLE",
     "NOT_RESPONDING",
+    "COMMUNICATING",
     "OFF_QUEUE",
 )
 
@@ -49,7 +49,7 @@ def _routing_status_body(user_ids: list[str], interval: str) -> dict:
     """Build the users/aggregates body for routing-status durations."""
     return {
         "interval": interval,
-        "groupBy": ["userId", "routingStatus"],
+        "groupBy": ["userId"],
         "filter": {
             "type": "and",
             "clauses": [
@@ -58,7 +58,7 @@ def _routing_status_body(user_ids: list[str], interval: str) -> dict:
                 ]},
             ],
         },
-        "metrics": ["tAgentRoutingStatus"],
+        "metrics": ["tAgentRoutingStatus", "tSystemPresence"],
     }
 
 
@@ -98,17 +98,27 @@ def _parse_routing_status(resp: dict, user_ids: list[str]) -> dict[str, dict[str
     for grp in resp.get("results") or []:
         group_key = grp.get("group") or {}
         uid = group_key.get("userId")
-        status = (group_key.get("routingStatus") or "").upper()
-        if uid not in by_user or status not in _ROUTING_STATUSES:
+        if uid not in by_user:
             continue
-        sum_ms = 0.0
         for bucket in grp.get("data") or []:
             for m in bucket.get("metrics") or []:
-                if m.get("metric") == "tAgentRoutingStatus":
-                    sum_ms += float((m.get("stats") or {}).get("sum", 0) or 0)
-        # Genesys returns durations in ms; we surface integer seconds for
-        # readability (sub-second precision is noise at the shift scale).
-        by_user[uid][status] += int(sum_ms / 1000)
+                metric = m.get("metric")
+                # Current users/aggregates responses carry the category in the
+                # metric qualifier. Keep the old group dimension as a compatibility
+                # fallback for previously captured fixtures/responses.
+                qualifier = (
+                    m.get("qualifier") or group_key.get("routingStatus") or ""
+                ).upper()
+                sum_seconds = int(float((m.get("stats") or {}).get("sum", 0) or 0) / 1000)
+                if metric == "tAgentRoutingStatus" and qualifier in {
+                    "INTERACTING", "IDLE", "NOT_RESPONDING", "COMMUNICATING",
+                }:
+                    by_user[uid][qualifier] += sum_seconds
+                elif metric == "tSystemPresence":
+                    if qualifier == "ON_QUEUE":
+                        by_user[uid]["ON_QUEUE"] += sum_seconds
+                    else:
+                        by_user[uid]["OFF_QUEUE"] += sum_seconds
     return by_user
 
 
@@ -201,6 +211,7 @@ def _build_user_row(
         "interacting_seconds": routing["INTERACTING"],
         "idle_seconds": routing["IDLE"],
         "not_responding_seconds": routing["NOT_RESPONDING"],
+        "communicating_seconds": routing["COMMUNICATING"],
         "off_queue_seconds": routing["OFF_QUEUE"],
         "voice_answered": voice_answered,
         "message_answered": message_answered,
@@ -252,9 +263,9 @@ def register(mcp: FastMCP) -> None:
 
         v1.6+. Combines two Genesys analytics endpoints in one call:
 
-        - ``/api/v2/analytics/users/aggregates/query`` → routing-status
-          durations (ON_QUEUE / INTERACTING / IDLE / NOT_RESPONDING /
-          OFF_QUEUE seconds per agent)
+        - ``/api/v2/analytics/users/aggregates/query`` → qualified system-
+          presence and routing-status durations (ON_QUEUE / INTERACTING / IDLE /
+          NOT_RESPONDING / COMMUNICATING / OFF_QUEUE seconds per agent)
         - ``/api/v2/analytics/conversations/aggregates/query`` → voice /
           message / callback answered counts + handle time per agent
           (same body as ``agent_performance``, matches the Genesys UI)

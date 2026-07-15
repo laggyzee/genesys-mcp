@@ -22,11 +22,12 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from genesys_mcp._aggregates import accumulate_metric_stats
-from genesys_mcp._availability import conversation_data_availability, presence_data_availability
+from genesys_mcp._availability import conversation_data_availability
 from genesys_mcp._intervals import INTERVAL_HELP_STRING
 from genesys_mcp._intervals import default_interval as _default_interval
 from genesys_mcp._intervals import now_utc as _now_utc
 from genesys_mcp._intervals import parse_iso as _parse_iso
+from genesys_mcp._user_details import fetch_user_details
 from genesys_mcp.client import get_api, to_dict, with_retry
 from genesys_mcp.naming import resolver
 
@@ -1001,11 +1002,10 @@ def register(mcp: FastMCP) -> None:
         Returns per-user counts, totals, and per-instance lists so a TL can drill in.
         Sorted by overrun frequency.
 
-        Data availability: presence detail settles asynchronously. The response
-        carries 'data_complete' (False when the interval extends past Genesys'
-        settled watermark 'data_available_until') plus 'data_availability_note'.
-        When False, evening break/meal/away sessions after the watermark are
-        missing, so overrun counts and away totals understate the day.
+        ``data_complete`` means the returned detail is safe to use. When
+        ``data_provisional`` is true, reconciled recent-data detail is being used
+        while Genesys' authoritative archive continues to settle; the separate
+        ``archive_data_complete`` field remains false for later repair.
         """
         # Reuse the presence_sessions tool's data fetching logic by calling the
         # same job pipeline directly here — keeps this tool self-contained.
@@ -1019,100 +1019,62 @@ def register(mcp: FastMCP) -> None:
         except Exception as exc:
             raise ValueError(f"Invalid interval {interval!r}") from exc
 
-        api = gc.AnalyticsApi(get_api())
-        # Presence detail settles asynchronously; a window past the availability
-        # watermark returns partial with no error (an evening break/meal can be
-        # missing entirely). Surface it so overrun counts aren't read as complete.
-        availability = presence_data_availability(api, interval_end)
-        body = {
-            "interval": interval,
-            "order": "asc",
-            "userFilters": [{
-                "type": "or",
-                "predicates": [
-                    {"type": "dimension", "dimension": "userId",
-                     "operator": "matches", "value": uid}
-                    for uid in user_ids
-                ],
-            }],
-        }
-        submit = with_retry(api.post_analytics_users_details_jobs)(body=body)
-        job_id = submit.job_id if hasattr(submit, "job_id") else to_dict(submit).get("jobId")
-
-        for _ in range(30):
-            status = with_retry(api.get_analytics_users_details_job)(job_id=job_id)
-            state = getattr(status, "state", None) or to_dict(status).get("state")
-            if state == "FULFILLED":
-                break
-            if state in ("FAILED", "CANCELLED", "EXPIRED"):
-                raise RuntimeError(f"job {job_id} terminated in state {state}")
-            time.sleep(1)
-
+        detail_result = fetch_user_details(user_ids, interval, max_pages=50)
         sessions_by_user: dict[str, list[dict]] = {uid: [] for uid in user_ids}
-        cursor = None
-        for _ in range(50):
-            kwargs: dict[str, Any] = {"job_id": job_id, "page_size": 1000}
-            if cursor:
-                kwargs["cursor"] = cursor
-            page = with_retry(api.get_analytics_users_details_job_results)(**kwargs)
-            page_dict = to_dict(page) or {}
-            for ud in page_dict.get("userDetails") or []:
-                uid = ud.get("userId")
-                if uid not in sessions_by_user:
+        for ud in detail_result["user_details"]:
+            uid = ud.get("userId")
+            if uid not in sessions_by_user:
+                continue
+            for sess in ud.get("primaryPresence") or []:
+                sp = (sess.get("systemPresence") or "").upper()
+                org_pres_id = sess.get("organizationPresenceId")
+                is_pre_break = (org_pres_id == pre_break_organization_presence_id)
+                is_tracked = sp in ("BREAK", "MEAL", "AWAY") or is_pre_break
+                if not is_tracked:
                     continue
-                for sess in ud.get("primaryPresence") or []:
-                    sp = (sess.get("systemPresence") or "").upper()
-                    org_pres_id = sess.get("organizationPresenceId")
-                    is_pre_break = (org_pres_id == pre_break_organization_presence_id)
-                    is_tracked = sp in ("BREAK", "MEAL", "AWAY") or is_pre_break
-                    if not is_tracked:
-                        continue
-                    if not sess.get("startTime") or not sess.get("endTime"):
-                        continue
-                    try:
-                        st = _parse_iso(sess["startTime"])
-                        en = _parse_iso(sess["endTime"])
-                    except Exception:
-                        continue
-                    if en < interval_start or st > interval_end:
-                        continue
-                    st_clip = max(st, interval_start)
-                    en_clip = min(en, interval_end)
-                    dur_s = (en_clip - st_clip).total_seconds()
-                    if dur_s <= 0:
-                        continue
+                if not sess.get("startTime") or not sess.get("endTime"):
+                    continue
+                try:
+                    st = _parse_iso(sess["startTime"])
+                    en = _parse_iso(sess["endTime"])
+                except Exception:
+                    continue
+                if en < interval_start or st > interval_end:
+                    continue
+                st_clip = max(st, interval_start)
+                en_clip = min(en, interval_end)
+                dur_s = (en_clip - st_clip).total_seconds()
+                if dur_s <= 0:
+                    continue
 
-                    # Categorise — pre-break is BUSY systemPresence with a specific org id,
-                    # so we override the label so downstream logic doesn't lump it under BUSY
-                    if is_pre_break:
-                        category = "PRE_BREAK"
-                        target_min = pre_break_target_min
-                    else:
-                        category = sp
-                        target_min = (
-                            break_target_min if sp == "BREAK"
-                            else meal_target_min if sp == "MEAL"
-                            else 0  # AWAY has no target
-                        )
-                    target_s = target_min * 60
-                    over_target = (
-                        dur_s > (target_s + tolerance_min * 60)
-                        if target_s > 0 else False
+                # Categorise — pre-break is BUSY systemPresence with a specific org id,
+                # so we override the label so downstream logic doesn't lump it under BUSY
+                if is_pre_break:
+                    category = "PRE_BREAK"
+                    target_min = pre_break_target_min
+                else:
+                    category = sp
+                    target_min = (
+                        break_target_min if sp == "BREAK"
+                        else meal_target_min if sp == "MEAL"
+                        else 0  # AWAY has no target
                     )
-                    overrun_min = round((dur_s - target_s) / 60, 1) if (target_s > 0 and dur_s > target_s) else 0.0
+                target_s = target_min * 60
+                over_target = (
+                    dur_s > (target_s + tolerance_min * 60)
+                    if target_s > 0 else False
+                )
+                overrun_min = round((dur_s - target_s) / 60, 1) if (target_s > 0 and dur_s > target_s) else 0.0
 
-                    sessions_by_user[uid].append({
-                        "presence": category,
-                        "start_utc": st_clip.isoformat().replace("+00:00", "Z"),
-                        "duration_s": int(dur_s),
-                        "duration_min": round(dur_s / 60, 1),
-                        "target_min": target_min,
-                        "over_target": over_target,
-                        "overrun_min": overrun_min,
-                    })
-            cursor = page_dict.get("cursor")
-            if not cursor:
-                break
+                sessions_by_user[uid].append({
+                    "presence": category,
+                    "start_utc": st_clip.isoformat().replace("+00:00", "Z"),
+                    "duration_s": int(dur_s),
+                    "duration_min": round(dur_s / 60, 1),
+                    "target_min": target_min,
+                    "over_target": over_target,
+                    "overrun_min": overrun_min,
+                })
 
         # Resolve user names
         names = resolver.user_names(user_ids)
@@ -1185,13 +1147,13 @@ def register(mcp: FastMCP) -> None:
         return {
             "interval": interval,
             "as_of_utc": _now_utc().isoformat().replace("+00:00", "Z"),
-            # v1.17: data-availability watermark. When `data_complete` is False,
-            # presence detail is only settled to `data_available_until`; evening
-            # break/meal sessions after that point are missing, so overrun counts
-            # and away totals understate the day.
-            "data_complete": availability["complete"],
-            "data_available_until": availability["data_available_until"],
-            "data_availability_note": availability["note"],
+            "data_complete": detail_result["data_complete"],
+            "archive_data_complete": detail_result["archive_data_complete"],
+            "data_provisional": detail_result["data_provisional"],
+            "data_source": detail_result["data_source"],
+            "data_available_until": detail_result["data_available_until"],
+            "data_availability_note": detail_result["data_availability_note"],
+            "fallback_validation": detail_result["fallback_validation"],
             "break_target_min": break_target_min,
             "meal_target_min": meal_target_min,
             "pre_break_target_min": pre_break_target_min,
