@@ -22,7 +22,7 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from genesys_mcp._aggregates import accumulate_metric_stats
-from genesys_mcp._availability import conversation_data_availability
+from genesys_mcp._conversation_details import fetch_conversation_details, run_conversation_details_job
 from genesys_mcp._intervals import INTERVAL_HELP_STRING
 from genesys_mcp._intervals import default_interval as _default_interval
 from genesys_mcp._intervals import now_utc as _now_utc
@@ -32,6 +32,11 @@ from genesys_mcp.client import get_api, to_dict, with_retry
 from genesys_mcp.naming import resolver
 
 logger = logging.getLogger(__name__)
+
+
+def _is_customer_participant(purpose: str | None) -> bool:
+    """Normalise archive ``customer`` and recent-query ``external`` caller legs."""
+    return purpose in ("customer", "external")
 
 
 def _sta_details(conversation_id: str) -> dict | None:
@@ -247,8 +252,12 @@ def _slim_deep_dive_response(resp: dict) -> dict:
         "interval": resp.get("interval"),
         "as_of_utc": resp.get("as_of_utc"),
         "data_complete": resp.get("data_complete"),
+        "archive_data_complete": resp.get("archive_data_complete"),
+        "data_provisional": resp.get("data_provisional"),
+        "data_source": resp.get("data_source"),
         "data_available_until": resp.get("data_available_until"),
         "data_availability_note": resp.get("data_availability_note"),
+        "fallback_validation": resp.get("fallback_validation"),
         "media_type": resp.get("media_type"),
         "scope": slim_scope,
         "org_rollup": resp.get("org_rollup") or {},
@@ -286,48 +295,10 @@ def _seg_dur_s(seg: dict) -> float:
         return 0.0
 
 
-def _conversation_job_availability(filters_body: dict[str, Any]) -> dict[str, Any]:
-    """Return the fail-open availability contract for a conversation-job body."""
-    api = gc.AnalyticsApi(get_api())
-    try:
-        interval_end = _parse_iso(str(filters_body["interval"]).split("/", 1)[1])
-    except Exception as exc:
-        raise ValueError(f"Invalid interval {filters_body.get('interval')!r}") from exc
-    return conversation_data_availability(api, interval_end)
-
-
 def _run_conv_details_job(filters_body: dict[str, Any], max_pages: int = 20) -> list[dict]:
     """Submit a conversation details job, poll, paginate, return all conversations."""
-    api = gc.AnalyticsApi(get_api())
-    submit = with_retry(api.post_analytics_conversations_details_jobs)(body=filters_body)
-    job_id = submit.job_id if hasattr(submit, "job_id") else to_dict(submit).get("jobId")
-    if not job_id:
-        raise RuntimeError(f"conversations/details/jobs submit returned no jobId")
-
-    for _ in range(60):
-        status = with_retry(api.get_analytics_conversations_details_job)(job_id=job_id)
-        state = getattr(status, "state", None) or to_dict(status).get("state")
-        if state == "FULFILLED":
-            break
-        if state in ("FAILED", "CANCELLED", "EXPIRED"):
-            raise RuntimeError(f"conv details job {job_id} terminated in state {state}")
-        time.sleep(1)
-    else:
-        raise RuntimeError(f"conv details job {job_id} did not reach FULFILLED")
-
-    out: list[dict] = []
-    cursor: str | None = None
-    for _ in range(max_pages):
-        kwargs: dict[str, Any] = {"job_id": job_id, "page_size": 1000}
-        if cursor:
-            kwargs["cursor"] = cursor
-        page = with_retry(api.get_analytics_conversations_details_job_results)(**kwargs)
-        page_dict = to_dict(page) or {}
-        out.extend(page_dict.get("conversations") or [])
-        cursor = page_dict.get("cursor")
-        if not cursor:
-            break
-    return out
+    conversations, _truncated = run_conversation_details_job(filters_body, max_pages)
+    return conversations
 
 
 def register(mcp: FastMCP) -> None:
@@ -365,14 +336,15 @@ def register(mcp: FastMCP) -> None:
           - answer_rate_of_total_pct    — answered / total (includes IVR-only abandons)
           - queues_offered            — counter of queues the offered calls hit
 
-        Sorted by acd_offered_count desc, then total. Backed by
-        /api/v2/analytics/conversations/details/jobs (async, paginated).
+        Sorted by acd_offered_count desc, then total. Uses the authoritative
+        /api/v2/analytics/conversations/details/jobs archive after settlement;
+        while that watermark lags, uses the recent synchronous details query
+        only when every ``totalHits`` row paginates and reconciles exactly.
 
-        Data availability: the response carries ``data_complete`` (False when
-        the requested interval extends past the conversation-jobs datalake
-        watermark), ``data_available_until`` and ``data_availability_note``.
-        When incomplete, recent conversations can be absent and every funnel or
-        repeat-caller count is a lower bound.
+        Data availability: ``data_complete`` means the selected source is safe
+        to use. ``archive_data_complete`` separately tracks the jobs watermark;
+        ``data_provisional`` is true when validated recent detail is standing in
+        until the later archive repair.
         """
         interval = interval or _default_interval(7)
         excluded = set(exclude_anis or [])
@@ -417,8 +389,8 @@ def register(mcp: FastMCP) -> None:
             "segmentFilters": [segment_filter],
         }
 
-        availability = _conversation_job_availability(body)
-        convs = _run_conv_details_job(body)
+        detail_result = fetch_conversation_details(body)
+        convs = detail_result["conversations"]
 
         # Org-wide funnel counters (across every inbound conv we pulled, not just repeaters)
         org_total = len(convs)
@@ -433,7 +405,11 @@ def register(mcp: FastMCP) -> None:
             queue_id = None
             for p in c.get("participants") or []:
                 purpose = p.get("purpose")
-                if purpose == "customer":
+                # The async jobs archive labels the inbound caller ``customer``;
+                # the synchronous details query uses ``external`` for the same
+                # participant. Treat both as the customer leg so source choice
+                # cannot erase ANI/repeater detection.
+                if _is_customer_participant(purpose):
                     for s in p.get("sessions") or []:
                         if s.get("ani") and not ani:
                             ani = (s["ani"] or "").replace("tel:", "")
@@ -502,9 +478,13 @@ def register(mcp: FastMCP) -> None:
 
         return {
             "interval": interval,
-            "data_complete": availability["complete"],
-            "data_available_until": availability["data_available_until"],
-            "data_availability_note": availability["note"],
+            "data_complete": detail_result["data_complete"],
+            "archive_data_complete": detail_result["archive_data_complete"],
+            "data_provisional": detail_result["data_provisional"],
+            "data_source": detail_result["data_source"],
+            "data_available_until": detail_result["data_available_until"],
+            "data_availability_note": detail_result["data_availability_note"],
+            "fallback_validation": detail_result["fallback_validation"],
             "media_type": media_type,
             "total_conversations": org_total,
             "unique_callers": len(by_ani),
@@ -589,10 +569,10 @@ def register(mcp: FastMCP) -> None:
         queues), most rows will show topics from queue_fallback only and sentiment_trend
         'insufficient_data'. The funnel data is still valid.
 
-        The top-level ``data_complete`` / ``data_available_until`` fields refer
-        to the async conversation-details jobs datalake. When False, recent
-        conversations are missing, so repeat-caller counts and recommendations
-        are provisional even if the enrichment calls themselves succeeded.
+        ``data_complete`` means the selected conversation set is safe to use.
+        ``archive_data_complete`` separately tracks the async jobs datalake;
+        when ``data_provisional`` is true, every synchronous-query result page
+        reconciled and QueueIQ may use it while retaining the later archive repair.
         """
         interval = interval or _default_interval(7)
         excluded = set(exclude_anis or [])
@@ -635,8 +615,8 @@ def register(mcp: FastMCP) -> None:
             ],
             "segmentFilters": [segment_filter],
         }
-        availability = _conversation_job_availability(body)
-        convs = _run_conv_details_job(body)
+        detail_result = fetch_conversation_details(body)
+        convs = detail_result["conversations"]
 
         # ---- 2. Group by ANI with the canonical IVR/ACD/answered classification ----
         by_ani: dict[str, list[dict]] = defaultdict(list)
@@ -647,7 +627,7 @@ def register(mcp: FastMCP) -> None:
             queue_id = None
             for p in c.get("participants") or []:
                 purpose = p.get("purpose")
-                if purpose == "customer":
+                if _is_customer_participant(purpose):
                     for s in p.get("sessions") or []:
                         if s.get("ani") and not ani:
                             ani = (s["ani"] or "").replace("tel:", "")
@@ -891,9 +871,13 @@ def register(mcp: FastMCP) -> None:
         full_response = {
             "interval": interval,
             "as_of_utc": _now_utc().isoformat().replace("+00:00", "Z"),
-            "data_complete": availability["complete"],
-            "data_available_until": availability["data_available_until"],
-            "data_availability_note": availability["note"],
+            "data_complete": detail_result["data_complete"],
+            "archive_data_complete": detail_result["archive_data_complete"],
+            "data_provisional": detail_result["data_provisional"],
+            "data_source": detail_result["data_source"],
+            "data_available_until": detail_result["data_available_until"],
+            "data_availability_note": detail_result["data_availability_note"],
+            "fallback_validation": detail_result["fallback_validation"],
             "media_type": media_type,
             "scope": {
                 "max_anis": max_anis,
