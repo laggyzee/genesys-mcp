@@ -28,6 +28,7 @@ import PureCloudPlatformClientV2 as gc
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from genesys_mcp import __version__
 from genesys_mcp.client import get_api, to_dict, with_retry
 from genesys_mcp.tenant import (
     TenantConfigError,
@@ -439,6 +440,7 @@ def run_health_check() -> dict:
     skills = _check_skills_linked()
     verdict, blockers = _verdict(scopes, config, skills)
     return {
+        "mcp_version": __version__,
         "oauth": {
             "region": os.environ.get("GENESYS_REGION", "ap-southeast-2"),
             "scopes_tested": scopes,
@@ -462,6 +464,8 @@ def register(mcp: FastMCP) -> None:
           missing / error_NNN) and a concrete ``remediation`` string for any
           gap. Required scopes (analytics, conversations, users, routing) are
           flagged as blockers; optional scopes only as warnings.
+        - ``mcp_version`` — the installed genesys-mcp package version. Use this
+          to confirm that a QueueIQ image actually contains the expected release.
         - ``tenant_config`` — whether ``~/.config/genesys-mcp/tenant.yaml``
           exists and validates against the schema; surfaces warnings for
           risky skip-substrings or empty pre-break-presence-id.
