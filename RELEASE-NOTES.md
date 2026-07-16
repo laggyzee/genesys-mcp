@@ -1,5 +1,41 @@
 # Release Notes
 
+## v1.19.0 — 16 July 2026
+
+**Recent conversation details while the async archive settles.** QueueIQ daily briefs previously withheld the entire repeat-caller section whenever `/analytics/conversations/details/jobs/availability` lagged the end of yesterday. That was safe but unnecessarily sparse: the synchronous conversation-details query already held the complete reporting day.
+
+### New fallback
+
+- `repeat_caller_report` and `repeat_caller_deep_dive` now use `POST /api/v2/analytics/conversations/details/query` when the async jobs watermark is behind or unavailable.
+- The endpoint was verified against the Genesys Platform API schema (`postAnalyticsConversationsDetailsQuery`, permission ANY of `analytics:conversationDetail:view` or `analytics:agentConversationDetail:view`, `ConversationQuery` body with required `interval` and numbered `paging`).
+- The recent query paginates at 100 rows per request and is accepted only when:
+  - every page reports a consistent `totalHits`;
+  - fetched rows exactly equal `totalHits`;
+  - every row has a conversation id;
+  - conversation ids are unique; and
+  - the configured page budget was not exhausted.
+- A failed or unreconciled recent query safely falls back to the partial async archive result and leaves `data_complete: false`, so QueueIQ continues withholding unsupported conclusions.
+- Identical recent queries are cached for five minutes to avoid repeating the more API-intensive pagination during one report run.
+
+### Freshness contract
+
+- `data_complete` means the returned conversation set passed page/identity reconciliation and is safe for the repeat-caller calculation.
+- `archive_data_complete` retains the independent async jobs watermark truth, allowing QueueIQ to schedule an authoritative replacement later.
+- `data_provisional` identifies a validated synchronous result awaiting archive repair.
+- `data_source` identifies `analytics_conversations_details_query_recent`, the authoritative jobs source, or an incomplete fallback.
+- `fallback_validation` exposes total/fetched/unique counts, duplicates, missing ids, changing totals, and truncation.
+- Summary mode preserves every one of those fields.
+
+### Live verification
+
+- For the Sydney day ending 15 July 2026, the async archive watermark was `2026-07-15T07:13:14Z` and the old jobs path returned 586 inbound voice conversations.
+- The synchronous query returned all 669 `totalHits` rows across seven pages, including activity through `2026-07-15T13:18:40.703Z`—83 conversations that the archive-backed daily brief had withheld.
+
+### Tests
+
+- Seven new tests pin exact pagination, truncation, duplicate-id rejection, archive selection, safe fallback, caching, and the synchronous `external` versus archive `customer` participant-purpose difference.
+- **648 tests; 53 tools.** All passing, plus an end-to-end live `repeat_caller_deep_dive` run returned a complete provisional result from all 669 conversations.
+
 ## v1.18.0 — 16 July 2026
 
 **Fresh-presence fallback, corrected utilization analytics, and deploy-visible versioning.** This release formally packages the changes shipped after v1.17.0. It keeps daily briefs and agent comparisons useful while Genesys' archived users/details datalake is still settling, without pretending provisional data is authoritative.
