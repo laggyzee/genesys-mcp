@@ -1,5 +1,54 @@
 # Release Notes
 
+## v1.18.0 — 16 July 2026
+
+**Fresh-presence fallback, corrected utilization analytics, and deploy-visible versioning.** This release formally packages the changes shipped after v1.17.0. It keeps daily briefs and agent comparisons useful while Genesys' archived users/details datalake is still settling, without pretending provisional data is authoritative.
+
+### Fresh presence and routing data while the archive lags
+
+- New shared `fetch_user_details` collector chooses the safest available source for a requested interval:
+  - When the users/details archive watermark covers the interval, it uses the authoritative async `/api/v2/analytics/users/details/jobs` result.
+  - When the watermark is behind or unavailable, it queries the recent synchronous `/api/v2/analytics/users/details/query` endpoint instead.
+  - The synchronous result is accepted as complete only after its active-user presence durations reconcile against `/api/v2/analytics/users/aggregates/query` (`tSystemPresence`, `tOrganizationPresence`, and `tAgentRoutingStatus`). Reconciliation allows the larger of 120 seconds or 2% per presence bucket; missing engaged users, excessive deltas, or truncated paging keep the result explicitly incomplete.
+  - If the synchronous fallback itself fails, the collector returns the partial archive result with an honest incomplete marker instead of failing the entire report.
+- `presence_sessions` and `break_overrun_report` now share that collector, eliminating two duplicate async-job implementations and giving both tools the same freshness contract.
+- Returned metadata distinguishes usability from archive settlement:
+  - `data_complete` — the returned detail passed completeness/reconciliation checks.
+  - `archive_data_complete` — Genesys' archived users/details watermark has reached the interval end.
+  - `data_provisional` — reconciled recent data is being used temporarily.
+  - `data_source` — the exact endpoint path selected.
+  - `fallback_validation` — reconciliation counts, maximum delta, truncation state, and bounded mismatch examples.
+- Recent fallback results are cached for five minutes per interval/user set to avoid repeating the same API-intensive reconciliation within one report run. QueueIQ can still repair the snapshot later when `archive_data_complete` becomes true.
+
+### Fixed: `agent_utilization` HTTP 400
+
+- Genesys' `UserAggregationQuery.groupBy` permits only `userId`; the previous `groupBy: ["userId", "routingStatus"]` request failed with HTTP 400 `invalid aggregate dimension` on current tenants.
+- The query now groups only by `userId` and reads routing/presence categories from each metric's `qualifier`, requesting both `tAgentRoutingStatus` and `tSystemPresence`.
+- `ON_QUEUE` and `OFF_QUEUE` are derived from qualified system-presence durations; `INTERACTING`, `IDLE`, `NOT_RESPONDING`, and `COMMUNICATING` come from qualified routing-status durations.
+- This restores org-wide questions such as *"Who was the most effective agent yesterday?"*: QueueIQ can compare every Genesys agent using answered interactions, on-queue time, occupancy, and interactions per on-queue hour. The platform member asking the question does not need their own Genesys user record.
+- Verified live on 16 July 2026 against `POST /api/v2/analytics/users/aggregates/query`: the canonical body returns HTTP 200 with qualified `tSystemPresence` and `tAgentRoutingStatus` metrics for the requested Sydney reporting day.
+
+### Conversation-detail completeness
+
+- `repeat_caller_report` and `repeat_caller_deep_dive` surface the conversation-details job watermark through `data_complete`, `data_available_until`, and `data_availability_note`.
+- Summary mode now preserves those fields (and `as_of_utc`) so token trimming cannot discard the warning that recent repeat-caller counts are provisional.
+- Users/details availability and conversations/details availability use separate helpers and endpoints; one datalake's watermark is never used to make claims about the other.
+
+### Version and deployment observability
+
+- Package and lock metadata are now `1.18.0`.
+- `genesys_mcp.__version__` resolves from installed package metadata.
+- MCP startup logs include `Genesys MCP v1.18.0 started`.
+- `mcp_health_check` returns top-level `mcp_version`, and the CLI health-check heading prints it. This makes stale Docker layers or a pinned `GENESYS_MCP_REF` immediately visible after deployment.
+
+### Tests
+
+- Request-shape tests pin `groupBy: ["userId"]` and both qualified metrics for `agent_utilization`.
+- New fallback tests cover archive-complete selection, reconciled synchronous data, failed reconciliation, paging/truncation, cache behaviour, and safe archive fallback.
+- Availability tests cover both users/details and conversations/details watermark families.
+- Release metadata tests pin the installed version and health-check visibility.
+- **641 tests; 53 tools.** All passing. A live v1.18 run queried all 52 active directory users, returned usable utilization rows for 24 agents who had on-queue time in the reporting day, and confirmed the routing-status scope was available.
+
 ## v1.17.0 — 14 July 2026
 
 **Presence data-availability watermark.** Genesys settles users/details (presence/routing) data asynchronously behind a `dataAvailabilityDate` watermark, and a detail query for any window extending past it returns **partial data with no error and no flag** — the async job succeeds and silently omits the not-yet-settled tail. This produced a wrong coaching brief: collected at 06:00 for the prior day, it read an agent's last recorded presence session as her "logout" (5:37pm) when she had actually worked into the evening — the watermark was ~10 hours behind the day's end, so her evening on-queue time simply didn't exist in the response. Her conversation stats (a separate, near-real-time pipeline) were complete, which is why only the presence-derived figures were wrong.

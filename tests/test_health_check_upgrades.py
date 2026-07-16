@@ -20,6 +20,22 @@ import pytest
 from genesys_mcp.tools import health as health_mod
 
 
+def test_health_report_exposes_installed_mcp_version(monkeypatch):
+    monkeypatch.setattr(health_mod, "_SCOPES", ())
+    monkeypatch.setattr(health_mod, "_check_tenant_config", lambda api=None: {
+        "exists": True,
+        "loaded_ok": True,
+        "warnings": [],
+        "errors": [],
+    })
+    monkeypatch.setattr(health_mod, "_check_skills_linked", lambda: [])
+    monkeypatch.setattr(health_mod, "get_api", lambda: object())
+
+    report = health_mod.run_health_check()
+
+    assert report["mcp_version"] == "1.18.0"
+
+
 class TestQueuePatternMatchRate:
     def test_warns_when_match_rate_under_80_pct(self, temp_tenant_config):
         from genesys_mcp.tenant import load_config

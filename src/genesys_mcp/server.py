@@ -9,6 +9,7 @@ from typing import AsyncIterator
 
 from mcp.server.fastmcp import FastMCP
 
+from genesys_mcp import __version__
 from genesys_mcp.client import assert_mcp_env_clean, init_api
 from genesys_mcp.tools import (
     analytics,
@@ -46,6 +47,7 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
     # The provisioning script doesn't call this (it legitimately needs both).
     assert_mcp_env_clean()
     init_api()
+    logger.info("Genesys MCP v%s started", __version__)
     try:
         yield
     finally:

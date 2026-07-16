@@ -76,7 +76,8 @@ def _print_report(report: dict, *, as_json: bool, no_colour: bool) -> None:
     else:
         verdict_str = f"{red}{bold}BLOCKED{reset}"
 
-    print(f"\n{bold}genesys-mcp health check{reset}")
+    version = report.get("mcp_version", "unknown")
+    print(f"\n{bold}genesys-mcp v{version} health check{reset}")
     print(f"Verdict: {verdict_str}\n")
 
     print(f"{bold}OAuth scopes{reset} (region: {report['oauth']['region']})")
