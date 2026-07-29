@@ -684,9 +684,15 @@ def aggregate_agent_nps(nps_raw: dict | None, target_user_id: str | None) -> dic
     passives = 0
     promoters = 0
     for c in target_convs:
+        # v1.20: the tool no longer normalises values to bare integers, so
+        # accept whole-number decimals ("9.0") too; int(nan/inf) raises and
+        # lands in the except like any other non-score value.
         try:
-            n = int(c.get("attribute_value"))
-        except (TypeError, ValueError):
+            f = float(c.get("attribute_value"))
+            n = int(f)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if f != n:
             continue
         if 0 <= n <= 6:
             detractors.append({
