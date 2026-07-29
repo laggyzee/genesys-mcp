@@ -1,5 +1,9 @@
 # Release Notes
 
+## v1.20.1 — 30 July 2026
+
+**Hotfix: pin `mcp<2`.** The MCP Python SDK released 2.0.0, which removes `mcp.server.fastmcp` — the module every genesys-mcp tool registers through. Environments that install without the lockfile (QueueIQ's image build uses `pip install -e`) resolved 2.0.0 on any rebuild after that release, and the server crashed on import — surfacing in the QueueIQ bridge as `MCP error -32000: Connection closed` on every call, including health checks. The dependency is now `mcp[cli]>=1.8,<2` (the lockfile already pinned 1.27.0, so uv-based dev/test environments were never affected). No behaviour change; rebuild-only.
+
 ## v1.20.0 — 28 July 2026
 
 **`search_conversations_by_attribute` rewritten against the endpoint's real contract.** The participant-attribute search endpoint only supports `conversationId` / `startTime` / `endTime` / `divisionId` as searchable fields — the v1.8–v1.19 request (EXACT on `participantData.<key>` + DATE_RANGE on `segments.start`) used unsupported field paths, so once Genesys enabled the product flag the endpoint rejected **every** call with a generic 400 "Search not supported." (verified live against a real tenant, 2026-07-28).
