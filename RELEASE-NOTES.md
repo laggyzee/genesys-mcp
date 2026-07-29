@@ -1,5 +1,22 @@
 # Release Notes
 
+## v1.20.0 — 28 July 2026
+
+**`search_conversations_by_attribute` rewritten against the endpoint's real contract.** The participant-attribute search endpoint only supports `conversationId` / `startTime` / `endTime` / `divisionId` as searchable fields — the v1.8–v1.19 request (EXACT on `participantData.<key>` + DATE_RANGE on `segments.start`) used unsupported field paths, so once Genesys enabled the product flag the endpoint rejected **every** call with a generic 400 "Search not supported." (verified live against a real tenant, 2026-07-28).
+
+### The rewrite
+
+- Requests now send the ONLY accepted interval shape: a single DATE_RANGE criterion on `startTime`. Attribute key/value filtering happens client-side over the returned `participantData[].participantAttributes` payloads (the old code also parsed a `participants[].attributes` row shape the endpoint never returns).
+- The requested interval is chunked into **windows, newest first** — 4h (Genesys' recommended pull size) for spans up to a week, 12h for longer spans (a month at 4h would be 180+ sequential round-trips; 24h is the current hard max) — each cursor-paginated (~50 rows/1MB per page). Rows are **deduplicated by conversationId** across windows/pages, and rows the endpoint flags `truncatedData: true` add an explicit note (the searched key may be missing from them).
+- **"Key exists with any value" is now the default** — no more 0–10 value enumeration, so decimals ("9.0"), sentinels ("N/A"), and non-0–10 scales can no longer be silently dropped. `attribute_value` remains an exact-match opt-in.
+- **`available_keys`** (new) lists every attribute key seen while scanning with per-conversation counts; a missing/case-mismatched `attribute_key` adds an explicit note (with a "did you mean" hint) instead of a bare empty result.
+- **NPS detection hardened**: whole-number decimals count; no-response sentinels ("", "N/A", "none", …) are excluded and reported as `numeric_summary.no_response_count`; genuinely mixed text/number data reports `non_numeric_count` and disables the NPS block.
+- **`queue_id` / `agent_user_id` row enrichment**: the endpoint's rows carry no queue/agent identifiers, so matched conversations are enriched via a batched `POST /api/v2/analytics/conversations/details/query` (50 ids per call, capped at 1000 to match the default max_results, best-effort — a failure nulls the fields and adds a note). Downstream per-agent NPS (cc-coaching-prep) and queue/brand rollups keep working unchanged.
+- **Honest limits**: 30-day retention clamping (with note and a `scanned_interval` field reporting the window actually scanned; a fully-expired window returns empty without querying), a 300-page scan budget, `totals.conversations_scanned`, and `totals.truncated` + a note on every early stop — including matches discarded by `max_results` — never a silent cap.
+- **Renderer consistency**: cc-daily-brief's NPS card denominator is now the promoter+passive+detractor sum (so an "N/A" sentinel can't make the split disagree with n), and cc-coaching-prep's per-agent NPS accepts whole-number decimals ("9.0") instead of silently int()-dropping them.
+
+Output contract is backward-compatible (`totals` / `value_distribution` / `numeric_summary` / `conversations` rows unchanged); `available_keys`, `notes`, `scanned_interval`, and the two `numeric_summary` counters are additive. Tool count unchanged (52) — QueueIQ needs a rebuild only, no whitelist sync, no migration. 679 tests.
+
 ## v1.19.0 — 16 July 2026
 
 **Recent conversation details while the async archive settles.** QueueIQ daily briefs previously withheld the entire repeat-caller section whenever `/analytics/conversations/details/jobs/availability` lagged the end of yesterday. That was safe but unnecessarily sparse: the synchronous conversation-details query already held the complete reporting day.

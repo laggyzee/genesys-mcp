@@ -516,20 +516,25 @@ def aggregate_nps(attr_search: dict | None) -> dict | None:
     """
     if not attr_search:
         return None
-    totals = attr_search.get("totals") or {}
-    total = totals.get("conversation_count") or 0
-    if total <= 0:
-        return None
     numeric = attr_search.get("numeric_summary") or {}
     nps = numeric.get("nps") if numeric else None
     if not nps:
         return None
+    promoters = nps.get("promoters_9_10") or 0
+    passives = nps.get("passives_7_8") or 0
+    detractors = nps.get("detractors_0_6") or 0
+    # v1.20: totals.conversation_count includes no-response sentinels ("N/A")
+    # the NPS buckets exclude, so the card's n must be the bucket sum or the
+    # split wouldn't add up to it.
+    total = promoters + passives + detractors
+    if total <= 0:
+        return None
     return {
         "score": nps.get("score"),
         "total": total,
-        "promoters": nps.get("promoters_9_10") or 0,
-        "passives": nps.get("passives_7_8") or 0,
-        "detractors": nps.get("detractors_0_6") or 0,
+        "promoters": promoters,
+        "passives": passives,
+        "detractors": detractors,
     }
 
 

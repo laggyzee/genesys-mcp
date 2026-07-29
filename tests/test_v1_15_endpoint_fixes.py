@@ -317,28 +317,37 @@ class TestAttributeSearchCursorPagination:
 
     def test_advances_via_returned_cursor_and_stops_when_absent(self, monkeypatch):
         import PureCloudPlatformClientV2 as gc
+        from datetime import datetime, timedelta, timezone
         from genesys_mcp import client as gen_client
         from genesys_mcp.tools import attribute_search
 
-        responses = [
-            {"results": [{"conversationId": "c1",
-                          "participants": [{"attributes": {"NPS Score": "9"}}]}],
-             "cursor": "cursor-abc"},
-            {"results": [{"conversationId": "c2",
-                          "participants": [{"attributes": {"NPS Score": "10"}}]}],
-             "cursor": None},
-        ]
         calls: list[dict] = []
+
+        def _pa_row(cid, score):
+            # v1.20: the endpoint's REAL row shape (participantData, not
+            # participants[].attributes).
+            return {"conversationId": cid, "startTime": "2026-07-27T22:30:00.000Z",
+                    "participantData": [{"participantPurpose": "customer",
+                                          "participantAttributes": {"NPS Score": score}}]}
 
         def fake_call_api(self, **kwargs):
             calls.append(kwargs)
-            return responses[len(calls) - 1]
+            if kwargs["body"].get("cursor"):
+                return {"results": [_pa_row("c2", "10")], "cursor": None}
+            return {"results": [_pa_row("c1", "9")], "cursor": "cursor-abc"}
 
         monkeypatch.setattr(gc.ApiClient, "call_api", fake_call_api)
         monkeypatch.setattr(gen_client, "_api_client", gc.ApiClient())
+        monkeypatch.setattr(attribute_search, "_enrich_rows", lambda *a, **k: None)
 
+        # Single ≤4h window so the cursor walk is the only pagination.
+        end = datetime.now(timezone.utc).replace(microsecond=0)
+        start = end - timedelta(hours=2)
+        interval = (f"{start.isoformat().replace('+00:00', 'Z')}/"
+                    f"{end.isoformat().replace('+00:00', 'Z')}")
         out = _call_tool(attribute_search.register, "search_conversations_by_attribute", {
             "attribute_key": "NPS Score",
+            "interval": interval,
         })
 
         assert len(calls) == 2, "should stop once the response has no cursor"
@@ -349,24 +358,33 @@ class TestAttributeSearchCursorPagination:
 
     def test_truncated_only_when_cap_hit_with_cursor_still_present(self, monkeypatch):
         import PureCloudPlatformClientV2 as gc
+        from datetime import datetime, timedelta, timezone
         from genesys_mcp import client as gen_client
         from genesys_mcp.tools import attribute_search
 
         def fake_call_api(self, **kwargs):
             # Always returns one result and a cursor — never terminates on
-            # its own, forcing the iteration cap to kick in.
+            # its own, forcing the page guard to kick in.
             return {
                 "results": [{"conversationId": "c",
-                              "participants": [{"attributes": {"NPS Score": "5"}}]}],
+                              "startTime": "2026-07-27T22:30:00.000Z",
+                              "participantData": [{"participantPurpose": "customer",
+                                                    "participantAttributes": {"NPS Score": "5"}}]}],
                 "cursor": "keep-going",
             }
 
         monkeypatch.setattr(gc.ApiClient, "call_api", fake_call_api)
         monkeypatch.setattr(gen_client, "_api_client", gc.ApiClient())
+        monkeypatch.setattr(attribute_search, "_enrich_rows", lambda *a, **k: None)
 
+        end = datetime.now(timezone.utc).replace(microsecond=0)
+        start = end - timedelta(hours=2)
+        interval = (f"{start.isoformat().replace('+00:00', 'Z')}/"
+                    f"{end.isoformat().replace('+00:00', 'Z')}")
         out = _call_tool(attribute_search.register, "search_conversations_by_attribute", {
             "attribute_key": "NPS Score",
-            "max_results": 10000,  # higher than what 20 iterations will produce
+            "interval": interval,
+            "max_results": 10000,  # higher than what the page guard will produce
         })
         assert out["totals"]["truncated"] is True
 
