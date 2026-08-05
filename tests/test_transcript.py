@@ -183,8 +183,15 @@ class TestFetchConversationTranscriptEndToEnd:
     """Mock the SDK + HTTP layer; assert the full pipeline composes correctly."""
 
     def _patch_chain(self, monkeypatch, recordings, transcript_json,
-                     transcript_url="https://example.invalid/t.json"):
-        """Patch RecordingApi + SpeechTextAnalyticsApi + httpx in one shot."""
+                     transcript_url="https://example.invalid/t.json",
+                     analytics_sessions=None, transcript_url_404=False):
+        """Patch RecordingApi + SpeechTextAnalyticsApi + ConversationsApi + httpx.
+
+        ``analytics_sessions`` feeds the analytics-details fallback used when
+        the recordings listing yields no session ids (archived / still-
+        transcoding recordings). ``transcript_url_404`` makes every
+        transcript-url lookup soft-404, simulating an aged-out recording.
+        """
         import PureCloudPlatformClientV2 as gc
         from genesys_mcp import client as gen_client
         from genesys_mcp.tools import speech_analytics as sa
@@ -199,12 +206,23 @@ class TestFetchConversationTranscriptEndToEnd:
             def __init__(self, url): self.url = url
             def to_dict(self): return {"url": self.url}
 
+        class Fake404(Exception):
+            status = 404
+
         class FakeStaApi:
             def __init__(self, *args, **kwargs): pass
             def get_speechandtextanalytics_conversation_communication_transcripturl(
                 self, conversation_id, communication_id,
             ):
+                if transcript_url_404:
+                    raise Fake404("transcript url not found")
                 return FakeTranscriptUrlResp(transcript_url)
+
+        class FakeConversationsApi:
+            def __init__(self, *args, **kwargs): pass
+            def get_analytics_conversation_details(self, conversation_id):
+                return {"conversationId": conversation_id,
+                        "participants": [{"sessions": analytics_sessions or []}]}
 
         # Replace the SDK shape converter with an identity-ish that handles
         # both plain dicts and objects with .to_dict().
@@ -220,6 +238,7 @@ class TestFetchConversationTranscriptEndToEnd:
         monkeypatch.setattr(sa, "to_dict", fake_to_dict)
         monkeypatch.setattr(sa.gc, "RecordingApi", FakeRecordingApi)
         monkeypatch.setattr(sa.gc, "SpeechTextAnalyticsApi", FakeStaApi)
+        monkeypatch.setattr(sa.gc, "ConversationsApi", FakeConversationsApi)
         monkeypatch.setattr(gen_client, "_api_client", gc.ApiClient())
 
         class FakeResp:
@@ -299,6 +318,148 @@ class TestFetchConversationTranscriptEndToEnd:
                           transcript_json=_sample_transcript_json())
         with pytest.raises(ValueError, match="must be 'summary' or 'full'"):
             fetch_conversation_transcript("conv-1", mode="abridged")
+
+
+# ─────────────────────── recording-lifecycle false negatives (v1.21) ───────────────────────
+
+def _real_recordings_shape() -> list[dict]:
+    """Shape-accurate ``get_conversation_recordings`` response for a voice call
+    with screen recording, as observed live (ap-southeast-2, 2026-08-05; all
+    values here synthesised).
+
+    Key facts the mocks previously missed:
+
+    - the endpoint returns a **list** (never an ``entities`` envelope);
+    - a materialised recording carries camelCase ``sessionId``;
+    - an archived recording is a stub with ``archiveDate``/``archiveMedium``
+      and **no sessionId key at all** — same for recordings still transcoding.
+    """
+    return [
+        {
+            "id": "rec-audio-1",
+            "conversationId": "conv-1",
+            "sessionId": "session-1",
+            "media": "audio",
+            "fileState": "AVAILABLE",
+            "recordingFileRole": "CUSTOMER_EXPERIENCE",
+            "startTime": "2026-07-28T02:25:03.379Z",
+            "endTime": "2026-07-28T02:29:41.000Z",
+            "annotations": [],
+            "mediaUris": {},
+        },
+        {
+            # Archived stub — sessionId key ABSENT, not merely null.
+            "id": "rec-screen-1",
+            "conversationId": "conv-1",
+            "media": "screen",
+            "fileState": "AVAILABLE",
+            "archiveDate": "2026-08-04T00:00:00.000Z",
+            "archiveMedium": "CLOUDARCHIVE",
+            "startTime": "2026-07-28T02:25:03.379Z",
+            "endTime": "2026-07-28T02:29:41.000Z",
+            "annotations": [],
+            "mediaUris": {},
+            "outputDurationMs": 278000,
+        },
+    ]
+
+
+class TestRecordingLifecycleFalseNegatives:
+    """Session-id resolution must not depend on recording *media* lifecycle.
+
+    Recording objects only carry ``sessionId`` once their media file is
+    materialised; archived/still-transcoding recordings come back as stubs
+    without it, and a cold call can return an empty body outright. The STA
+    transcript exists independently of all that, so the resolver falls back
+    to the analytics conversation detail (``sessions[].recording == True``).
+    """
+
+    _patch_chain = TestFetchConversationTranscriptEndToEnd._patch_chain
+
+    def test_real_response_shape_populates_session_ids(self, monkeypatch):
+        # Regression pin for the live shape: one materialised + one archived
+        # recording → session_ids populated from the materialised one, no 404.
+        from genesys_mcp.tools.speech_analytics import fetch_conversation_transcript
+        self._patch_chain(monkeypatch,
+                          recordings=_real_recordings_shape(),
+                          transcript_json=_sample_transcript_json())
+        out = fetch_conversation_transcript("conv-1")
+        assert "status" not in out
+        assert out["sessions_processed"] == 1
+        assert out["total_utterances"] == 3
+
+    def test_all_recordings_archived_falls_back_to_analytics(self, monkeypatch):
+        # The reported false negative: every recording is an archived stub
+        # (no sessionId anywhere) → resolve sessions via analytics instead.
+        from genesys_mcp.tools.speech_analytics import fetch_conversation_transcript
+        stubs = [{k: v for k, v in r.items() if k != "sessionId"}
+                 for r in _real_recordings_shape()]
+        self._patch_chain(
+            monkeypatch, recordings=stubs,
+            transcript_json=_sample_transcript_json(),
+            analytics_sessions=[
+                {"sessionId": "session-1", "mediaType": "voice", "recording": True},
+                {"sessionId": "session-ivr", "mediaType": "voice"},
+            ])
+        out = fetch_conversation_transcript("conv-1")
+        assert "status" not in out
+        assert out["sessions_processed"] == 1
+        assert out["total_utterances"] == 3
+
+    def test_empty_recordings_body_falls_back(self, monkeypatch):
+        # Cold 202/empty body from the recordings endpoint → same fallback.
+        from genesys_mcp.tools.speech_analytics import fetch_conversation_transcript
+        self._patch_chain(
+            monkeypatch, recordings=None,
+            transcript_json=_sample_transcript_json(),
+            analytics_sessions=[
+                {"sessionId": "session-1", "mediaType": "voice", "recording": True},
+            ])
+        out = fetch_conversation_transcript("conv-1")
+        assert "status" not in out
+        assert out["total_utterances"] == 3
+
+    def test_unrecorded_conversation_still_404s(self, monkeypatch):
+        # Genuine negative: no recordings AND analytics says no session was
+        # recorded → keep the soft-fail envelope for batch loops.
+        from genesys_mcp.tools.speech_analytics import fetch_conversation_transcript
+        self._patch_chain(
+            monkeypatch, recordings=[],
+            transcript_json=_sample_transcript_json(),
+            analytics_sessions=[
+                {"sessionId": "session-1", "mediaType": "voice", "recording": False},
+                {"sessionId": "session-ivr", "mediaType": "voice"},
+            ])
+        out = fetch_conversation_transcript("conv-unrecorded")
+        assert out["status"] == 404
+        assert "no recording sessions" in out["message"]
+
+    def test_aged_out_recording_still_404s(self, monkeypatch):
+        # Analytics remembers the session was recorded, but the transcript is
+        # gone (retention). The fallback path must not turn that into an
+        # empty success — callers rely on the 404 envelope.
+        from genesys_mcp.tools.speech_analytics import fetch_conversation_transcript
+        self._patch_chain(
+            monkeypatch, recordings=[],
+            transcript_json=_sample_transcript_json(),
+            analytics_sessions=[
+                {"sessionId": "session-1", "mediaType": "voice", "recording": True},
+            ],
+            transcript_url_404=True)
+        out = fetch_conversation_transcript("conv-aged-out")
+        assert out["status"] == 404
+
+    def test_duplicate_session_ids_deduped(self, monkeypatch):
+        # Two recordings of the same session (e.g. trunk + consult leg) must
+        # not double every utterance.
+        from genesys_mcp.tools.speech_analytics import fetch_conversation_transcript
+        self._patch_chain(
+            monkeypatch,
+            recordings=[{"sessionId": "session-1"}, {"sessionId": "session-1"}],
+            transcript_json=_sample_transcript_json())
+        out = fetch_conversation_transcript("conv-1")
+        assert out["sessions_processed"] == 1
+        assert out["total_utterances"] == 3
 
 
 # ─────────────────────── token-budget for typical excerpt ───────────────────────
