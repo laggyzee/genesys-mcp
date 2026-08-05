@@ -1,5 +1,19 @@
 # Release Notes
 
+## v1.21.0 — 5 August 2026
+
+**`get_conversation_transcript` no longer false-404s when recording media isn't materialised.** The tool resolved conversation → session ids solely through `GET /conversations/{id}/recordings`, but Recording objects only carry `sessionId` once their media file is materialised: archived recordings and calls still transcoding come back as stubs **without the key** (verified live — an archived screen recording had `archiveDate`/`archiveMedium` and no `sessionId` at all), and a cold call can return an empty 202 body. When every recording was in such a state, `session_ids` resolved empty and the tool returned `{"status": 404, "message": "no recording sessions found for conversation"}` even though the STA transcript existed and was retrievable by hand via `list_recordings` → `get_transcript_url`. The failure is state-dependent (archive/restore/transcode lifecycle), which is why it appeared and disappeared over a conversation's life.
+
+### The fix
+
+- When the recordings listing yields no session ids, the resolver now falls back to `GET /analytics/conversations/{id}/details`, whose `participants[].sessions[].recording` flag marks recorded sessions independently of media lifecycle. Needs `analytics:conversationDetail:view` — already a required scope.
+- The genuine no-recording 404 is preserved twice over: an unrecorded conversation has no session with `recording: true` (fallback returns nothing → same envelope), and an aged-out recording whose transcript is also gone returns the 404 envelope rather than an empty success (`sessions_processed == 0` guard on the fallback path).
+- Session ids are now de-duplicated (order-preserving) — two recordings of the same session previously fetched the same transcript twice and doubled every utterance.
+- Not the cause, but audited per the report: the `entities` unwrap in the same block only fires for dict responses; this endpoint returns a bare list (verified live), and every other `entities` use in the codebase is against genuinely paginated listing endpoints — no other tool has this bug class.
+- Regression tests pin the endpoint's real response shape (list of camelCase dicts; archived stubs lacking `sessionId`) plus the fallback, genuine-negative, aged-out, and dedup paths. 685 tests.
+
+Output contract unchanged; QueueIQ needs a rebuild only.
+
 ## v1.20.1 — 30 July 2026
 
 **Hotfix: pin `mcp<2`.** The MCP Python SDK released 2.0.0, which removes `mcp.server.fastmcp` — the module every genesys-mcp tool registers through. Environments that install without the lockfile (QueueIQ's image build uses `pip install -e`) resolved 2.0.0 on any rebuild after that release, and the server crashed on import — surfacing in the QueueIQ bridge as `MCP error -32000: Connection closed` on every call, including health checks. The dependency is now `mcp[cli]>=1.8,<2` (the lockfile already pinned 1.27.0, so uv-based dev/test environments were never affected). No behaviour change; rebuild-only.

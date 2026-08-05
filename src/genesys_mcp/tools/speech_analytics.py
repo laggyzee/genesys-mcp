@@ -3,7 +3,9 @@ transcript URLs, and full parsed transcripts for quality reviews + coaching.
 
 Requires the OAuth client to have ``speech-and-text-analytics:readonly``.
 The transcript tool also needs ``recording:recording:view`` (to resolve a
-conversation id → recording session ids before fetching the transcript URL).
+conversation id → recording session ids before fetching the transcript URL)
+and ``analytics:conversationDetail:view`` (fallback session resolution when
+the recording media isn't materialised — archived or still transcoding).
 
 All tools soft-fail on 404 (returning ``{"status": 404, ...}``) so they can
 be used safely in batch loops over conversation lists, where some calls
@@ -162,6 +164,38 @@ def _fetch_transcript_json(url: str) -> dict:
     return resp.json()
 
 
+def _recorded_session_ids_from_analytics(conversation_id: str) -> list[str]:
+    """Resolve recorded session ids via the analytics conversation detail.
+
+    Fallback for when ``get_conversation_recordings`` yields no session ids:
+    Recording objects only carry ``sessionId`` once their media file is
+    materialised — archived recordings and calls still transcoding come back
+    as stubs without the key, and a cold call can return an empty body. The
+    analytics detail flags recorded sessions (``sessions[].recording``)
+    independently of that media lifecycle.
+
+    Returns [] when no session was recorded (the genuine no-recording case)
+    or when the detail record itself 404s (not indexed yet).
+    """
+    conv_api = gc.ConversationsApi(get_api())
+    try:
+        detail_resp = with_retry(conv_api.get_analytics_conversation_details)(
+            conversation_id=conversation_id,
+        )
+    except Exception as exc:
+        if getattr(exc, "status", None) == 404:
+            return []
+        raise
+    detail = to_dict(detail_resp) or {}
+    session_ids: list[str] = []
+    for participant in detail.get("participants") or []:
+        for session in participant.get("sessions") or []:
+            session_id = session.get("sessionId")
+            if session_id and session.get("recording") and session_id not in session_ids:
+                session_ids.append(session_id)
+    return session_ids
+
+
 def fetch_conversation_transcript(
     conversation_id: str,
     *,
@@ -197,7 +231,13 @@ def fetch_conversation_transcript(
     recordings = to_dict(recordings_resp) or []
     if isinstance(recordings, dict):
         recordings = recordings.get("entities") or [recordings]
-    session_ids = [r.get("sessionId") for r in recordings if r.get("sessionId")]
+    session_ids = list(dict.fromkeys(
+        r.get("sessionId") for r in recordings if r.get("sessionId")
+    ))
+    used_analytics_fallback = False
+    if not session_ids:
+        session_ids = _recorded_session_ids_from_analytics(conversation_id)
+        used_analytics_fallback = True
     if not session_ids:
         return soft_fail_envelope(
             kind="recordings",
@@ -252,6 +292,16 @@ def fetch_conversation_transcript(
             participants_seen.setdefault(role, ident)
 
         all_utterances.extend(_build_utterance_list(tj))
+
+    if used_analytics_fallback and sessions_processed == 0:
+        # Analytics says a session was recorded, but no transcript is
+        # retrievable (recording aged out, STA disabled). Keep the soft-fail
+        # contract for batch loops rather than returning an empty success.
+        return soft_fail_envelope(
+            kind="recordings",
+            message="no transcript available for conversation's recorded sessions",
+            conversation_id=conversation_id,
+        )
 
     all_utterances.sort(key=lambda u: (u.get("start_s") is None, u.get("start_s") or 0))
 
@@ -360,10 +410,12 @@ def register(mcp: FastMCP) -> None:
         """Structured, time-aligned transcript for a conversation.
 
         Resolves the conversation id → recording session ids via
-        ``recording:recording:view``, then for each session pulls the
-        STA transcript URL and downloads the JSON. Returns a flat list of
-        utterances attributed to ``customer`` / ``agent`` / ``ivr`` / ``acd``
-        with start time and optional per-utterance sentiment.
+        ``recording:recording:view`` (falling back to the analytics
+        conversation detail when the recordings are archived or still
+        transcoding and so carry no session id yet), then for each session
+        pulls the STA transcript URL and downloads the JSON. Returns a flat
+        list of utterances attributed to ``customer`` / ``agent`` / ``ivr``
+        / ``acd`` with start time and optional per-utterance sentiment.
 
         Useful for:
 
