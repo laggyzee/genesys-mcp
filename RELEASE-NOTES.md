@@ -1,5 +1,17 @@
 # Release Notes
 
+## v1.22.0 — 5 August 2026
+
+**New tool: `get_my_conversation_transcript` — ownership-checked transcript access for agent-scoped surfaces.** QueueIQ's agent Teams chat denies all conversation/recording/transcript tools because conversation ids aren't ownership-checked — an agent could paste a colleague's conversation id and read someone else's call. This tool moves the ownership check server-side so agent-facing frontends can safely answer "how did I go on this call?".
+
+- Takes `user_id` + `conversation_id` (+ the same `mode` / `max_utterances` as `get_conversation_transcript`); returns the transcript only when that user was a participant on the conversation, verified against the analytics conversation detail (`participants[].userId`). Frontends force `user_id` to the authenticated agent; a prompt-injected model can't skip a check that lives in the MCP.
+- "Not a participant" and "no such conversation" return **identical** 404 envelopes (`kind: "conversation"`), so conversation ids can't be probed for existence.
+- Output contract on success is identical to `get_conversation_transcript`, including the v1.21.0 archived/transcoding fallback.
+- The unscoped `get_conversation_transcript` is unchanged — direct MCP users (e.g. an admin in Claude Code) keep full access to any conversation their OAuth scopes allow. Verified live: the conversation's real agent gets the transcript; any other user id gets the soft-fail envelope.
+- Scopes: uses `analytics:conversationDetail:view` + the transcript tool's existing scopes — no OAuth changes.
+
+Tool count 52 → **53** — QueueIQ needs a whitelist sync **and** rebuild (add the tool to its MCP tool list and, for the agent chat, to `AGENT_FORCED_USER_ID_TOOLS`). 689 tests.
+
 ## v1.21.0 — 5 August 2026
 
 **`get_conversation_transcript` no longer false-404s when recording media isn't materialised.** The tool resolved conversation → session ids solely through `GET /conversations/{id}/recordings`, but Recording objects only carry `sessionId` once their media file is materialised: archived recordings and calls still transcoding come back as stubs **without the key** (verified live — an archived screen recording had `archiveDate`/`archiveMedium` and no `sessionId` at all), and a cold call can return an empty 202 body. When every recording was in such a state, `session_ids` resolved empty and the tool returned `{"status": 404, "message": "no recording sessions found for conversation"}` even though the STA transcript existed and was retrievable by hand via `list_recordings` → `get_transcript_url`. The failure is state-dependent (archive/restore/transcode lifecycle), which is why it appeared and disappeared over a conversation's life.

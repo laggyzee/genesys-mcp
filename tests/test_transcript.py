@@ -184,13 +184,17 @@ class TestFetchConversationTranscriptEndToEnd:
 
     def _patch_chain(self, monkeypatch, recordings, transcript_json,
                      transcript_url="https://example.invalid/t.json",
-                     analytics_sessions=None, transcript_url_404=False):
+                     analytics_sessions=None, transcript_url_404=False,
+                     analytics_participants=None, analytics_details_404=False):
         """Patch RecordingApi + SpeechTextAnalyticsApi + ConversationsApi + httpx.
 
         ``analytics_sessions`` feeds the analytics-details fallback used when
         the recordings listing yields no session ids (archived / still-
         transcoding recordings). ``transcript_url_404`` makes every
         transcript-url lookup soft-404, simulating an aged-out recording.
+        ``analytics_participants`` overrides the detail participants wholesale
+        (for ownership checks that read ``userId``); ``analytics_details_404``
+        soft-404s the detail lookup (conversation doesn't exist / not indexed).
         """
         import PureCloudPlatformClientV2 as gc
         from genesys_mcp import client as gen_client
@@ -221,8 +225,14 @@ class TestFetchConversationTranscriptEndToEnd:
         class FakeConversationsApi:
             def __init__(self, *args, **kwargs): pass
             def get_analytics_conversation_details(self, conversation_id):
+                if analytics_details_404:
+                    raise Fake404("conversation details not found")
+                if analytics_participants is not None:
+                    participants = analytics_participants
+                else:
+                    participants = [{"sessions": analytics_sessions or []}]
                 return {"conversationId": conversation_id,
-                        "participants": [{"sessions": analytics_sessions or []}]}
+                        "participants": participants}
 
         # Replace the SDK shape converter with an identity-ish that handles
         # both plain dicts and objects with .to_dict().
@@ -460,6 +470,99 @@ class TestRecordingLifecycleFalseNegatives:
         out = fetch_conversation_transcript("conv-1")
         assert out["sessions_processed"] == 1
         assert out["total_utterances"] == 3
+
+
+# ─────────────────────── ownership-checked transcript (v1.22) ───────────────────────
+
+class TestFetchConversationTranscriptForUser:
+    """`fetch_conversation_transcript_for_user` — the agent-scoped variant.
+
+    Built for QueueIQ's agent Teams chat: the caller supplies a user_id that
+    an upstream guard forces to the asking agent, and the transcript is
+    returned only when that user was a participant on the conversation. A
+    non-participant and a nonexistent conversation must produce IDENTICAL
+    envelopes so conversation ids can't be probed for existence.
+    """
+
+    _patch_chain = TestFetchConversationTranscriptEndToEnd._patch_chain
+
+    def _participants(self):
+        return [
+            {"purpose": "customer",
+             "sessions": [{"sessionId": "session-1", "mediaType": "voice",
+                           "recording": True}]},
+            {"purpose": "agent", "userId": "agent-1",
+             "sessions": [{"sessionId": "session-agent", "mediaType": "voice"}]},
+        ]
+
+    def test_participant_gets_transcript(self, monkeypatch):
+        from genesys_mcp.tools.speech_analytics import (
+            fetch_conversation_transcript_for_user,
+        )
+        self._patch_chain(monkeypatch,
+                          recordings=[{"sessionId": "session-1"}],
+                          transcript_json=_sample_transcript_json(),
+                          analytics_participants=self._participants())
+        out = fetch_conversation_transcript_for_user("agent-1", "conv-1")
+        assert "status" not in out
+        assert out["total_utterances"] == 3
+        assert out["conversation_id"] == "conv-1"
+
+    def test_non_participant_gets_404_envelope(self, monkeypatch):
+        from genesys_mcp.tools.speech_analytics import (
+            fetch_conversation_transcript_for_user,
+        )
+        self._patch_chain(monkeypatch,
+                          recordings=[{"sessionId": "session-1"}],
+                          transcript_json=_sample_transcript_json(),
+                          analytics_participants=self._participants())
+        out = fetch_conversation_transcript_for_user("someone-else", "conv-1")
+        assert out["status"] == 404
+        assert out["user_id"] == "someone-else"
+        assert out["conversation_id"] == "conv-1"
+
+    def test_nonexistent_conversation_envelope_identical_to_non_participant(
+        self, monkeypatch,
+    ):
+        # Anti-enumeration: "not yours" and "doesn't exist" must be
+        # indistinguishable, or an agent could probe which ids are real.
+        from genesys_mcp.tools.speech_analytics import (
+            fetch_conversation_transcript_for_user,
+        )
+        self._patch_chain(monkeypatch,
+                          recordings=[{"sessionId": "session-1"}],
+                          transcript_json=_sample_transcript_json(),
+                          analytics_participants=self._participants())
+        not_yours = fetch_conversation_transcript_for_user("someone-else", "conv-1")
+
+        self._patch_chain(monkeypatch,
+                          recordings=[{"sessionId": "session-1"}],
+                          transcript_json=_sample_transcript_json(),
+                          analytics_details_404=True)
+        missing = fetch_conversation_transcript_for_user("someone-else", "conv-1")
+
+        assert not_yours == missing
+
+    def test_participant_mode_and_cap_pass_through(self, monkeypatch):
+        from genesys_mcp.tools.speech_analytics import (
+            fetch_conversation_transcript_for_user,
+        )
+        big = _sample_transcript_json()
+        big["transcripts"][0]["phrases"] = [
+            {"text": f"utterance {i}", "startTimeMs": i * 1000,
+             "participantPurpose": "external" if i % 2 else "internal"}
+            for i in range(50)
+        ]
+        big["transcripts"][0]["analytics"] = {"sentiment": []}
+        self._patch_chain(monkeypatch,
+                          recordings=[{"sessionId": "session-1"}],
+                          transcript_json=big,
+                          analytics_participants=self._participants())
+        out = fetch_conversation_transcript_for_user(
+            "agent-1", "conv-1", mode="full", max_utterances=10,
+        )
+        assert out["truncated_at"] == 10
+        assert len(out["utterances"]) == 10
 
 
 # ─────────────────────── token-budget for typical excerpt ───────────────────────

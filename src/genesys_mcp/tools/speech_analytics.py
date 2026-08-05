@@ -330,6 +330,53 @@ def fetch_conversation_transcript(
     }
 
 
+def fetch_conversation_transcript_for_user(
+    user_id: str,
+    conversation_id: str,
+    *,
+    mode: str = "summary",
+    max_utterances: int = 200,
+) -> dict:
+    """Ownership-checked variant of :func:`fetch_conversation_transcript`.
+
+    Built for agent-scoped callers (QueueIQ's agent Teams chat): the caller
+    supplies a ``user_id`` that an upstream guard pins to the asking agent,
+    and the transcript is returned only when that user was a participant on
+    the conversation (per the analytics conversation detail). This keeps the
+    ownership check server-side, where a prompt-injected model can't skip it.
+
+    A non-participant and a nonexistent conversation return the SAME
+    envelope on purpose — distinct errors would let a caller probe which
+    conversation ids exist.
+    """
+    denied = soft_fail_envelope(
+        kind="conversation",
+        message="conversation not found for user",
+        conversation_id=conversation_id,
+        user_id=user_id,
+    )
+    conv_api = gc.ConversationsApi(get_api())
+    try:
+        detail_resp = with_retry(conv_api.get_analytics_conversation_details)(
+            conversation_id=conversation_id,
+        )
+    except Exception as exc:
+        if getattr(exc, "status", None) == 404:
+            return denied
+        raise
+    detail = to_dict(detail_resp) or {}
+    participant_user_ids = {
+        p.get("userId")
+        for p in detail.get("participants") or []
+        if p.get("userId")
+    }
+    if user_id not in participant_user_ids:
+        return denied
+    return fetch_conversation_transcript(
+        conversation_id, mode=mode, max_utterances=max_utterances,
+    )
+
+
 def register(mcp: FastMCP) -> None:
     @mcp.tool()
     def get_conversation_summary(
@@ -430,6 +477,53 @@ def register(mcp: FastMCP) -> None:
         """
         return fetch_conversation_transcript(
             conversation_id, mode=mode, max_utterances=max_utterances,
+        )
+
+    @mcp.tool()
+    def get_my_conversation_transcript(
+        user_id: str = Field(
+            description=(
+                "User id the transcript access is scoped to. The transcript "
+                "is returned only if this user was a participant on the "
+                "conversation. Agent-facing frontends should force this to "
+                "the authenticated agent's id — never model-supplied."
+            ),
+        ),
+        conversation_id: str = Field(description="Conversation id."),
+        mode: str = Field(
+            default="summary",
+            description=(
+                "Response shape — same contract as get_conversation_transcript: "
+                "'summary' (default) returns {speaker, start_s, text}; 'full' "
+                "adds per-utterance sentiment and sentiment_label."
+            ),
+        ),
+        max_utterances: int = Field(
+            default=200, ge=10, le=2000,
+            description=(
+                "Cap on returned utterances — same contract as "
+                "get_conversation_transcript (`truncated_at` / "
+                "`total_utterances_dropped` on overflow)."
+            ),
+        ),
+    ) -> dict:
+        """Ownership-checked transcript for agent-scoped callers.
+
+        Same output as ``get_conversation_transcript``, but the transcript is
+        returned only when ``user_id`` was a participant on the conversation
+        (verified server-side against the analytics conversation detail).
+        Built for agent-facing surfaces (e.g. QueueIQ's agent Teams chat)
+        where a scope guard pins ``user_id`` to the asking agent, so agents
+        can ask "how did I go on this call?" without being able to read
+        anyone else's conversations.
+
+        Soft-fails with the same 404 envelope for "not a participant" and
+        "no such conversation" — deliberately indistinguishable, so
+        conversation ids can't be probed for existence. Also soft-fails on
+        missing recordings/transcripts like the unscoped tool.
+        """
+        return fetch_conversation_transcript_for_user(
+            user_id, conversation_id, mode=mode, max_utterances=max_utterances,
         )
 
     @mcp.tool()
