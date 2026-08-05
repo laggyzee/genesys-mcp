@@ -33,7 +33,7 @@ def test_health_report_exposes_installed_mcp_version(monkeypatch):
 
     report = health_mod.run_health_check()
 
-    assert report["mcp_version"] == "1.22.0"
+    assert report["mcp_version"] == "1.22.1"
 
 
 class TestQueuePatternMatchRate:

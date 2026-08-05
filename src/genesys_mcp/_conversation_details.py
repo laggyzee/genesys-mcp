@@ -4,7 +4,7 @@ The async ``analytics/conversations/details/jobs`` archive can lag a completed
 reporting day by hours.  When its watermark is behind, the synchronous details
 query can already return the complete recent result set.  This module uses that
 query, validates pagination against ``totalHits``, and keeps the archive state
-separate so QueueIQ can replace the provisional snapshot after settlement.
+separate so consumers can replace the provisional snapshot after settlement.
 """
 
 from __future__ import annotations
@@ -158,7 +158,7 @@ def fetch_conversation_details(filters_body: dict[str, Any], max_pages: int = 20
             usable_complete = validation["reconciled"]
             note = (
                 "The archived conversations/details watermark has not reached the end of this interval. "
-                "QueueIQ used the recent synchronous conversation-detail query and retrieved every "
+                "Used the recent synchronous conversation-detail query and retrieved every "
                 "reported result page; the archive repair should replace it later."
                 if usable_complete
                 else "The recent synchronous conversation-detail query did not paginate completely; treat repeat-caller totals as partial."
