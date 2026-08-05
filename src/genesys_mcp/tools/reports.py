@@ -572,7 +572,7 @@ def register(mcp: FastMCP) -> None:
         ``data_complete`` means the selected conversation set is safe to use.
         ``archive_data_complete`` separately tracks the async jobs datalake;
         when ``data_provisional`` is true, every synchronous-query result page
-        reconciled and QueueIQ may use it while retaining the later archive repair.
+        reconciled and callers may use it while retaining the later archive repair.
         """
         interval = interval or _default_interval(7)
         excluded = set(exclude_anis or [])

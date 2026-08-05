@@ -477,7 +477,7 @@ class TestRecordingLifecycleFalseNegatives:
 class TestFetchConversationTranscriptForUser:
     """`fetch_conversation_transcript_for_user` — the agent-scoped variant.
 
-    Built for QueueIQ's agent Teams chat: the caller supplies a user_id that
+    Built for agent-scoped chat frontends: the caller supplies a user_id that
     an upstream guard forces to the asking agent, and the transcript is
     returned only when that user was a participant on the conversation. A
     non-participant and a nonexistent conversation must produce IDENTICAL

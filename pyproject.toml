@@ -1,6 +1,6 @@
 [project]
 name = "genesys-mcp"
-version = "1.22.0"
+version = "1.22.1"
 description = "Local stdio MCP server exposing read-only Genesys Cloud access to Claude Code and other MCP clients"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
@@ -9,8 +9,8 @@ classifiers = [
 ]
 dependencies = [
     # <2: mcp 2.0.0 removed mcp.server.fastmcp, which every tool module
-    # imports. Environments that install without the lockfile (QueueIQ's
-    # `pip install -e` image build) resolve latest and crash on import.
+    # imports. Environments that install without the lockfile (e.g. plain
+    # `pip install -e` image builds) resolve latest and crash on import.
     "mcp[cli]>=1.8,<2",
     "PureCloudPlatformClientV2>=220",
     "httpx>=0.27",

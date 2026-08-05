@@ -249,7 +249,7 @@ def fetch_user_details(user_ids: list[str], interval: str, max_pages: int = 50) 
     """Fetch user details, falling back to recent query data when the archive lags.
 
     ``data_complete`` means the returned detail is safe for report use.  The separate
-    ``archive_data_complete`` retains the jobs watermark truth so QueueIQ can keep its
+    ``archive_data_complete`` retains the jobs watermark truth so consumers can keep their
     delayed repair scheduled and later replace provisional data with the archive.
     """
     key = (interval, tuple(sorted(user_ids)), max_pages)
@@ -287,7 +287,7 @@ def fetch_user_details(user_ids: list[str], interval: str, max_pages: int = 50) 
             usable_complete = validation["reconciled"]
             note = (
                 "The archived users/details watermark has not reached the end of this interval. "
-                "QueueIQ used the recent synchronous user-detail query and reconciled active-user "
+                "Used the recent synchronous user-detail query and reconciled active-user "
                 "durations against user aggregates; the archive repair should replace it later."
                 if usable_complete
                 else "The recent synchronous user-detail fallback did not reconcile completely; treat presence totals as partial."

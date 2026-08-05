@@ -465,7 +465,7 @@ def register(mcp: FastMCP) -> None:
           gap. Required scopes (analytics, conversations, users, routing) are
           flagged as blockers; optional scopes only as warnings.
         - ``mcp_version`` — the installed genesys-mcp package version. Use this
-          to confirm that a QueueIQ image actually contains the expected release.
+          to confirm that a deployed image actually contains the expected release.
         - ``tenant_config`` — whether ``~/.config/genesys-mcp/tenant.yaml``
           exists and validates against the schema; surfaces warnings for
           risky skip-substrings or empty pre-break-presence-id.

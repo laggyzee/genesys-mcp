@@ -339,7 +339,7 @@ def fetch_conversation_transcript_for_user(
 ) -> dict:
     """Ownership-checked variant of :func:`fetch_conversation_transcript`.
 
-    Built for agent-scoped callers (QueueIQ's agent Teams chat): the caller
+    Built for agent-scoped callers (e.g. an agent-facing chat frontend): the caller
     supplies a ``user_id`` that an upstream guard pins to the asking agent,
     and the transcript is returned only when that user was a participant on
     the conversation (per the analytics conversation detail). This keeps the
@@ -512,7 +512,7 @@ def register(mcp: FastMCP) -> None:
         Same output as ``get_conversation_transcript``, but the transcript is
         returned only when ``user_id`` was a participant on the conversation
         (verified server-side against the analytics conversation detail).
-        Built for agent-facing surfaces (e.g. QueueIQ's agent Teams chat)
+        Built for agent-facing surfaces (e.g. a scoped agent chat)
         where a scope guard pins ``user_id`` to the asking agent, so agents
         can ask "how did I go on this call?" without being able to read
         anyone else's conversations.

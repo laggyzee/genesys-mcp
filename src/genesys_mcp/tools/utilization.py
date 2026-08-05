@@ -380,7 +380,7 @@ def register(mcp: FastMCP) -> None:
                 "client lacks the analytics:userAggregate:view scope — this is a "
                 "MISSING SCOPE, not a tenant block or a broken query. Ask the "
                 "Genesys admin to grant analytics:userAggregate:view to the "
-                "QueueIQ OAuth client; routing-status seconds and the derived "
+                "OAuth client; routing-status seconds and the derived "
                 "ratios then populate. Answered counts already reflect actual data."
             )
             for r in rows:

@@ -1,8 +1,12 @@
 # Release Notes
 
+## v1.22.1 — 5 August 2026
+
+**Documentation and metadata cleanup.** Removed references to unrelated downstream products from docstrings, comments, README, and historical release-notes entries — this repo documents the MCP server on its own terms. Two response note strings (the recent-fallback provenance notes on user-detail and conversation-detail queries) and one missing-scope remediation string were reworded accordingly; wording only, no behavioural or contract change. 689 tests.
+
 ## v1.22.0 — 5 August 2026
 
-**New tool: `get_my_conversation_transcript` — ownership-checked transcript access for agent-scoped surfaces.** QueueIQ's agent Teams chat denies all conversation/recording/transcript tools because conversation ids aren't ownership-checked — an agent could paste a colleague's conversation id and read someone else's call. This tool moves the ownership check server-side so agent-facing frontends can safely answer "how did I go on this call?".
+**New tool: `get_my_conversation_transcript` — ownership-checked transcript access for agent-scoped surfaces.** Agent-scoped chat frontends deny the unscoped conversation/recording/transcript tools because conversation ids aren't ownership-checked — an agent could paste a colleague's conversation id and read someone else's call. This tool moves the ownership check server-side so agent-facing frontends can safely answer "how did I go on this call?".
 
 - Takes `user_id` + `conversation_id` (+ the same `mode` / `max_utterances` as `get_conversation_transcript`); returns the transcript only when that user was a participant on the conversation, verified against the analytics conversation detail (`participants[].userId`). Frontends force `user_id` to the authenticated agent; a prompt-injected model can't skip a check that lives in the MCP.
 - "Not a participant" and "no such conversation" return **identical** 404 envelopes (`kind: "conversation"`), so conversation ids can't be probed for existence.
@@ -10,7 +14,7 @@
 - The unscoped `get_conversation_transcript` is unchanged — direct MCP users (e.g. an admin in Claude Code) keep full access to any conversation their OAuth scopes allow. Verified live: the conversation's real agent gets the transcript; any other user id gets the soft-fail envelope.
 - Scopes: uses `analytics:conversationDetail:view` + the transcript tool's existing scopes — no OAuth changes.
 
-Tool count 52 → **53** — QueueIQ needs a whitelist sync **and** rebuild (add the tool to its MCP tool list and, for the agent chat, to `AGENT_FORCED_USER_ID_TOOLS`). 689 tests.
+Tool count 52 → **53** — frontends that pin the tool surface need a whitelist sync **and** rebuild (add the tool to the pinned list and, for agent-scoped chats, to the forced-`user_id` tier). 689 tests.
 
 ## v1.21.0 — 5 August 2026
 
@@ -24,11 +28,11 @@ Tool count 52 → **53** — QueueIQ needs a whitelist sync **and** rebuild (add
 - Not the cause, but audited per the report: the `entities` unwrap in the same block only fires for dict responses; this endpoint returns a bare list (verified live), and every other `entities` use in the codebase is against genuinely paginated listing endpoints — no other tool has this bug class.
 - Regression tests pin the endpoint's real response shape (list of camelCase dicts; archived stubs lacking `sessionId`) plus the fallback, genuine-negative, aged-out, and dedup paths. 685 tests.
 
-Output contract unchanged; QueueIQ needs a rebuild only.
+Output contract unchanged; source-installed deployments need a rebuild only.
 
 ## v1.20.1 — 30 July 2026
 
-**Hotfix: pin `mcp<2`.** The MCP Python SDK released 2.0.0, which removes `mcp.server.fastmcp` — the module every genesys-mcp tool registers through. Environments that install without the lockfile (QueueIQ's image build uses `pip install -e`) resolved 2.0.0 on any rebuild after that release, and the server crashed on import — surfacing in the QueueIQ bridge as `MCP error -32000: Connection closed` on every call, including health checks. The dependency is now `mcp[cli]>=1.8,<2` (the lockfile already pinned 1.27.0, so uv-based dev/test environments were never affected). No behaviour change; rebuild-only.
+**Hotfix: pin `mcp<2`.** The MCP Python SDK released 2.0.0, which removes `mcp.server.fastmcp` — the module every genesys-mcp tool registers through. Environments that install without the lockfile (e.g. image builds using `pip install -e`) resolved 2.0.0 on any rebuild after that release, and the server crashed on import — surfacing in MCP clients as `MCP error -32000: Connection closed` on every call, including health checks. The dependency is now `mcp[cli]>=1.8,<2` (the lockfile already pinned 1.27.0, so uv-based dev/test environments were never affected). No behaviour change; rebuild-only.
 
 ## v1.20.0 — 28 July 2026
 
@@ -45,11 +49,11 @@ Output contract unchanged; QueueIQ needs a rebuild only.
 - **Honest limits**: 30-day retention clamping (with note and a `scanned_interval` field reporting the window actually scanned; a fully-expired window returns empty without querying), a 300-page scan budget, `totals.conversations_scanned`, and `totals.truncated` + a note on every early stop — including matches discarded by `max_results` — never a silent cap.
 - **Renderer consistency**: cc-daily-brief's NPS card denominator is now the promoter+passive+detractor sum (so an "N/A" sentinel can't make the split disagree with n), and cc-coaching-prep's per-agent NPS accepts whole-number decimals ("9.0") instead of silently int()-dropping them.
 
-Output contract is backward-compatible (`totals` / `value_distribution` / `numeric_summary` / `conversations` rows unchanged); `available_keys`, `notes`, `scanned_interval`, and the two `numeric_summary` counters are additive. Tool count unchanged (52) — QueueIQ needs a rebuild only, no whitelist sync, no migration. 679 tests.
+Output contract is backward-compatible (`totals` / `value_distribution` / `numeric_summary` / `conversations` rows unchanged); `available_keys`, `notes`, `scanned_interval`, and the two `numeric_summary` counters are additive. Tool count unchanged (52) — rebuild only, no whitelist sync, no migration. 679 tests.
 
 ## v1.19.0 — 16 July 2026
 
-**Recent conversation details while the async archive settles.** QueueIQ daily briefs previously withheld the entire repeat-caller section whenever `/analytics/conversations/details/jobs/availability` lagged the end of yesterday. That was safe but unnecessarily sparse: the synchronous conversation-details query already held the complete reporting day.
+**Recent conversation details while the async archive settles.** Daily-brief consumers previously withheld the entire repeat-caller section whenever `/analytics/conversations/details/jobs/availability` lagged the end of yesterday. That was safe but unnecessarily sparse: the synchronous conversation-details query already held the complete reporting day.
 
 ### New fallback
 
@@ -61,13 +65,13 @@ Output contract is backward-compatible (`totals` / `value_distribution` / `numer
   - every row has a conversation id;
   - conversation ids are unique; and
   - the configured page budget was not exhausted.
-- A failed or unreconciled recent query safely falls back to the partial async archive result and leaves `data_complete: false`, so QueueIQ continues withholding unsupported conclusions.
+- A failed or unreconciled recent query safely falls back to the partial async archive result and leaves `data_complete: false`, so downstream reports continue withholding unsupported conclusions.
 - Identical recent queries are cached for five minutes to avoid repeating the more API-intensive pagination during one report run.
 
 ### Freshness contract
 
 - `data_complete` means the returned conversation set passed page/identity reconciliation and is safe for the repeat-caller calculation.
-- `archive_data_complete` retains the independent async jobs watermark truth, allowing QueueIQ to schedule an authoritative replacement later.
+- `archive_data_complete` retains the independent async jobs watermark truth, allowing consumers to schedule an authoritative replacement later.
 - `data_provisional` identifies a validated synchronous result awaiting archive repair.
 - `data_source` identifies `analytics_conversations_details_query_recent`, the authoritative jobs source, or an incomplete fallback.
 - `fallback_validation` exposes total/fetched/unique counts, duplicates, missing ids, changing totals, and truncation.
@@ -101,14 +105,14 @@ Output contract is backward-compatible (`totals` / `value_distribution` / `numer
   - `data_provisional` — reconciled recent data is being used temporarily.
   - `data_source` — the exact endpoint path selected.
   - `fallback_validation` — reconciliation counts, maximum delta, truncation state, and bounded mismatch examples.
-- Recent fallback results are cached for five minutes per interval/user set to avoid repeating the same API-intensive reconciliation within one report run. QueueIQ can still repair the snapshot later when `archive_data_complete` becomes true.
+- Recent fallback results are cached for five minutes per interval/user set to avoid repeating the same API-intensive reconciliation within one report run. Consumers can still repair the snapshot later when `archive_data_complete` becomes true.
 
 ### Fixed: `agent_utilization` HTTP 400
 
 - Genesys' `UserAggregationQuery.groupBy` permits only `userId`; the previous `groupBy: ["userId", "routingStatus"]` request failed with HTTP 400 `invalid aggregate dimension` on current tenants.
 - The query now groups only by `userId` and reads routing/presence categories from each metric's `qualifier`, requesting both `tAgentRoutingStatus` and `tSystemPresence`.
 - `ON_QUEUE` and `OFF_QUEUE` are derived from qualified system-presence durations; `INTERACTING`, `IDLE`, `NOT_RESPONDING`, and `COMMUNICATING` come from qualified routing-status durations.
-- This restores org-wide questions such as *"Who was the most effective agent yesterday?"*: QueueIQ can compare every Genesys agent using answered interactions, on-queue time, occupancy, and interactions per on-queue hour. The platform member asking the question does not need their own Genesys user record.
+- This restores org-wide questions such as *"Who was the most effective agent yesterday?"*: consumers can compare every Genesys agent using answered interactions, on-queue time, occupancy, and interactions per on-queue hour. The platform member asking the question does not need their own Genesys user record.
 - Verified live on 16 July 2026 against `POST /api/v2/analytics/users/aggregates/query`: the canonical body returns HTTP 200 with qualified `tSystemPresence` and `tAgentRoutingStatus` metrics for the requested Sydney reporting day.
 
 ### Conversation-detail completeness

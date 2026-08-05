@@ -548,7 +548,7 @@ def register(mcp: FastMCP) -> None:
                     kind="historical adherence",
                     message=(
                         "OAuth client lacks workforce-management read access for "
-                        "historical adherence — grant the QueueIQ client "
+                        "historical adherence — grant the OAuth client "
                         "workforce-management:readonly (or wfm:historicalAdherence:view). "
                         "This is a missing scope, not a tenant restriction."
                     ),
