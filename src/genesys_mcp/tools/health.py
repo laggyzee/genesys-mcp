@@ -114,8 +114,8 @@ _SCOPES: tuple[_ScopeProbe, ...] = (
     _ScopeProbe(
         scope="analytics:readonly",
         description="Required — powers queue_performance, agent_performance, "
-                    "repeat_caller_*, agent_coaching_pack and the entire "
-                    "monthly-report skill",
+                    "repeat_caller_*, agent_coaching_pack, sentiment_summary "
+                    "and the entire monthly-report skill",
         probe=_probe_analytics,
         remediation="Genesys Admin → Integrations → OAuth → your client's role "
                     "→ add Analytics > readonly",
