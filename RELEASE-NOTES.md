@@ -1,5 +1,18 @@
 # Release Notes
 
+## v1.23.0 — 16 September 2026
+
+**New tool: `sentiment_summary` — brand / queue / media sentiment over an interval.** Until now the only sentiment surface was the per-conversation `get_conversation_sentiment`, so a question like *"what was each brand's sentiment last reporting week, and did it move?"* needed an N+1 walk over every conversation. The new tool wraps Genesys' transcript-aggregates endpoint (`POST /api/v2/analytics/transcripts/aggregates/query`, grouped by `queueId` + `mediaType`) so the whole org comes back in one call, plus a parallel call for the prior period.
+
+- **Metrics:** `oSentimentScore` (the −100…+100 per-communication score the Genesys "Sentiment score" column shows; means are record-weighted), `oCustomerSentiment` (customer phrase counts, positive vs negative) and `nSpeechTextAnalyzedConversations`.
+- **Blocks:** `totals`, `by_brand` (brand-level row then brand × media, from tenant.yaml `queues.name_pattern`, honouring `skip_substrings` so holding / internal / staging queues never dilute a brand), `by_queue` (worst mean first, queue name + brand + function resolved, `excluded_from_brand_rollup` flagged) and `unattributed` (rows Genesys returns with **no queueId** — pre-queue bot / flow messaging — kept out of totals and brands rather than silently dragging them down; on the reference tenant this was more than half of all scored messaging conversations).
+- **Trend:** `include_trend=true` (default) adds `prior_mean_sentiment` + `delta_sentiment` to every row. Multi-year spans chunk into ≤12-month sub-queries like the other aggregate tools.
+- **Honest caveats in the payload:** a `scale` line and `notes` explaining that messaging/email score structurally lower than voice on Genesys text sentiment (compare like with like), that `sentiment_records` can exceed `analyzed_conversations` on voice (one score per communication), and that phrase counts are not conversation counts.
+- **Degrades cleanly:** no tenant.yaml → `by_brand: null` + `by_brand_unavailable_reason` while `by_queue` still works; 403 → canonical soft-fail envelope naming `analytics:speechAndTextAnalyticsAggregates:view` (bundled into `analytics:readonly` on tenants verified so far — no OAuth change needed on the reference tenant, verified live).
+- `mode: "full"` carries both raw Genesys responses under `raw` for debugging a number.
+
+Tool count 54 → **55** (registered tools; the v1.22.0 note said 53, which undercounted by one) — downstream consumers that pin the tool surface need a whitelist sync and rebuild. 708 tests.
+
 ## v1.22.1 — 5 August 2026
 
 **Documentation and metadata cleanup.** Removed references to unrelated downstream products from docstrings, comments, README, and historical release-notes entries — this repo documents the MCP server on its own terms. Two response note strings (the recent-fallback provenance notes on user-detail and conversation-detail queries) and one missing-scope remediation string were reworded accordingly; wording only, no behavioural or contract change. 689 tests.
