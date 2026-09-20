@@ -23,6 +23,7 @@ from genesys_mcp.tools import (
     presence,
     quality,
     raw,
+    repeat_contacts,
     reports,
     routing,
     sentiment,
@@ -74,6 +75,7 @@ presence.register(mcp)
 reports.register(mcp)
 speech_analytics.register(mcp)
 sentiment.register(mcp)
+repeat_contacts.register(mcp)
 external_contacts.register(mcp)
 wfm.register(mcp)
 quality.register(mcp)
