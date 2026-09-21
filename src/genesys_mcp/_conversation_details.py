@@ -122,14 +122,23 @@ def _sync_details(api: Any, filters_body: dict[str, Any], max_pages: int) -> tup
     }
 
 
-def fetch_conversation_details(filters_body: dict[str, Any], max_pages: int = 20) -> dict[str, Any]:
-    """Return complete archive detail or validated recent synchronous detail."""
+def fetch_conversation_details(
+    filters_body: dict[str, Any], max_pages: int = 20, *, use_cache: bool = True,
+) -> dict[str, Any]:
+    """Return complete archive detail or validated recent synchronous detail.
+
+    ``use_cache=False`` skips the in-memory result cache. Bulk callers that
+    walk many day-slices (the repeat-contact report) reduce each slice to slim
+    records straight away; caching deep copies of every raw slice would hold
+    gigabytes for no benefit.
+    """
     cache_key = (json.dumps(filters_body, sort_keys=True, separators=(",", ":")), max_pages)
     now = time.monotonic()
-    with _cache_lock:
-        cached = _cache.get(cache_key)
-        if cached and now - cached[0] < _CACHE_TTL_SECONDS:
-            return copy.deepcopy(cached[1])
+    if use_cache:
+        with _cache_lock:
+            cached = _cache.get(cache_key)
+            if cached and now - cached[0] < _CACHE_TTL_SECONDS:
+                return copy.deepcopy(cached[1])
 
     try:
         interval_end = parse_iso(str(filters_body["interval"]).split("/", 1)[1])
@@ -187,6 +196,7 @@ def fetch_conversation_details(filters_body: dict[str, Any], max_pages: int = 20
                 "fallback_validation": {"reconciled": False, "error": str(exc)[:300]},
             }
 
-    with _cache_lock:
-        _cache[cache_key] = (time.monotonic(), copy.deepcopy(result))
+    if use_cache:
+        with _cache_lock:
+            _cache[cache_key] = (time.monotonic(), copy.deepcopy(result))
     return result

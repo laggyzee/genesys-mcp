@@ -1,5 +1,20 @@
 # Release Notes
 
+## v1.24.0 — 21 September 2026
+
+**New report: Repeat Contacts & FCR — `get_repeat_contact_report`, plus `get_repeat_contact_config` / `set_repeat_contact_config`.** Reports the Repeat Contact Rate and the derived **FCR (Amaysim methodology)** (= 1 − repeat rate) for every window × channel: 7 / 45 days by default (custom windows allowed) × Voice / Messaging / Combined.
+
+- **Definitions:** a contact is one conversation; it is a repeat if the same customer had *any* prior in-scope contact within the preceding N local calendar days, attributed to the later contact. Voice / Messaging match same-channel priors only; Combined matches either channel. Chains count each link, a second same-day contact is a repeat, a contact never matches itself.
+- **Lookback:** `period_start − max(window)` is fetched for matching only — never in the numerator or denominator.
+- **Cross-channel identity:** External Contact link → canonical (merge) resolution via bulk contact fetch → identifier lookup (local evidence first, then the identifier-lookup API, then an exactly-one contact search) → normalised raw identifier (E.164 with default country, email, web-messaging user, social) → unidentified. On the reference tenant ~98% of contacts carry an External Contact link and ~16% of those contacts were merged records, so canonical resolution materially changes the Combined rate.
+- **Output per window × channel:** `window_days, channel, total_contacts, repeat_contacts, repeat_rate, fcr` (+ `*_pct`), `unidentified_contacts, raw_key_contacts, coverage, period_start, period_end, config_used, warnings[]`; optional `breakdown` (by day, by queue) and `drilldown` (repeat conversation + its prior, channel, identity method, days since prior, queue); a `methodology` string; `conversation_url_template`; a `data_quality` block (days fetched / cached / incomplete, lookup volume).
+- **Warnings:** `combined_rate_likely_understated` when the External Contact share of Combined contacts is low, `incomplete_conversation_data`, `external_contacts_unavailable` (403 → degrades to raw keys), `identity_lookup_cap_reached`, `drilldown_truncated`.
+- **Config:** new runtime-editable `repeatContactReport` section — defaults < tenant.yaml section < runtime JSON store < `GENESYS_MCP_REPEAT_*` env pins. `set_repeat_contact_config` validates the whole merged config before writing (windows must be positive integers; unknown keys rejected) and writes a local file only. Two scope knobs beyond the brief: `include_pre_queue` (IVR / bot-only contacts, default excluded) and `identity.resolve_canonical`.
+- **Caching:** settled day-slices and contact resolutions are cached on disk (0600, per-OAuth-client namespace, pruned after `cache.retention_days`) so adjacent periods don't refetch the lookback. `fetch_conversation_details` gained a `use_cache=False` opt-out so bulk day-walks don't hold deep copies of raw detail in memory.
+- Verified live on the reference tenant (one day, 1-day window: 729 in-scope contacts, 23 s cold, instant from cache).
+
+`set_repeat_contact_config` is the first tool that writes anything (a local config file — never Genesys). Tool count 55 → **58** — downstream consumers that pin the tool surface need a whitelist sync and rebuild, and should give `get_repeat_contact_report` a long client timeout. 783 tests.
+
 ## v1.23.0 — 16 September 2026
 
 **New tool: `sentiment_summary` — brand / queue / media sentiment over an interval.** Until now the only sentiment surface was the per-conversation `get_conversation_sentiment`, so a question like *"what was each brand's sentiment last reporting week, and did it move?"* needed an N+1 walk over every conversation. The new tool wraps Genesys' transcript-aggregates endpoint (`POST /api/v2/analytics/transcripts/aggregates/query`, grouped by `queueId` + `mediaType`) so the whole org comes back in one call, plus a parallel call for the prior period.
